@@ -1,0 +1,12 @@
+{
+  "name": "dowee",
+  "version": "1.0.0",
+  "description": "DOWEE: a virtual robotics lab. Teachers host a classroom from their laptop; students program Dowee, an Arduino robot, in the browser.",
+  "private": true,
+  "scripts": {
+    "start": "node server/server.js",
+    "build": "node tools/build.js",
+    "test": "node tools/test.js line && node tools/test.js sumo"
+  },
+  "engines": { "node": ">=18" }
+}

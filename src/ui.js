@@ -134,6 +134,7 @@ function buildArenaTabs() {
 $('#arenaTabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setArena(b.dataset.a); });
 function needsB() { const v = S.variant[S.arena]; return v === 'code' || v === 'p2'; }
 function setArena(id, keepCode) {
+  if (S.lockedArena && id !== S.lockedArena) { toast('Your teacher has locked the class to one activity'); return; }
   stop();
   S.arena = id; store.set('arena', id);
   buildArenaTabs();
@@ -246,6 +247,7 @@ function run() {
   W.robots.forEach(r => { if (!r.ai) r.board.load(S.compiled[r.team], 0); });
   buildTune(S.compiled.A);
   S.lessonDoneNow = null;
+  if (window.__clReady) hostAttempt();
   S.running = true; S.paused = false; S.simTarget = 0; S.last = performance.now(); S.runN++;
   S.plot.series.clear(); S.plot.t0 = 0;
   serialSys(`Uploaded to ${W.robots.filter(r => !r.ai).map(r => r.name).join(' and ')} — ${new Date().toLocaleTimeString()}`);
@@ -260,6 +262,7 @@ function setState() {
   chip.textContent = crashed ? 'Crashed' : S.running ? (S.paused ? 'Paused' : 'Running') : 'Stopped';
   $('#btnRun').innerHTML = (S.running ? '<svg viewBox="0 0 16 16"><path d="M8 2a6 6 0 1 0 6 6h-2a4 4 0 1 1-1.2-2.8L9 7h5V2l-1.8 1.8A6 6 0 0 0 8 2z" fill="currentColor"/></svg>Restart' : '<svg viewBox="0 0 16 16"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>Upload &amp; run');
   $('#btnPause').disabled = !S.running; $('#btnPause').textContent = S.paused ? 'Resume' : 'Pause';
+  if (typeof sendStatus === 'function' && window.__clReady) setTimeout(() => sendStatus(false), 0);
 }
 $('#btnRun').addEventListener('click', run);
 $('#btnPause').addEventListener('click', () => { if (!S.running) return; S.paused = !S.paused; S.last = performance.now(); if (S.paused) { stopTone('A'); stopTone('B'); } setState(); });
@@ -866,31 +869,45 @@ function buildWiring() {
 
 /* ---------------- lessons ---------------- */
 function buildLessons() {
-  const L = S.lesson ? LESSONS.find(l => l.id === S.lesson) : LESSONS[0];
-  $('#lessonBox').innerHTML = `<div class="lesson-list">${LESSONS.map((l, i) => `<button data-id="${l.id}" aria-current="${l === L}" class="${S.lessonDone[l.id] ? 'done' : ''}"><span class="num">${S.lessonDone[l.id] ? '✓' : i + 1}</span><b>${esc(l.title)}</b><small>${esc(l.level)}</small></button>`).join('')}</div>
+  const acts = typeof hostActivities === 'function' ? hostActivities().map(activityToLesson) : [];
+  const all = [...acts, ...LESSONS];
+  const L = (S.lessonView && all.find(l => l.id === S.lessonView)) || (S.lesson && all.find(l => l.id === S.lesson)) || all[0];
+  const isDone = l => (l.actId ? activityDone(l) : S.lessonDone[l.id]);
+  const item = (l, i) => `<button data-id="${l.id}" aria-current="${l === L}" class="${isDone(l) ? 'done' : ''}"><span class="num">${isDone(l) ? '✓' : i + 1}</span><b>${esc(l.title)}</b><small>${esc(l.actId ? (ARENAS[l.arena] ? ARENAS[l.arena].name : '') : l.level)}</small></button>`;
+  $('#lessonBox').innerHTML = `<div class="lesson-list">${acts.length ? `<p class="lbl" style="margin:0 0 2px">From your teacher</p>${acts.map(item).join('')}<p class="lbl" style="margin:10px 0 2px">All lessons</p>` : ''}${LESSONS.map(item).join('')}</div>
   <div class="lesson-body"><h3>${esc(L.title)}</h3><p>${L.intro}</p><ol>${L.steps.map(s => `<li>${s}</li>`).join('')}</ol>
-  <div class="goal ${S.lessonDone[L.id] && S.lesson === L.id ? 'done' : ''}" id="goalBox"><span>Goal: ${esc(L.goal)}${S.lessonDone[L.id] ? ' — done!' : ''}</span><button class="btn primary" id="lessonStart">${S.lesson === L.id ? 'Restart lesson' : 'Start this lesson'}</button></div></div>`;
-  $$('#lessonBox .lesson-list button').forEach(b => b.addEventListener('click', () => { S.lessonView = b.dataset.id; const l = LESSONS.find(x => x.id === b.dataset.id); showLesson(l); }));
+  <div class="goal ${isDone(L) && S.lesson === L.id ? 'done' : ''}" id="goalBox"><span>Goal: ${esc(L.goal)}${isDone(L) ? ' — done!' : ''}</span><button class="btn primary" id="lessonStart">${S.lesson === L.id ? 'Restart lesson' : 'Start this lesson'}</button></div></div>`;
+  $$('#lessonBox .lesson-list button').forEach(b => b.addEventListener('click', () => { S.lessonView = b.dataset.id; const l = all.find(x => x.id === b.dataset.id); showLesson(l); }));
   $('#lessonStart').addEventListener('click', () => startLesson(L));
 }
-function showLesson(L) { const prev = S.lesson; S.lesson = L.id; buildLessons(); S.lesson = prev; if (prev !== L.id) { $('#lessonStart').textContent = 'Start this lesson'; $('#goalBox').classList.remove('done'); } $$('#lessonBox .lesson-list button').forEach(b => b.setAttribute('aria-current', b.dataset.id === L.id)); }
+function showLesson(L) { S.lessonView = L.id; buildLessons(); }
 function startLesson(L) {
-  S.lesson = L.id;
-  S.variant[L.arena] = L.variant; store.set('variant', S.variant);
+  if (S.lockedArena && L.arena !== S.lockedArena) { toast('Your teacher has locked the class to one activity'); return; }
+  S.lesson = L.id; S.lessonView = L.id;
+  if (L.variant && ARENAS[L.arena].variants[L.variant]) { S.variant[L.arena] = L.variant; store.set('variant', S.variant); }
+  if (L.realism) { S.realism = L.realism; store.set('realism', S.realism); $('#realSel').value = S.realism; }
   setArena(L.arena, true);
-  const src = L.blocks ? null : (L.code || EXAMPLES[L.arena][L.example].code);
   S.robot = 'A'; updateRobotTabs();
-  if (L.blocks) { store.set(`mode:${L.arena}:A`, 'blocks'); store.set(`blocks:${L.arena}:A`, null); loadEditor(); }
-  else { putCode(L.arena, 'A', src); loadEditor(); }
+  // classroom activities can bring their own starter program
+  const st = L.starter, base = L.base || L;
+  if (st && st.kind === 'none') { loadEditor(); }
+  else if (st && st.kind === 'code' && st.code) { putCode(L.arena, 'A', st.code); loadEditor(); }
+  else if (st && st.kind === 'blocks' && st.xml) { store.set(`mode:${L.arena}:A`, 'blocks'); store.set(`blocks:${L.arena}:A`, st.xml); loadEditor(); }
+  else if (st && st.kind === 'example' && EXAMPLES[L.arena][st.example]) { putCode(L.arena, 'A', EXAMPLES[L.arena][st.example].code); loadEditor(); }
+  else if (base.blocks) { store.set(`mode:${L.arena}:A`, 'blocks'); store.set(`blocks:${L.arena}:A`, null); loadEditor(); }
+  else if (base.code || base.example) { putCode(L.arena, 'A', base.code || EXAMPLES[L.arena][base.example].code); loadEditor(); }
+  else loadEditor();
   buildLessons();
   toast(`Lesson: ${L.title}`);
 }
 function checkLesson() {
-  const L = LESSONS.find(l => l.id === S.lesson); if (!L || L.arena !== S.arena) return;
+  const L = findLesson(S.lesson); if (!L || L.arena !== S.arena) return;
   let ok = false; try { ok = L.check(S.W); } catch (e) { ok = false; }
   if (ok && !S.lessonDoneNow) {
     S.lessonDoneNow = L.id; S.lessonDone[L.id] = true; store.set('lessonsDone', S.lessonDone);
-    banner('Goal complete!', L.goal, 4000); addTip(`Lesson goal complete: ${L.goal}.`, 0, true); buildLessons();
+    banner('Goal complete!', L.goal, 4000); addTip(`Lesson goal complete: ${L.goal}.`, 0, true);
+    if (L.actId) hostLessonDone(L);
+    buildLessons();
   }
   if (!ok && S.lessonDoneNow === L.id && S.W.time < 500) S.lessonDoneNow = null;
 }
@@ -1018,7 +1035,9 @@ function loadBlockly() {
   if (window.Blockly && window.Blockly.Msg && window.Blockly.Msg.CONTROLS_IF_MSG_IF) return Promise.resolve();
   if (BK.loading) return BK.loading;
   const one = src => new Promise((ok, bad) => { const sc = document.createElement('script'); sc.src = src; sc.onload = ok; sc.onerror = () => bad(new Error('load')); document.head.appendChild(sc); });
-  BK.loading = BLK_URLS.reduce((p, u) => p.then(() => one(u)), Promise.resolve()).catch(e => { BK.loading = null; throw e; });
+  const local = BLK_URLS.map(u => '/vendor/blockly/' + u.split('blockly@10.4.3/')[1]);
+  const chain = list => list.reduce((p, u) => p.then(() => one(u)), Promise.resolve());
+  BK.loading = (/^https?:$/.test(location.protocol) ? chain(local).catch(() => chain(BLK_URLS)) : chain(BLK_URLS)).catch(e => { BK.loading = null; throw e; });
   return BK.loading;
 }
 
@@ -1269,7 +1288,7 @@ S.best = store.get('best', {});
 function noteBest(arena, key, val) {
   S.best[arena] = S.best[arena] || {};
   const cur = S.best[arena][key];
-  if (cur === undefined || val < cur) { S.best[arena][key] = +val.toFixed(2); store.set('best', S.best); }
+  if (cur === undefined || val < cur) { S.best[arena][key] = +val.toFixed(2); store.set('best', S.best); hostBest(arena, key, +val.toFixed(2)); }
 }
 const BEST_LABEL = {
   line: k => (LINE_TRACKS[k] ? LINE_TRACKS[k].name.replace(/ \(.*\)/, '') : 'My track') + ' lap',
@@ -1285,6 +1304,7 @@ function classOnEvent(e) {
 }
 async function saveMatch(e) {
   const m = S.classMatch; S.classMatch = null;
+  if (m.host) { hostSaveMatch(m, e); return; }
   if (!CL.db || !CL.teacher) { renderClass(); return; }
   const list = [{ arena: m.arena, aId: m.aId, bId: m.bId, a: m.a, b: m.b, winner: e.winner || null, text: e.text, at: Date.now() }, ...CL.matches].slice(0, 120);
   try { await CL.db.doc('class/matches').set({ list }); toast('Match result saved for the class'); } catch (err) { toast('Could not save the result: ' + (err.code || 'error')); }
@@ -1313,6 +1333,7 @@ async function initClass() {
 function classVisible() { return !$('#p-class').hidden; }
 function renderClass(force) {
   const box = $('#classBox'); if (!box) return;
+  if (HOST.on) { if (!force && (!classVisible() || box.contains(document.activeElement) && document.activeElement.matches('input, textarea, select'))) return; renderHostClass(); return; }
   if (!force && (!classVisible() || box.contains(document.activeElement) && document.activeElement.matches('input, textarea, select'))) { CL.dirty = true; return; }
   CL.dirty = false;
   const a = S.arena, aName = ARENAS[a].name;
@@ -1477,6 +1498,7 @@ function startBattle(aId, bId) {
   banner(`${ta2.team} vs ${tb.team}`, 'Class battle', 2500);
 }
 
+/*@HOST@*/
 /* ---------------- boot ---------------- */
 const dock = store.get('dock', 'serial');
 const startTab = $(`#dockTabs [data-p="${dock}"]`) || $('#dockTabs button');
@@ -1486,6 +1508,6 @@ serialSys('Welcome! Pick an arena above, then press "Upload & run". Your code is
 buildLessons();
 window.__clReady = true;
 window.__blkReady = true; fillExamples(); applyMode();
-initClass();
+initHost().then(on => { if (!on) initClass(); else { buildLessons(); renderClass(); } });
 requestAnimationFrame(t => { S.last = t; requestAnimationFrame(frame); });
 })();

@@ -20,14 +20,38 @@ The example programs also run on a real Dowee wired as shown in the Wiring tab.
 - **Lessons**, from "Blink the LED" through PID tuning to sumo and soccer.
 - **Class features** (when published as a claude.ai artifact): teams, program submissions, leaderboards, class battles and a teacher's challenge.
 
-## Run it
+## Run a classroom
 
-Open `robobench.html` in a browser. It is one self-contained file. Blocks mode loads Blockly from the jsDelivr CDN.
+The teacher's laptop hosts the class. Students only need a browser on the same Wi-Fi: no installs, no accounts and no internet.
+
+1. Install [Node.js](https://nodejs.org) 18 or newer on the teacher's laptop.
+2. In this folder, run:
+
+   ```bash
+   npm start
+   ```
+
+3. The **teacher dashboard** opens at `http://localhost:8080/teacher`. Press **Show join screen** to put a big QR code and link on the projector.
+4. Students scan the QR code or type the link, enter their name and join.
+
+On the dashboard the teacher can:
+
+- **Live class:** see who is online, what each student is working on, whether their program is running or crashed, and raised hands. Message a student, send code to one student or the whole class, and post a class announcement.
+- **Lesson plan:** build a list of activities from the built-in lessons or your own. Each activity has an arena, a track or opponent, a world (Ideal, Realistic or Competition day), a starter program and an automatic goal, such as "lap under 15 s" or "stop at 100 cm". **Lock** keeps every student on one activity.
+- **Results:** a student × activity grid that ticks itself off as goals are reached, leaderboards, and a CSV download for your gradebook.
+- **Battles:** pick two students' handed-in sumo or soccer programs and run the match on the projector. Results go to the class leaderboard.
+- **Settings:** several classes (sections), a class PIN, whether students can open classmates' code, and a private link for using the dashboard from your phone.
+
+Class data is saved on the laptop in `data/dowee-classroom.json`. Use `npm start -- --port 9000` to pick another port, or `--data <folder>` to store data elsewhere.
+
+## Run it alone
+
+Open `robobench.html` in a browser. It is one self-contained file that works offline, for one student, without classroom features. Blocks mode then loads Blockly from the jsDelivr CDN.
 
 ## Develop
 
 ```bash
-./build.sh                    # rebuilds robobench.html from src/
+npm run build                 # rebuilds robobench.html and server/public/meta.json from src/
 node tools/test.js line       # runs headless simulations (line, sumo, maze, race, soccer, lab, straight)
 node tools/sweep.js real '[[0.08,1.5,150]]'   # tries PID settings (Kp, Kd, speed) across robot units
 ```
@@ -43,5 +67,10 @@ Set `LV=ideal|real|tough` before `node tools/test.js` to choose the realism leve
 | `src/core-arenas.js` | Arenas, floors, rules and scoring |
 | `src/examples.js` | Example Arduino programs |
 | `src/lessons.js` | Lessons |
-| `src/ui.js` | Interface: editor, drawing, panels, blocks mode, class features |
+| `src/goals.js` | Goal types teachers can attach to activities |
+| `src/ui.js` | Interface: editor, drawing, panels, blocks mode, artifact class features |
+| `src/host.js` | Classroom mode: joining, activities, progress, hand-raising, handouts |
 | `src/page-head.html`, `src/page-body.html` | Styles and page markup |
+| `server/server.js` | Classroom server for the teacher's laptop (Node.js, no dependencies) |
+| `server/public/teacher.html`, `teacher.js` | Teacher dashboard |
+| `server/public/vendor/` | Bundled Blockly and QR code libraries (see THIRD_PARTY_NOTICES.md) |
