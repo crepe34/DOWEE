@@ -18,7 +18,7 @@ const S = {
   drawing: null, bestTrail: null, bestLap: Infinity, runLog: [], runN: 0, lesson: null, lessonDone: store.get('lessonsDone', {}),
   compiled: {}, plot: { series: new Map(), t0: 0 }, serialBuf: { A: '', B: '' }, slow: false, rcKeys: { A: new Set(), B: new Set() }, rcSent: { A: '', B: '' },
   error: null, tips: [],
-  realism: ['ideal', 'real', 'tough'].includes(store.get('realism', 'real')) ? store.get('realism', 'real') : 'real',
+  realism: ['ideal', 'real', 'tough'].includes(store.get('realism', 'ideal')) ? store.get('realism', 'ideal') : 'ideal',
   unit: store.get('unit', null) || (() => { const u = 1000 + Math.floor(Math.random() * 9000); store.set('unit', u); return u; })(),
   battery: store.get('battery', 1),
 };
@@ -297,7 +297,7 @@ $('#btnReset').addEventListener('click', () => { stop(); resetWorld(); $('#banne
 $('#btnCheck').addEventListener('click', verify);
 $('#speedSel').addEventListener('change', e => { S.speed = +e.target.value; });
 $('#realSel').value = S.realism;
-$('#realSel').addEventListener('change', e => { S.realism = e.target.value; store.set('realism', S.realism); stop(); resetWorld(); buildRobotPanel(); toast({ ideal: 'Ideal world: perfect motors, sensors and floor', real: 'Realistic: every motor, sensor and floor is a little different', tough: 'Competition day: worn tape, sunlight, dust and a tired battery' }[S.realism]); });
+$('#realSel').addEventListener('change', e => { S.realism = e.target.value; store.set('realism', S.realism); stop(); resetWorld(); buildRobotPanel(); toast({ ideal: 'Ideal robot: a perfect Dowee with real physics. Same code, same result.', real: 'Realistic world: your Dowee unit has its own quirks, and the table is not perfect', tough: 'Competition day: worn tape, sunlight, dust and a tired battery' }[S.realism]); buildTune(); });
 $('#optTrail').addEventListener('change', e => { S.trail = e.target.checked; draw(); });
 $('#optSensors').addEventListener('change', e => { S.sensorsView = e.target.checked; draw(); });
 $('#optSound').addEventListener('change', e => { S.sound = e.target.checked; if (!S.sound) { stopTone('A'); stopTone('B'); } });
@@ -665,7 +665,7 @@ function updateSensors() {
     ['Heading', ((r.th * 180 / Math.PI) % 360).toFixed(0) + '°'], ['Driven', (r.odo * 100).toFixed(0) + ' cm'],
     ['Ultrasonic', c.sonar ? (r.lastSonar !== undefined && r.lastSonar < 4 ? (r.lastSonar * 100).toFixed(1) + ' cm' : 'nothing') : 'off'],
     ['loop() speed', bd.state === 'run' && Number.isFinite(loopsPerS) && loopsPerS > 0 ? Math.round(loopsPerS) + ' per s' : '—'],
-    ['Wheels slipping', r.slip ? 'yes' : 'no'], ['Battery', S.realism === 'ideal' ? 'ideal' : Math.round(r.battery * 100) + '%'], ['Line', bd.state === 'run' ? String(bd.line) : '—'],
+    ['Wheels slipping', r.slip ? 'yes' : 'no'], ['Battery', S.realism === 'ideal' ? 'full (ideal robot)' : Math.round(r.battery * 100) + '%'], ['Line', bd.state === 'run' ? String(bd.line) : '—'],
   ].map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join('');
   $$('#pins .pin').forEach(el => {
     const p = +el.dataset.p, out = bd.mode[p] === 1, pwm = bd.pwm[p];
@@ -738,7 +738,7 @@ function buildTune(comp) {
     </div>`;
   }).join('');
   box.innerHTML = `<h3 class="sec">Live tuning</h3>
-    ${tuneGlobals.length ? `<p class="note" style="margin:0 0 6px">Changes apply instantly while the robot runs and are kept when you press Restart. ${blocks ? 'In Blocks mode, type the final numbers into your blocks.' : 'When you are happy, press <b>Write values into code</b>.'}</p><div>${rows}</div>
+    ${tuneGlobals.length ? `<p class="note" style="margin:0 0 6px">Changes apply instantly while the robot runs and are kept when you press Restart.${S.realism === 'ideal' ? ' <b>Ideal robot:</b> same code, same result, so any change in your times comes from your changes.' : ' <b>Realistic world:</b> runs differ a little, like real ones: compare a few runs before deciding.'} ${blocks ? 'In Blocks mode, type the final numbers into your blocks.' : 'When you are happy, press <b>Write values into code</b>.'}</p><div>${rows}</div>
       <div class="row" style="margin-top:8px">${blocks ? '' : '<button class="btn" id="tuneWrite">Write values into code</button>'}<button class="btn" id="tuneResetAll">Reset all to the code</button><span class="empty" style="padding:0">${consts ? `${consts} const value${consts > 1 ? 's are' : ' is'} hidden (pins and fixed numbers).` : ''}</span></div>`
       : `<p class="empty">No global number variables found. Put tunable values above setup(), for example <code class="k">int baseSpeed = 150;</code> — without <code class="k">const</code>.</p>`}
     ${logTable()}`;
@@ -897,7 +897,7 @@ function buildRobotPanel() {
   }));
 }
 function unitHtml() {
-  if (S.realism === 'ideal') return `<p class="note" style="margin-top:10px">The <b>Ideal world</b> setting is on, so this Dowee is perfect: identical motors and sensors, a perfect floor and a battery that never runs down. Switch the <b>World</b> menu to <b>Realistic</b> to drive a real-feeling robot.</p>`;
+  if (S.realism === 'ideal') return `<div class="card" style="margin-top:12px"><h4><span>A perfect Dowee</span><span>ideal robot</span></h4><p class="note" style="margin:0">Its two motors and five sensors are identical, the table is clean and the battery is full. The physics is still real: the motors need a PWM of about ${cfgFor().deadband} (plus a little kick from standstill) and a moment to spin up, the battery dips when the motors pull hard, and the ultrasonic can't see walls hit at a steep slant. Run the same code twice and you get the same result. Switch the <b>World</b> menu to <b>Realistic world</b> to get your own unit's quirks.</p></div>`;
   const q = makeQuirks(S.unit, S.realism, 5), cfg = cfgFor();
   const pct = v => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`;
   const stronger = q.gainL * 1 > q.gainR ? 'left' : 'right', diff = Math.abs(q.gainL - q.gainR) / Math.min(q.gainL, q.gainR);
@@ -910,11 +910,11 @@ function unitHtml() {
     <details><summary style="cursor:pointer;font-weight:800">Reveal this unit's quirks (try to find them by testing first!)</summary>
       <dl class="spec" style="margin-top:6px">
         <dt>Motors</dt><dd>The ${stronger} motor is ${(diff * 100).toFixed(1)}% stronger, so Dowee drifts when you drive "straight".</dd>
-        <dt>Start-up PWM</dt><dd>Left needs about ${cfg.deadband + q.dbL + q.stiction}, right about ${cfg.deadband + q.dbR + q.stiction} to start from standstill (less once moving).</dd>
-        <dt>Backwards</dt><dd>Gearboxes are ${Math.round((1 - q.revL) * 100)}% / ${Math.round((1 - q.revR) * 100)}% weaker in reverse.</dd>
-        <dt>Spin-up time</dt><dd>${Math.round(q.tau * 1000)} ms for the motors to reach speed.</dd>
-        <dt>IR sensors</dt><dd>Offsets ${offs}. Sensor height ${(q.height * 1000).toFixed(1)} mm. The bar is mounted ${(q.barY * 1000).toFixed(1)} mm off centre.</dd>
-        <dt>Ultrasonic</dt><dd>Reads ${(q.sonarBias * 100).toFixed(1)} cm off, and misses walls hit at more than about 40°.</dd>
+        <dt>Start-up PWM</dt><dd>Left needs about ${cfg.deadband + q.dbL + PHYS.stiction + q.stiction}, right about ${cfg.deadband + q.dbR + PHYS.stiction + q.stiction} to start from standstill (${cfg.deadband + q.dbL} / ${cfg.deadband + q.dbR} once moving).</dd>
+        <dt>Backwards</dt><dd>Gearboxes are ${Math.round((1 - PHYS.reverse * q.revL) * 100)}% / ${Math.round((1 - PHYS.reverse * q.revR) * 100)}% weaker in reverse.</dd>
+        <dt>Spin-up time</dt><dd>${Math.round(Math.max(0.02, PHYS.tau + q.tau) * 1000)} ms for the motors to reach speed.</dd>
+        <dt>IR sensors</dt><dd>Offsets ${offs}. Sensor height ${((PHYS.irHeight + q.height) * 1000).toFixed(1)} mm. The bar is mounted ${(q.barY * 1000).toFixed(1)} mm off centre.</dd>
+        <dt>Ultrasonic</dt><dd>Reads ${(q.sonarBias * 100).toFixed(1)} cm off, and now and then misses an echo.</dd>
       </dl>
     </details>
     <div class="row" style="margin-top:8px"><button class="btn small" id="newUnit">Get a different Dowee</button></div>

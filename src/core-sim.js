@@ -7,11 +7,27 @@ const wrapAng = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI
 function mulberry32(a) { return function () { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 function gauss(rng) { let u = 0; while (u === 0) u = rng(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rng()); }
 
-/* ---------------- realism ----------------
-   Every real robot is a little different, and so is every table. A Dowee "unit" gets fixed
-   hardware quirks from its serial number (like a real robot you built), and every world gets
-   floor, light and noise imperfections. Level: ideal (0), real (1), tough (1.7). */
+/* ---------------- physics and realism ----------------
+   PHYS is real physics that every Dowee has, in every world: motors that take a moment to spin up,
+   a dead zone and a start-up kick, gearboxes a bit weaker in reverse, caster drag, battery voltage
+   that dips under load, an IR sensor whose reading depends on its height, and sound that bounces
+   away from walls hit at a slant. It is the same for every robot and has no randomness.
+   Quirks are what makes real robots and tables differ. A Dowee "unit" gets fixed hardware
+   deviations from its serial number, and the world gets floor, light and noise imperfections.
+   They only appear in the Realistic world (1) and on Competition day (1.7); the Ideal robot (0)
+   has none, so the same code gives the same result every run. */
 const REALISM = { ideal: 0, real: 1, tough: 1.7 };
+const PHYS = {
+  tau: 0.05,                               // s for the motors + gearboxes to spin up
+  stiction: 14,                            // extra PWM needed to break free from standstill
+  reverse: 0.97,                           // TT gearboxes are a little weaker backwards
+  casterMu: 0.05,                          // ball caster rolling drag
+  sagV: 0.5,                               // battery volts lost at full motor load
+  driverDropV: 1.8,                        // the L298N loses about 1.8 V
+  sonarCos: Math.cos(42 * Math.PI / 180),  // flat walls hit at more than 42° don't echo back
+  irHeight: 0.005,                         // IR sensor height above the floor (m)
+  irPitch: 0.00009,                        // m of sensor-height change per m/s² of acceleration (the robot rocks)
+};
 function vnoise(x, y, seed) {
   const xi = Math.floor(x), yi = Math.floor(y), u0 = x - xi, v0 = y - yi;
   const h = (a, b) => { let n = (Math.imul(a, 374761393) + Math.imul(b, 668265263) + Math.imul(seed, 1442695041)) | 0; n = Math.imul(n ^ (n >>> 13), 1274126177); return ((n ^ (n >>> 16)) >>> 0) / 4294967296; };
@@ -20,21 +36,22 @@ function vnoise(x, y, seed) {
   return (a + (b - a) * v) * 2 - 1;
 }
 function makeQuirks(seed, level, nSensors = 8) {
+  // deviations from PHYS only: at k = 0 every value is neutral (gains 1, offsets 0)
   const k = REALISM[level] ?? 1, rng = mulberry32((seed | 0) || 1), g = () => gauss(rng);
   return {
     k, level, seed,
-    gainL: 1 + 0.02 * k * g(), gainR: 1 + 0.02 * k * g(),      // TT motors + wheel size differ a few %
-    revL: 1 - 0.05 * k * rng(), revR: 1 - 0.05 * k * rng(),       // gearboxes are weaker backwards
-    dbL: Math.round(3.5 * k * g()), dbR: Math.round(3.5 * k * g()),    // each motor starts at a different PWM
-    stiction: Math.round(16 * k),                                   // extra PWM to break free from standstill
-    tau: k ? 0.045 + 0.02 * rng() + 0.01 * (k - 1) : 0,           // motor + gearbox spin-up time (s)
+    gainL: 1 + 0.02 * k * g(), gainR: 1 + 0.02 * k * g(),          // TT motors + wheel size differ a few %
+    revL: 1 - 0.04 * k * rng(), revR: 1 - 0.04 * k * rng(),           // some gearboxes are weaker backwards than others
+    dbL: Math.round(3.5 * k * g()), dbR: Math.round(3.5 * k * g()),   // each motor starts at a different PWM
+    stiction: Math.round(3 * k * g()),                                 // a stiffer or looser gearbox
+    tau: 0.012 * k * g(),                                              // a faster or slower spin-up
     sGain: Array.from({ length: nSensors }, () => 1 + 0.07 * k * g()),
     sOff: Array.from({ length: nSensors }, () => Math.round(22 * k * g())),
-    height: 0.005 + 0.0004 * k * g(),                               // IR sensor height above the floor (m)
-    casterMu: 0.05 * k * (0.7 + 0.6 * rng()),                       // ball caster rolling drag
-    yawNoise: 0.0012 * k,                                            // bumps and caster scrub (N·m)
+    height: 0.0004 * k * g(),                                          // sensor bar mounted a bit higher or lower
+    casterF: 1 + 0.3 * k * (2 * rng() - 1),                            // a stickier or freer caster
+    yawNoise: 0.0012 * k,                                              // bumps and caster scrub (N·m)
     sonarBias: 0.006 * k * g(),
-    barY: 0.0012 * k * g(), barTwist: 0.025 * k * g(),             // sensor bar mounted a bit off-centre and twisted
+    barY: 0.0012 * k * g(), barTwist: 0.025 * k * g(),                 // sensor bar a bit off-centre and twisted
   };
 }
 function makeEnv(level, seed, arenaId) {
@@ -45,7 +62,7 @@ function makeEnv(level, seed, arenaId) {
     gripVar: k > 1 ? 0.3 : 0.1 * k,                        // dust patches change tyre grip
     motorNoise: 7 * k,                                     // motor PWM noise picked up by analog wires
     spike: 0.0015 * k,                                     // rare big glitches on an analog read
-    sonarDrop: 0.02 * k, sonarAngle: k ? Math.cos(42 * Math.PI / 180) : 0,   // flat walls hit at a slant don't echo back
+    sonarDrop: 0.02 * k,                                   // the odd missed echo
     btDelay: k ? [25, 45 * k] : [0, 0],                    // Bluetooth latency (ms)
     sun: null,
   };
@@ -335,26 +352,20 @@ class Robot {
   reflect(i) { const p = this.sensorPos(i); return this.world ? this.world.reflect(p.x, p.y, this.cfg.sensorRadius) : 0.9; }
   irAnalog(i) {
     const q = this.q, W = this.world, env = W.env;
-    if (!q.k) {
-      const r = this.reflect(i);
-      let v = r === null ? 1015 : 35 + (1 - r) * 940;
-      v += gauss(W.rng) * this.cfg.noise * 10;
-      return clamp(Math.round(v), 0, 1023);
-    }
-    // TCRT5000: the reflected light falls off quickly with height, so rocking and bumps change readings.
-    const h = Math.max(0.002, q.height + this.aLong * 0.00009 + this.hJit);
+    // TCRT5000: the reflected light falls off quickly with height, so rocking (and, with quirks, bumps) change readings.
+    const h = Math.max(0.002, PHYS.irHeight + (q.height || 0) + this.aLong * PHYS.irPitch + this.hJit);
     const p = this.sensorPos(i), r = W.reflect(p.x, p.y, Math.max(this.cfg.sensorRadius, h * 0.9));
     let v;
     if (r === null) v = 1015;
     else {
-      const light = r * Math.pow(0.005 / h, 1.5);
+      const light = r * Math.pow(PHYS.irHeight / h, 1.5);
       v = 1015 - light * 980;
       v = 512 + (v - 512) * (q.sGain[i] ?? 1) + (q.sOff[i] ?? 0);
       v -= ambientAt(env, W.arena, p.x);
     }
     const busy = (Math.abs(this.dutyL) + Math.abs(this.dutyR)) / 2;
-    v += gauss(W.rng) * (this.cfg.noise * 10 + env.motorNoise * busy);
-    if (W.rng() < env.spike) v += (W.rng() < 0.5 ? -1 : 1) * (150 + 250 * W.rng());
+    if (env.k) v += gauss(W.rng) * (this.cfg.noise * 10 + env.motorNoise * busy);   // a perfect sensor has no noise
+    if (env.k && W.rng() < env.spike) v += (W.rng() < 0.5 ? -1 : 1) * (150 + 250 * W.rng());
     return clamp(Math.round(v), 0, 1023);
   }
   irDigital(i) { const black = this.irAnalog(i) > 512; return this.cfg.irMode === 'low-on-black' ? (black ? 0 : 1) : (black ? 1 : 0); }
@@ -366,13 +377,13 @@ class Robot {
       const a = this.th + (k / 6 - 0.5) * 2 * half;
       const dx = Math.cos(a), dy = Math.sin(a), hit = this.world.raycast(o.x, o.y, dx, dy, this, true);
       // A flat surface hit at a slant reflects the sound away: no echo (real HC-SR04 behaviour).
-      if (env.k && hit.n && Math.abs(dx * hit.n.x + dy * hit.n.y) < env.sonarAngle) continue;
+      if (hit.n && Math.abs(dx * hit.n.x + dy * hit.n.y) < PHYS.sonarCos) continue;
       if (hit.d < best) best = hit.d;
     }
     this.lastSonar = best;
     if (best > 4) return null;
     if (env.k && this.world.rng() < env.sonarDrop) return null;
-    return Math.max(0.02, best + (this.q.sonarBias || 0) + gauss(this.world.rng) * (0.003 + 0.003 * env.k));
+    return Math.max(0.02, best + (this.q.sonarBias || 0) + (env.k ? gauss(this.world.rng) * 0.003 * (1 + env.k) : 0));
   }
   step(dt) {
     if (this.fallen) { this.fallT += dt; return; }
@@ -383,18 +394,21 @@ class Robot {
     if (c.invertL) dl = -dl; if (c.invertR) dr = -dr;
     this.dutyL = dl; this.dutyR = dr;
     const q = this.q, k = q.k;
-    // Each motor has its own dead zone, needs an extra kick to start (stiction), and is weaker backwards.
+    // Motors have a dead zone, need an extra kick to start from standstill, and are a bit weaker backwards.
+    // With quirks, each motor's numbers differ a little.
     const eff = (d, dbq, gain, rev, wv) => {
-      const db = clamp((c.deadband + dbq + (k && Math.abs(wv) < 0.01 ? q.stiction : 0)) / 255, 0, 0.9), a = Math.abs(d);
+      const kick = Math.abs(wv) < 0.01 ? PHYS.stiction + (q.stiction || 0) : 0;
+      const db = clamp((c.deadband + dbq + kick) / 255, 0, 0.9), a = Math.abs(d);
       if (a <= db) return 0;
-      return Math.sign(d) * (a - db) / (1 - db) * gain * (d < 0 ? rev : 1);
+      return Math.sign(d) * (a - db) / (1 - db) * gain * (d < 0 ? PHYS.reverse * rev : 1);
     };
-    // Battery: 8.2 V full, 6.6 V flat, sags under load; the L298N loses about 1.8 V.
-    let supply = 1;
-    if (k) { const V = 6.6 + 1.6 * this.battery - 0.5 * k * (Math.abs(this.mL) + Math.abs(this.mR)) / 2; supply = clamp((V - 1.8) / 5.6, 0.3, 1.15); }
+    // Battery: 8.2 V full, 6.6 V flat, dips under load; the L298N loses about 1.8 V.
+    // 1.0 = a full battery with the motors at full power.
+    const V = 6.6 + 1.6 * this.battery - PHYS.sagV * (Math.abs(this.mL) + Math.abs(this.mR)) / 2;
+    const supply = clamp((V - PHYS.driverDropV) / (8.2 - PHYS.sagV - PHYS.driverDropV), 0.3, 1.15);
     let el = eff(dl, q.dbL || 0, q.gainL || 1, q.revL || 1, this.wl || 0) * supply, er = eff(dr, q.dbR || 0, q.gainR || 1, q.revR || 1, this.wr || 0) * (1 - c.mismatch / 100) * supply;
     // Motors and gearboxes take a moment to spin up.
-    if (q.tau) { const a = Math.min(1, dt / q.tau); this.mL += (el - this.mL) * a; this.mR += (er - this.mR) * a; el = this.mL; er = this.mR; } else { this.mL = el; this.mR = er; }
+    { const tau = Math.max(0.02, PHYS.tau + (q.tau || 0)), a = Math.min(1, dt / tau); this.mL += (el - this.mL) * a; this.mR += (er - this.mR) * a; el = this.mL; er = this.mR; }
     if (k && !this.ai) this.battery = Math.max(0, this.battery - (Math.abs(el) + Math.abs(er)) / 2 * dt / 2400);
     if (!this.ai && el === 0 && er === 0 && (dl !== 0 || dr !== 0) && Math.hypot(this.vx, this.vy) < 0.01) {
       this.stillT += dt;
@@ -420,10 +434,12 @@ class Robot {
       Fx += fx; Fy += fy; Tq += rx * fy - ry * fx;
       if (side === 0) this.wl = vlong; else this.wr = vlong;
     }
-    if (k) {
-      // Ball caster at the back: rolling drag, plus small random twists from bumps in the floor.
+    {
+      // Ball caster at the back: rolling drag (always). With quirks, small random twists from bumps in the floor.
       const px = -this.hl + 0.01, rx = px * cs, ry = px * sn, vcx = this.vx - this.w * ry, vcy = this.vy + this.w * rx, vc = Math.hypot(vcx, vcy);
-      if (vc > 0.003) { const F = q.casterMu * c.mass * GRAV * (1 - c.wheelLoad), fx = -F * vcx / vc, fy = -F * vcy / vc; Fx += fx; Fy += fy; Tq += rx * fy - ry * fx; }
+      if (vc > 0.003) { const F = PHYS.casterMu * (q.casterF || 1) * c.mass * GRAV * (1 - c.wheelLoad), fx = -F * vcx / vc, fy = -F * vcy / vc; Fx += fx; Fy += fy; Tq += rx * fy - ry * fx; }
+    }
+    if (k) {
       const sp = Math.min(1, Math.hypot(this.vx, this.vy) / 0.3);
       this.yawD += -this.yawD * dt / 0.25 + q.yawNoise * Math.sqrt(dt) * gauss(this.world.rng) * 8;
       Tq += this.yawD * sp;

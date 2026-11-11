@@ -27,7 +27,8 @@ DOWEE is a virtual robotics lab for teaching kids aged 9–20. Students program 
 - The palette is the low-poly playground look: teal background, cream panels, yellow, orange, pink, purple, blue and green. Fonts are Baloo 2, Nunito and JetBrains Mono.
 - Write student-facing text in plain language for kids. Error messages say what to fix.
 - Escape all student- and teacher-typed text before showing it in a page.
-- After physics changes, check that the examples still work on Realistic with `tools/test.js` and `tools/sweep.js`.
+- Real physics lives in `PHYS` (`src/core-sim.js`) and is always on. Quirks (`makeQuirks`, `makeEnv`) are deviations that are zero for the Ideal robot (the default), so ideal runs are repeatable (fixed seed). Never put a defect into `PHYS`.
+- After physics changes, run `npm test` (it fails if an example stops working) and `tools/sweep.js`.
 
 ## Status
 

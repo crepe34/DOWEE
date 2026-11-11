@@ -42,7 +42,7 @@ const LESSONS = [
     goal: 'Stop between 95 and 105 cm from the start', check: W => { const r = W.robots[0], d = Math.hypot(r.x - r.start.x, r.y - r.start.y); return W.time > 600 && Math.hypot(r.vx, r.vy) < 0.005 && d > 0.95 && d < 1.05; } },
   { id: 'turn', title: 'Turn 90 degrees', level: 'Motors', arena: 'lab', variant: 'lab', example: 'turn',
     intro: 'Spinning one wheel forward and the other backward turns the robot on the spot.',
-    steps: ['Run it and read <b>Turned</b>. Negative means it turned right (clockwise).', 'Change <code class="k">turnTime</code> until it turns between 85° and 95°.', 'Switch the <b>World</b> menu between <b>Ideal world</b> and <b>Realistic</b>. In the real world no two motors are identical, so the same code turns a different amount!'],
+    steps: ['Run it and read <b>Turned</b>. Negative means it turned right (clockwise).', 'Change <code class="k">turnTime</code> until it turns between 85° and 95°.', 'Switch the <b>World</b> menu from <b>Ideal robot</b> to <b>Realistic world</b> and run it again. No two real motors are identical, so the same code turns a different amount!'],
     goal: 'Turn between 85° and 95° and stop', check: W => { const r = W.robots[0], a = Math.abs(r.headingAcc * 180 / Math.PI); return W.time > 300 && Math.abs(r.w) < 0.02 && a > 85 && a < 95; } },
   { id: 'see', title: 'See what the sensors see', level: 'Sensors', arena: 'line', variant: 'oval', example: 'print',
     intro: 'Line sensors shine infrared light at the floor. White reflects a lot (low number), black reflects little (high number).',

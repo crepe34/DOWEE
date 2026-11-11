@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server/server.js",
     "build": "node tools/build.js",
-    "test": "node tools/test.js line && node tools/test.js sumo"
+    "test": "node tools/build.js && node tools/check.js"
   },
   "engines": { "node": ">=18" }
 }

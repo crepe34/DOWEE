@@ -2,7 +2,7 @@ const M = require('../dist/core-all.js');
 const { EXAMPLES } = M;
 function sim(arena, variant, code, ms, opts={}) {
   const cfgA = M.makeCfg(M.ARENAS[arena].preset, opts.cfg);
-  const W = M.buildWorld(arena, variant, Object.assign({ realism: process.env.LV || 'real', unitA: +(process.env.UNIT||1), runSeed: +(process.env.RUN||7) }, opts.arenaOpts||{}), cfgA, M.makeCfg(M.ARENAS[arena].preset), opts.opp||'none');
+  const W = M.buildWorld(arena, variant, Object.assign({ realism: process.env.LV || 'ideal', unitA: +(process.env.UNIT||1), runSeed: +(process.env.RUN||7) }, opts.arenaOpts||{}), cfgA, M.makeCfg(M.ARENAS[arena].preset), opts.opp||'none');
   const r = W.robots[0]; const out=[]; const hints=[];
   r.board.onSerial = s => out.push(s); r.board.onHint = m => hints.push(m);
   r.board.onError = e => console.log('RTERR', e.message, e.line);

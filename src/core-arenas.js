@@ -206,10 +206,10 @@ function buildWorld(arenaId, variant, opts, cfgA, cfgB, oppMode) {
   const A = buildArena(arenaId, variant, opts);
   const W = new World(A);
   W.events = [];
-  const level = opts.realism || 'real';
+  const level = opts.realism || 'ideal';
   W.env = makeEnv(level, opts.tableSeed || 11, arenaId);
   A.floor.env = W.env;
-  W.rng = mulberry32(opts.runSeed || 7);
+  W.rng = mulberry32(level === 'ideal' ? 7 : (opts.runSeed || 7));   // the Ideal robot: same code, same result
   if (W.env.k && (arenaId === 'line' || arenaId === 'lab')) {
     // Hand-laid electrical tape: it wanders a few millimetres and its edges are not perfectly straight.
     const L0 = A.floor.layers.find(L => L.k === 'poly');

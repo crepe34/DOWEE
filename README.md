@@ -15,7 +15,8 @@ The example programs also run on a real Dowee wired as shown in the Wiring tab.
 - **Arenas:** line following (4 tracks, plus tracks students draw), RC race, robot soccer, sumo, obstacle room and a measuring lab.
 - **Arduino interpreter** that behaves like an Uno: 16-bit `int`, 8-bit PWM, PWM only on pins 3/5/6/9/10/11, real `analogRead`/Serial timing, `pulseIn` for the HC-SR04. Errors and tips are written for kids.
 - **Blocks mode** (Blockly) that writes real Arduino code, with a "Turn into code" button.
-- **Realistic world:** each student gets their own Dowee unit with motor, sensor and mounting quirks. There's floor and tape variation, room light, sensor noise, ultrasonic angle limits, Bluetooth latency and a battery that runs down. Levels: Ideal world, Realistic, Competition day.
+- **Real physics, by default:** even the perfect **Ideal robot** moves like a real one. Motors need about 60 PWM and a kick to start, and take a moment to spin up. The battery dips under load, the IR reading depends on sensor height, and the ultrasonic can't see walls hit at a steep slant. The same code gives the same result every run.
+- **Realistic world and Competition day:** each student gets their own Dowee unit with motor, sensor and mounting quirks, plus floor and tape variation, room light, sensor noise, missed echoes, Bluetooth delay and a battery that runs down.
 - **Tuning tools:** Serial monitor and plotter, live sensor and pin view, sliders for global variables while the robot runs, and an experiment log.
 - **Lessons**, from "Blink the LED" through PID tuning to sumo and soccer.
 - **Class features** (when published as a claude.ai artifact): teams, program submissions, leaderboards, class battles and a teacher's challenge.
@@ -49,7 +50,7 @@ Students start on the **Meet Dowee** page: a numbered picture of the robot and i
 On the dashboard the teacher can:
 
 - **Live class:** see who is online, what each student is working on, whether their program is running or crashed, and raised hands. Message a student, send code to one student or the whole class, and post a class announcement.
-- **Lesson plan:** build a list of activities from the built-in lessons or your own. Each activity has an arena, a track or opponent, a world (Ideal, Realistic or Competition day), a starter program and an automatic goal, such as "lap under 15 s" or "stop at 100 cm". **Lock** keeps every student on one activity.
+- **Lesson plan:** build a list of activities from the built-in lessons or your own. Each activity has an arena, a track or opponent, a world (Ideal robot, Realistic world or Competition day), a starter program and an automatic goal, such as "lap under 15 s" or "stop at 100 cm". **Lock** keeps every student on one activity.
 - **Results:** a student × activity grid that ticks itself off as goals are reached, leaderboards, and a CSV download for your gradebook.
 - **Battles:** pick two students' handed-in sumo or soccer programs and run the match on the projector. Results go to the class leaderboard.
 - **Settings:** the class's robot type, several classes (sections), a class PIN, whether students can open classmates' code, and a private link for using the dashboard from your phone.
