@@ -185,7 +185,8 @@ class Board {
   }
   *main() {
     const P = this.prog;
-    for (const p of P.initG) { if (p.s) p.s(null); else yield* p.g(null); }
+    // the simulator may already have set the globals (and the student's tuned values) at compile time
+    if (!P.initDone) for (const p of P.initG) { if (p.s) p.s(null); else yield* p.g(null); }
     yield* this.invoke(P.funcs.get('setup'), []);
     const lp = P.funcs.get('loop');
     for (;;) { yield* this.invoke(lp, []); this.loops++; this.cost += 0.004; if (this.cost >= SLICE) yield 0; }

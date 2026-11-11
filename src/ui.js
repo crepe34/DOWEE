@@ -160,6 +160,7 @@ function needsB() { const v = S.variant[S.arena]; return v === 'code' || v === '
 function setArena(id, keepCode) {
   if (!allowed(id)) { toast(S.lockedArena ? 'Your teacher has locked the class to one activity' : `This class doesn't use ${ARENAS[id].name}. Pick one of the playgrounds at the top.`); return false; }
   stop();
+  if (S.arena !== id) S.compiled = {};
   S.arena = id; store.set('arena', id);
   buildArenaTabs();
   const A = ARENAS[id];
@@ -244,6 +245,7 @@ function compileFor(robot, r) {
   try {
     const comp = compileArduino(src, r.board);
     comp.warnings.forEach(w => addTip(w.msg, w.line));
+    prepareGlobals(comp, robot === 'A' && !S.classMatch);   // a class battle runs students' programs exactly as handed in
     return comp;
   } catch (e) {
     if (e instanceof CError) { if (robot !== S.robot) { S.robot = robot; updateRobotTabs(); loadEditor(); } setError('Error', e, robot); return null; }
@@ -673,65 +675,130 @@ function updateSensors() {
   });
 }
 
-/* ---------------- tune panel ---------------- */
-function guessRange(v, type) {
-  const isF = type === 'float', a = Math.abs(v);
-  if (isF) { const hi = a <= 0.001 ? 1 : a < 1 ? Math.max(1, Math.ceil(a * 40) / 10) : Math.ceil(a * 3); return [v < 0 ? -hi : 0, hi, hi <= 2 ? 0.005 : 0.05]; }
-  const hi = Math.max(10, Math.ceil(a * 2.5)); return [v < 0 ? -hi : 0, hi, 1];
+/* ---------------- tune panel ----------------
+   Every global number variable gets a slider. Moving it changes the running program at once,
+   and the change is kept across Restart until the number in the code itself changes.
+   Ranges follow what the Arduino and Dowee can really do (PWM 0–255, analogRead 0–1023, …). */
+const TYPE_BOUNDS = { bool: [0, 1], uint8: [0, 255], char: [-128, 127], int8: [-128, 127], int16: [-32768, 32767], uint16: [0, 65535], int32: [-2147483648, 2147483647], uint32: [0, 4294967295] };
+const niceUp = x => { if (x <= 0) return 1; const p = Math.pow(10, Math.floor(Math.log10(x))); for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= x) return m * p; return 10 * p; };
+// What a variable is for, guessed from its name, and the range that makes sense on real hardware.
+function tuneRange(g, v) {
+  const n = g.name.toLowerCase(), isF = g.type === 'float', a = Math.abs(v);
+  const tb = TYPE_BOUNDS[g.type] || [-1e9, 1e9];
+  const fit = (lo, hi, step, hint, hard) => [Math.max(lo, tb[0]), Math.min(hi, tb[1]), step, hint, !!hard];
+  if (g.type === 'bool') return [0, 1, 1, 'true / false', true];
+  if (/time|delay|duration|interval|period|timeout|(^|_)ms$|millis/.test(n)) return fit(0, Math.max(2000, niceUp(a * 3)), isF ? 1 : 10, 'milliseconds');
+  if (/speed|pwm|power|motor|throttle|cruise|attack|turn|base|left|right|max|min/.test(n) && !isF && a <= 255) return fit(v < 0 ? -255 : 0, 255, 1, 'PWM: 0–255 is all a motor pin can take', true);
+  if (/limit|thresh|black|white|edge|level|line|sensor|light/.test(n) && a <= 1023) return fit(0, 1023, 1, 'sensor reading: analogRead gives 0–1023', true);
+  if (/dist|range|cm|safe|near|far|gap/.test(n) && a <= 400) return fit(0, 400, isF ? 0.5 : 1, 'centimetres: the HC-SR04 sees 2–400 cm', true);
+  if (/angle|deg/.test(n)) return fit(v < 0 ? -360 : 0, 360, 1, 'degrees');
+  if (isF) { const hi = niceUp(Math.max(a * 4, a < 0.01 ? 1 : 0)); return [v < 0 ? -hi : 0, hi, hi / 400, '']; }
+  const hi = Math.max(10, niceUp(a * 2.5)); return fit(v < 0 ? -hi : 0, hi, 1, '');
 }
+const fmtTune = (g, v) => (g.type === 'float' ? String(+Number(v).toFixed(4)) : String(v));
 let tuneGlobals = [];
+S.tune = store.get('tune', {});            // { arena: { name: { v: tuned value, base: value in the code } } }
+function tuneStore() { return (S.tune[S.arena] = S.tune[S.arena] || {}); }
+function saveTune() { store.set('tune', S.tune); }
+// Give a freshly compiled program its starting values right away, then apply the student's tuned values.
+function prepareGlobals(comp, applyTuned) {
+  let sync = true;
+  for (const p of comp.initG) { if (p.s) { try { p.s(null); } catch (e) { sync = false; } } else sync = false; }
+  comp.initDone = sync;
+  comp.codeValues = {};
+  for (const g of comp.globals) if (!g.dims && g.type !== 'string') comp.codeValues[g.name] = comp.G[g.slot];
+  if (!applyTuned || !sync) return;
+  const t = tuneStore();
+  for (const g of comp.globals) {
+    const o = t[g.name]; if (!o || g.dims || g.isConst || g.type === 'string') continue;
+    if (o.base !== comp.codeValues[g.name]) { delete t[g.name]; continue; }   // the code changed: the code wins
+    comp.G[g.slot] = WRAP[g.type](o.v);
+  }
+  saveTune();
+}
 function buildTune(comp) {
   const box = $('#tuneBox');
   comp = comp || S.compiled.A;
   if (!comp) {
-    box.innerHTML = `<h3 class="sec">Live tuning</h3><p class="empty">Run or Verify your program. Every global number variable (like <code class="k">float Kp = 0.09;</code> above setup) gets a slider here. Move it while the robot drives to fine-tune it, just like a real tuning session.</p>${logTable()}`;
+    box.innerHTML = `<h3 class="sec">Live tuning</h3><p class="empty">Press <b>Upload &amp; run</b> or <b>Verify</b>. Every global number variable (like <code class="k">float Kp = 0.09;</code> above setup) gets a slider here. Move it while the robot drives to fine-tune it, just like a real tuning session.</p>${logTable()}`;
     return;
   }
   tuneGlobals = comp.globals.filter(g => !g.dims && g.type !== 'string' && !g.isConst);
-  const consts = comp.globals.filter(g => !g.dims && g.isConst).length;
+  const consts = comp.globals.filter(g => !g.dims && g.isConst).length, t = tuneStore();
+  const blocks = modeOf(S.arena, 'A') === 'blocks';
   const rows = tuneGlobals.map((g, i) => {
-    const v = comp.G[g.slot] ?? 0;
-    const [lo, hi, step] = guessRange(typeof v === 'number' ? v : 0, g.type);
-    return `<div class="tune-row" data-i="${i}"><label title="${esc(g.name)}">${esc(g.name)}<small>${TNAME[g.type]}</small></label><input type="range" min="${lo}" max="${hi}" step="${step}" value="${v}" aria-label="${esc(g.name)}"><input type="number" step="${step}" value="${v}" aria-label="${esc(g.name)} value"></div>`;
+    const code = comp.codeValues ? comp.codeValues[g.name] : comp.G[g.slot];
+    const o = t[g.name] && t[g.name].base === code ? t[g.name] : null;
+    const v = o ? WRAP[g.type](o.v) : (comp.G[g.slot] ?? 0);
+    const [lo, hi, step, hint, hard] = tuneRange(g, typeof code === 'number' ? code : 0);
+    return `<div class="tune-row ${o ? 'tuned' : ''}" data-i="${i}" data-hard="${hard ? 1 : ''}">
+      <label title="${esc(g.name)}">${esc(g.name)}<small>${TNAME[g.type]}${hint ? ' · ' + esc(hint) : ''}</small></label>
+      <div class="tune-slide"><input type="range" min="${lo}" max="${hi}" step="${step}" value="${v}" aria-label="${esc(g.name)}"><span class="tune-scale"><span>${lo}</span><span>${hi}</span></span></div>
+      <div class="tune-num"><input type="number" min="${lo}" max="${hi}" step="${step}" value="${fmtTune(g, v)}" aria-label="${esc(g.name)} value"><span class="tune-code">${o ? `code: ${fmtTune(g, code)} <button class="btn small" data-reset="${i}" title="Go back to the value in the code">Reset</button>` : 'same as code'}</span></div>
+    </div>`;
   }).join('');
   box.innerHTML = `<h3 class="sec">Live tuning</h3>
-    ${tuneGlobals.length ? `<div>${rows}</div><div class="row" style="margin-top:8px"><button class="btn" id="tuneWrite">Write values into code</button><span class="empty" style="padding:0">Changes apply instantly while the robot runs.${consts ? ` ${consts} const value${consts > 1 ? 's are' : ' is'} hidden (pins and fixed numbers).` : ''}</span></div>`
+    ${tuneGlobals.length ? `<p class="note" style="margin:0 0 6px">Changes apply instantly while the robot runs and are kept when you press Restart. ${blocks ? 'In Blocks mode, type the final numbers into your blocks.' : 'When you are happy, press <b>Write values into code</b>.'}</p><div>${rows}</div>
+      <div class="row" style="margin-top:8px">${blocks ? '' : '<button class="btn" id="tuneWrite">Write values into code</button>'}<button class="btn" id="tuneResetAll">Reset all to the code</button><span class="empty" style="padding:0">${consts ? `${consts} const value${consts > 1 ? 's are' : ' is'} hidden (pins and fixed numbers).` : ''}</span></div>`
       : `<p class="empty">No global number variables found. Put tunable values above setup(), for example <code class="k">int baseSpeed = 150;</code> — without <code class="k">const</code>.</p>`}
     ${logTable()}`;
   $$('#tuneBox .tune-row').forEach(row => {
     const g = tuneGlobals[+row.dataset.i], [rg, num] = row.querySelectorAll('input');
-    const apply = v => {
-      v = parseFloat(v); if (!Number.isFinite(v)) return;
-      if (+rg.max < v) rg.max = v; if (+rg.min > v) rg.min = v;
-      rg.value = v; num.value = v;
-      const W = S.W, r = W && W.robots.find(x => x.team === 'A');
+    const tb = TYPE_BOUNDS[g.type];
+    const apply = (raw, fromSlider) => {
+      let v = parseFloat(raw); if (!Number.isFinite(v)) return;
+      if (tb) v = clamp(g.type === 'float' ? v : Math.round(v), tb[0], tb[1]);
+      if (row.dataset.hard) {
+        // a real hardware limit (PWM 255, analogRead 1023, HC-SR04 400 cm): don't go past it
+        const lo = +rg.min, hi = +rg.max;
+        if (v > hi || v < lo) { v = clamp(v, lo, hi); if (!fromSlider) { num.value = fmtTune(g, v); toast(`${g.name} can only go from ${lo} to ${hi}: ${row.querySelector('small').textContent.split(' · ')[1] || 'that is the hardware limit'}`); } }
+      } else if (v > +rg.max || v < +rg.min) { rg.max = Math.max(+rg.max, niceUp(Math.abs(v) * 1.5)); if (v < 0) rg.min = Math.min(+rg.min, -niceUp(Math.abs(v) * 1.5)); row.querySelector('.tune-scale').innerHTML = `<span>${rg.min}</span><span>${rg.max}</span>`; }
       const conv = WRAP[g.type](v);
-      if (r && r.board.G && S.running) r.board.G[g.slot] = conv;
-      if (S.compiled.A) S.compiled.A.G[g.slot] = conv;
-      row.dataset.user = '1';
+      rg.value = conv; if (!fromSlider || document.activeElement !== num) num.value = fmtTune(g, conv);
+      const r = S.W && S.W.robots.find(x => x.team === 'A');
+      if (r && r.board.G && r.board.G === comp.G) r.board.G[g.slot] = conv;   // the running program sees it at once
+      comp.G[g.slot] = conv;
+      const code = comp.codeValues ? comp.codeValues[g.name] : conv, tt = tuneStore();
+      if (conv === code) delete tt[g.name]; else tt[g.name] = { v: conv, base: code };
+      clearTimeout(S.tuneSaveT); S.tuneSaveT = setTimeout(saveTune, 300);
+      row.classList.toggle('tuned', conv !== code);
+      const tag = row.querySelector('.tune-code');
+      if (conv !== code && !tag.querySelector('button')) tag.innerHTML = `code: ${fmtTune(g, code)} <button class="btn small" data-reset="${row.dataset.i}" title="Go back to the value in the code">Reset</button>`;
+      if (conv === code) tag.textContent = 'same as code';
     };
-    rg.addEventListener('input', () => apply(rg.value));
-    num.addEventListener('change', () => apply(num.value));
+    row.applyValue = apply;
+    rg.addEventListener('input', () => apply(rg.value, true));
+    num.addEventListener('change', () => apply(num.value, false));   // on Enter or leaving the box, so half-typed numbers never reach the robot
+    num.addEventListener('keydown', e => { if (e.key === 'Enter') num.blur(); });
     rg.addEventListener('pointerdown', () => (row.dataset.drag = '1'));
-    rg.addEventListener('pointerup', () => (row.dataset.drag = ''));
+    for (const ev of ['pointerup', 'pointercancel', 'change', 'blur']) rg.addEventListener(ev, () => (row.dataset.drag = ''));
   });
+  box.onclick = e => {
+    const b = e.target.closest('[data-reset]');
+    if (b) { const row = b.closest('.tune-row'), g = tuneGlobals[+row.dataset.i]; row.applyValue(comp.codeValues[g.name]); return; }
+    if (e.target.id === 'tuneResetAll') { $$('#tuneBox .tune-row').forEach(row => { const g = tuneGlobals[+row.dataset.i]; row.applyValue(comp.codeValues[g.name]); }); toast('All sliders are back to the values in your code'); }
+  };
   const wb = $('#tuneWrite'); if (wb) wb.addEventListener('click', writeTuneToCode);
 }
+// While the robot runs, show values the program changes by itself (counters, lastError, …).
 function updateTuneLive() {
   if ($('#p-tune').hidden || !S.running || !S.W) return;
   const r = S.W.robots.find(x => x.team === 'A'); if (!r || !r.board.G) return;
   $$('#tuneBox .tune-row').forEach(row => {
-    if (row.dataset.drag || document.activeElement && row.contains(document.activeElement)) return;
+    if (row.dataset.drag || (document.activeElement && row.contains(document.activeElement))) return;
     const g = tuneGlobals[+row.dataset.i], v = r.board.G[g.slot];
     const [rg, num] = row.querySelectorAll('input');
-    const shown = g.type === 'float' ? Math.round(v * 10000) / 10000 : v;
-    if (String(num.value) !== String(shown)) { num.value = shown; if (+rg.max < v) rg.max = v; if (+rg.min > v) rg.min = v; rg.value = v; }
+    const shown = fmtTune(g, v);
+    if (num.value !== shown) {
+      if (!row.dataset.hard && (v > +rg.max || v < +rg.min)) { rg.max = Math.max(+rg.max, niceUp(Math.abs(v) * 1.5)); if (v < 0) rg.min = Math.min(+rg.min, -niceUp(Math.abs(v) * 1.5)); row.querySelector('.tune-scale').innerHTML = `<span>${rg.min}</span><span>${rg.max}</span>`; }
+      num.value = shown; rg.value = v;
+    }
   });
 }
 function currentTuneSnapshot() {
   const r = S.W && S.W.robots.find(x => x.team === 'A');
   if (!r || !r.board.G || !tuneGlobals.length) return '';
-  return tuneGlobals.slice(0, 5).map(g => { const v = r.board.G[g.slot]; return `${g.name}=${g.type === 'float' ? +v.toFixed(4) : v}`; }).join('  ');
+  return tuneGlobals.slice(0, 5).map(g => `${g.name}=${fmtTune(g, r.board.G[g.slot])}`).join('  ');
 }
 function writeTuneToCode() {
   if (S.robot !== 'A') { S.robot = 'A'; updateRobotTabs(); loadEditor(); }
@@ -741,7 +808,10 @@ function writeTuneToCode() {
     const re = new RegExp(`(^[ \\t]*[\\w ]*?\\b${g.name}\\s*=\\s*)(-?[0-9]*\\.?[0-9]+(?:[eE][-+]?\\d+)?[fFlLuU]*)`, 'm');
     if (re.test(src)) { src = src.replace(re, (m, a) => a + (g.type === 'float' && !String(v).includes('.') ? v + '.0' : v)); n++; }
   });
-  ta.focus(); ta.select(); insertText(src); toast(`Updated ${n} value${n === 1 ? '' : 's'} in the code`);
+  ta.focus(); ta.select(); insertText(src);
+  S.tune[S.arena] = {}; saveTune();   // the code now holds the tuned values
+  const comp = S.compiled.A; if (comp) { for (const g of tuneGlobals) comp.codeValues[g.name] = comp.G[g.slot]; buildTune(comp); }
+  toast(`Updated ${n} value${n === 1 ? '' : 's'} in the code`);
 }
 function logRun(what, result, score, extra) {
   S.runLog.unshift({ run: S.runN, arena: ARENAS[S.arena].name, what, result, score, extra, params: currentTuneSnapshot() });
