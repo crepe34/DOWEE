@@ -18,7 +18,7 @@ The example programs also run on a real Dowee wired as shown in the Wiring tab.
 - **Real physics, by default:** even the perfect **Ideal robot** moves like a real one. Motors need about 60 PWM and a kick to start, and take a moment to spin up. The battery dips under load, the IR reading depends on sensor height, and the ultrasonic can't see walls hit at a steep slant. The same code gives the same result every run.
 - **Realistic world and Competition day:** each student gets their own Dowee unit with motor, sensor and mounting quirks, plus floor and tape variation, room light, sensor noise, missed echoes, Bluetooth delay and a battery that runs down.
 - **Tuning tools:** Serial monitor and plotter, live sensor and pin view, sliders for global variables while the robot runs, and an experiment log.
-- **Lessons**, from "Blink the LED" through PID tuning to sumo and soccer, plus ten **Fix the bug** challenges (a swapped motor, `=` instead of `==`, a missing `pinMode`, and so on).
+- **Lessons**, from "Blink the LED" to sumo and soccer, including a four-step **PID path** where students write a PID line follower themselves (where is the line → P → D → calibrate and race), plus ten **Fix the bug** challenges (a swapped motor, `=` instead of `==`, a missing `pinMode`, and so on).
 - **Templates and missions:** every playground has a template to start from (Guided with TODO steps, or Blank) and three missions that earn stars. A **Hint** button reveals hints one at a time, from a nudge to a code snippet.
 - **Class features** (when published as a claude.ai artifact): teams, program submissions, leaderboards, class battles and a teacher's challenge.
 

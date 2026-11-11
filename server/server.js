@@ -32,7 +32,7 @@ const ARENAS = ['line', 'race', 'soccer', 'sumo', 'maze', 'lab'];
 const REALISM = ['', 'ideal', 'real', 'tough'];
 // Each class is about one kind of robot. Students only see these playgrounds; the Test lab is always included.
 const ROBOT_TYPES = {
-  line: { label: 'Line follower', arenas: ['line', 'lab'], seed: ['drive', 'see', 'follow', 'pid'] },
+  line: { label: 'Line follower', arenas: ['line', 'lab'], seed: ['drive', 'see', 'follow', 'pid1', 'pid2', 'pid3', 'pid'] },
   sumo: { label: 'Sumo robot', arenas: ['sumo', 'lab'], seed: ['drive', 'turn', 'edge', 'fight'] },
   rc: { label: 'RC robot', arenas: ['race', 'soccer', 'lab'], seed: ['drive', 'rc', 'soccer'] },
   obstacle: { label: 'Obstacle avoider', arenas: ['maze', 'lab'], seed: ['drive', 'turn', 'sonar'] },
@@ -40,7 +40,8 @@ const ROBOT_TYPES = {
 };
 const BUILTIN = {
   blocks: ['Your first blocks program', 'lab', 'lab'], blink: ['Blink the LED', 'lab', 'lab'], drive: ['Drive exactly 1 metre', 'lab', 'lab'], turn: ['Turn 90 degrees', 'lab', 'lab'],
-  see: ['See what the sensors see', 'line', 'oval'], follow: ['Follow the line with 2 sensors', 'line', 'oval'], pid: ['Tune a PID racer', 'line', 'snake'],
+  see: ['See what the sensors see', 'line', 'oval'], follow: ['Follow the line with 2 sensors', 'line', 'oval'], pid1: ['PID 1: Where is the line?', 'line', 'oval'], pid2: ['PID 2: P, steer smoothly', 'line', 'oval'],
+  pid3: ['PID 3: D, calm the wiggle', 'line', 'oval'], pid: ['PID 4: Calibrate and race', 'line', 'snake'],
   rc: ['Bluetooth RC driver', 'race', 'none'], sonar: ['Ultrasonic eyes', 'maze', 'room1'], edge: ['Stay inside the ring', 'sumo', 'none'], fight: ['Win a sumo match', 'sumo', 'hunter'], soccer: ['Score two goals', 'soccer', 'easy'],
 };
 const lowerLabel = l => (/^RC/.test(l) ? l : l.charAt(0).toLowerCase() + l.slice(1));

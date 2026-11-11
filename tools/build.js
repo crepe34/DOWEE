@@ -7,7 +7,7 @@ const ROOT = path.resolve(__dirname, '..'), src = f => fs.readFileSync(path.join
 
 const core = ['core-lang.js', 'core-sim.js', 'core-arenas.js', 'examples.js', 'templates.js', 'goals.js', 'challenges.js'].map(src).join('\n');
 fs.mkdirSync(path.join(ROOT, 'dist'), { recursive: true });
-fs.writeFileSync(path.join(ROOT, 'dist', 'core-all.js'), core);
+fs.writeFileSync(path.join(ROOT, 'dist', 'core-all.js'), core + '\n' + src('lessons.js'));
 
 const ui = src('ui.js');
 if (!ui.includes('/*@HOST@*/')) throw new Error('src/ui.js is missing the /*@HOST@*/ marker');

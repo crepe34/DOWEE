@@ -108,6 +108,24 @@ for (const c of M.CHALLENGES) {
   });
 }
 
+console.log('\nPID path lessons');
+// Each step's starter must fail its goal, and the finished step must pass it.
+const PID_FIX = {
+  pid1: [['    // TODO 1: add  v * position  to weighted\n', '    weighted += v * position;\n'], ['    // TODO 2: add  v  to total\n', '    total += v;\n'], ['  return 0;\n}', '  return weighted / total;\n}']],
+  pid2: [['  int turn = 0;', '  int turn = Kp * error;'], ['  drive(baseSpeed, baseSpeed);\n  delay(2);', '  drive(baseSpeed + turn, baseSpeed - turn);\n  delay(2);']],
+  pid3: [['  int turn = Kp * error;   // the P part, from step 2', '  int turn = Kp * error + Kd * change;']],
+};
+for (const [id, fix] of Object.entries(PID_FIX)) check(`${id}: starter fails, finished step passes`, () => {
+  const L = M.LESSONS.find(l => l.id === id);
+  const attempt = code => run(L.arena, L.variant, code, 60000, { until: L.check }).W;
+  want(!L.check(attempt(L.code)), 'the starter already reaches the goal');
+  let code = L.code;
+  for (const [a, b] of fix) { want(code.includes(a), `fix text not found: ${a.slice(0, 40)}`); code = code.replace(a, b); }
+  const W = attempt(code);
+  want(L.check(W), `the finished step does not reach the goal (laps: ${W.state.laps.map(l => l.time.toFixed(1)).join(', ') || 'none'})`);
+  return W.state.laps.map(l => `${l.time.toFixed(1)} s, wiggle ${Math.round(l.rms)} mm`).join('; ');
+});
+
 console.log('\nRepeatability');
 check('Ideal robot: same code, same result', () => {
   const a = run('line', 'snake', EXAMPLES.line.pid.code, 30000, { seed: 11 }), b = run('line', 'snake', EXAMPLES.line.pid.code, 30000, { seed: 999 });

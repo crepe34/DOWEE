@@ -45,6 +45,7 @@ Done:
 - Meet Dowee is a main tab (`showMeet()` / `showWork()` in `src/ui.js`) and the students' starting page. It has numbered parts, and the parts that matter for the class type are highlighted (`CLASS_TYPES`).
 - Students write their own code (`samplesLocked()` in `src/ui.js`): in a class, students (and guests) start from the class's template (Guided or Blank, set by the teacher) and only see the samples the teacher unlocked (`settings.unlocked`) or sent. Built-in lessons give them a TODO version (`todo` in `src/lessons.js`). The teacher and solo/offline use keep every sample.
 - Missions with stars and the hint ladder in the Lessons tab. Stars and hint use are reported to the teacher (`/api/stars`, `/api/hint`); the roster, Results and CSV show them. The teacher can turn hints off (`settings.hints`).
+- PID path (`PID_LESSONS` in `src/lessons.js`): pid1 the weighted-average error, pid2 P, pid3 D, then pid (calibrate and race). Each step's goal is out of reach for the step before; `npm test` checks the starters fail and the finished steps pass. New line follower classes get all four in their plan.
 - Ten fix-the-bug challenges. `npm test` checks that each broken program fails and its fix passes, that every template runs, and that every automatic mission can be reached.
 
 Next:
