@@ -894,7 +894,6 @@ function buildRobotPanel() {
           ${part(7, 'Light', 'LED 13', 'y', 'The LED_BUILTIN on the Arduino board.')}
           ${part(8, 'Power', '2 × 18650', 'p', '7.4 V battery pack.')}
         </dl>
-        <p class="note" style="margin:0 0 12px">${Math.round(cfg.length * 100)} × ${Math.round(cfg.width * 100)} cm · ${Math.round(cfg.mass * 1000)} g · about ${Math.round(cfg.vmax * 100)} cm/s at full power · needs a PWM of at least ${cfg.deadband} to start moving.</p>
         <div class="start-row"><button class="btn primary" id="startProg">Start programming: ${esc(ARENAS[goArena].name)} →</button><span class="note">The <b>Wiring</b> tab shows how every part connects.</span></div>
         ${unitHtml()}
         ${changed ? '<p class="note" style="margin-top:10px"><b>This Dowee has been changed</b> to match a real build. <button class="btn small" id="doweeReset">Reset to standard Dowee</button></p>' : ''}
