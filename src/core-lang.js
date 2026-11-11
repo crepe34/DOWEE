@@ -616,6 +616,7 @@ class Compiler {
     if (Object.prototype.hasOwnProperty.call(CONSTS, name)) return { constant: true, value: CONSTS[name][0], type: CONSTS[name][1] };
     if (this.funcs.has(name) || BUILTINS[name]) throw new CError(`${name} is a function — it needs ( ) after it.`, line, `Write ${name}( … )`);
     if (name === 'Serial') throw new CError('Serial needs a dot and a command, like Serial.println(x).', line);
+    if (/^_{3,}$/.test(name)) throw new CError("This line still has a blank (____). Replace it with your answer.", line, 'The BLANK comment just above it says what goes there.');
     throw new CError(`"${name}" was not declared.`, line, suggest(name, this.knownNames()) || 'Create it first, for example: int ' + name + ' = 0;');
   }
   writer(v) {

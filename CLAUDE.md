@@ -46,6 +46,11 @@ Done:
 - Students write their own code (`samplesLocked()` in `src/ui.js`): in a class, students (and guests) start from the class's template (Guided or Blank, set by the teacher) and only see the samples the teacher unlocked (`settings.unlocked`) or sent. Built-in lessons give them a TODO version (`todo` in `src/lessons.js`). The teacher and solo/offline use keep every sample.
 - Missions with stars and the hint ladder in the Lessons tab. Stars and hint use are reported to the teacher (`/api/stars`, `/api/hint`); the roster, Results and CSV show them. The teacher can turn hints off (`settings.hints`).
 - PID path (`PID_LESSONS` in `src/lessons.js`): pid1 the weighted-average error, pid2 P, pid3 D, then pid (calibrate and race). Each step's goal is out of reach for the step before; `npm test` checks the starters fail and the finished steps pass. New line follower classes get all four in their plan.
+- Advanced PID (`src/advanced-pid.js`, after `lessons.js` in the build):
+  - apid1: worksheet with blank boxes (`PIDI_FULL` with `{{n}}`, `PID_BLANKS`, `canonAnswer`);
+  - apid2: the same blanks as `____` in the editor (the compiler says "This line still has a blank");
+  - apid3: a guided build with 5 live checkpoints (`PIDI_GUIDE`) that read the student's globals with `globalOf`. Step 4 lends a Dowee with a 30% weaker right motor (`S.lessonRobot`) to show when I helps.
+  - Why the plain PID has no I: on a normal Dowee, I only adds wiggle, and without a limit it winds up and loses the line.
 - Ten fix-the-bug challenges. `npm test` checks that each broken program fails and its fix passes, that every template runs, and that every automatic mission can be reached.
 
 Next:

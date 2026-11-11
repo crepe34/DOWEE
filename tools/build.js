@@ -7,11 +7,11 @@ const ROOT = path.resolve(__dirname, '..'), src = f => fs.readFileSync(path.join
 
 const core = ['core-lang.js', 'core-sim.js', 'core-arenas.js', 'examples.js', 'templates.js', 'goals.js', 'challenges.js'].map(src).join('\n');
 fs.mkdirSync(path.join(ROOT, 'dist'), { recursive: true });
-fs.writeFileSync(path.join(ROOT, 'dist', 'core-all.js'), core + '\n' + src('lessons.js'));
+fs.writeFileSync(path.join(ROOT, 'dist', 'core-all.js'), core + '\n' + src('lessons.js') + '\n' + src('advanced-pid.js'));
 
 const ui = src('ui.js');
 if (!ui.includes('/*@HOST@*/')) throw new Error('src/ui.js is missing the /*@HOST@*/ marker');
-const script = [core, src('lessons.js'), ui.replace('/*@HOST@*/', () => src('host.js'))].join('\n');
+const script = [core, src('lessons.js'), src('advanced-pid.js'), ui.replace('/*@HOST@*/', () => src('host.js'))].join('\n');
 new Function(script); // syntax check
 const html = `<!doctype html>
 <html lang="en">
@@ -34,7 +34,7 @@ fs.copyFileSync(path.join(ROOT, 'src', 'styles.css'), path.join(APP, 'styles.css
 // metadata for the teacher dashboard
 const ctx = { module: undefined, console };
 vm.createContext(ctx);
-vm.runInContext(`${core}\n${src('lessons.js')}\n;this.__meta = {
+vm.runInContext(`${core}\n${src('lessons.js')}\n${src('advanced-pid.js')}\n;this.__meta = {
   arenas: Object.fromEntries(Object.entries(ARENAS).map(([k, a]) => [k, { name: a.name, variants: a.variants, variantLabel: a.variantLabel, rc: !!a.rc }])),
   examples: Object.fromEntries(Object.entries(EXAMPLES).map(([k, ex]) => [k, Object.fromEntries(Object.entries(ex).map(([e, v]) => [e, { name: v.name, code: v.code }]))])),
   lessons: LESSONS.map(l => ({ id: l.id, title: l.title, level: l.level, arena: l.arena, variant: l.variant, goal: l.goal, intro: l.intro, blocks: !!l.blocks, bug: !!l.bug })),

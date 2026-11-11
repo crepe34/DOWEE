@@ -171,7 +171,7 @@ function needsB() { const v = S.variant[S.arena]; return v === 'code' || v === '
 function setArena(id, keepCode) {
   if (!allowed(id)) { toast(S.lockedArena ? 'Your teacher has locked the class to one activity' : `This class doesn't use ${ARENAS[id].name}. Pick one of the playgrounds at the top.`); return false; }
   stop();
-  if (S.arena !== id) S.compiled = {};
+  if (S.arena !== id) { S.compiled = {}; S.lessonRobot = null; }
   S.arena = id; store.set('arena', id);
   buildArenaTabs();
   const A = ARENAS[id];
@@ -246,7 +246,8 @@ const cv = $('#cv'), ctx = cv.getContext('2d');
 let view = { s: 100, ox: 0, oy: 0, dpr: 1, w: 0, h: 0 }, floorCache = null;
 function oppMode() { const v = S.variant[S.arena]; return ['line', 'maze', 'lab'].includes(S.arena) ? 'none' : v; }
 function resetWorld() {
-  const cfg = cfgFor(S.arena);
+  // a lesson can lend a different Dowee for an experiment (for example a weaker right motor)
+  const cfg = S.lessonRobot ? { ...cfgFor(S.arena), ...S.lessonRobot } : cfgFor(S.arena);
   const battle = !!S.classMatch;
   S.W = buildWorld(S.arena, S.variant[S.arena], {
     customTrack: S.customTrack, start: S.start, seed: S.runN + 1,
@@ -352,7 +353,7 @@ function frame(now) {
     }
     pollGamepads();
     handleEvents();
-    if (now - (S.lastCheck || 0) > 200) { S.lastCheck = now; if (S.lesson) checkLesson(); checkMissions(); }
+    if (now - (S.lastCheck || 0) > 200) { S.lastCheck = now; if (S.lesson) { checkLesson(); checkGuide(); } checkMissions(); }
   }
   S.last = now;
   draw();
@@ -1028,15 +1029,99 @@ function buildLessons() {
   $('#lessonBox').innerHTML = `${missionsHtml()}<div class="lesson-list">${acts.length ? `<p class="lbl" style="margin:0 0 2px">From your teacher</p>${acts.map(item).join('')}<p class="lbl" style="margin:10px 0 2px">All lessons</p>` : ''}${lessons.map(item).join('')}</div>
   <div class="lesson-body"><h3>${esc(L.title)}</h3><p>${L.intro}</p><ol>${steps.map(s => `<li>${s}</li>`).join('')}</ol>
   ${hintsHtml(L.id, lessonHints(L))}
+  ${(L.base || L).worksheet ? worksheetHtml(L) : ''}${(L.base || L).guide ? guideHtml(L) : ''}
   <div class="goal ${isDone(L) && S.lesson === L.id ? 'done' : ''}" id="goalBox"><span>Goal: ${esc(L.goal)}${isDone(L) ? ' — done!' : ''}</span><button class="btn primary" id="lessonStart">${S.lesson === L.id ? 'Restart lesson' : 'Start this lesson'}</button></div></div>`;
   $$('#lessonBox .lesson-list button').forEach(b => b.addEventListener('click', () => { S.lessonView = b.dataset.id; const l = all.find(x => x.id === b.dataset.id); showLesson(l); }));
   $('#lessonStart').addEventListener('click', () => startLesson(L));
   $$('#lessonBox [data-hint]').forEach(b => b.addEventListener('click', () => revealHint(b.dataset.hint)));
+  bindWorksheet(L); bindGuide(L);
   $$('#lessonBox [data-askhand]').forEach(b => b.addEventListener('click', () => { const h = $('#handBtn'); if (h && !h.classList.contains('up')) h.click(); else toast('Your hand is up. Your teacher is coming!'); }));
 }
 // Built-in lessons start from a TODO version for classroom students (unless the teacher picked a starter).
 function usesTodo(L) { const b = L.base || L, st = L.starter; return samplesLocked() && !!b.todo && (!st || st.kind === 'lesson'); }
 function lessonHints(L) { const b = L.base || L; return b.hints || (usesTodo(L) ? b.todo.hints : null) || null; }
+
+/* ---------------- worksheet (fill in the blanks) ---------------- */
+const wsKey = L => 'ws:' + L.id;
+function worksheetHtml(L) {
+  const ans = store.get(progKey(wsKey(L)), []), res = S.wsResult && S.wsResult.id === L.id ? S.wsResult.ok : null;
+  const parts = PIDI_FULL.split(/\{\{(\d+)\}\}/);
+  let code = '';
+  parts.forEach((p, i) => {
+    if (i % 2 === 0) { code += esc(p); return; }
+    const n = +p, st = res ? (res[n - 1] ? 'right' : 'wrong') : '', v = ans[n - 1] || '';
+    code += `<span class="blank-wrap"><span class="bn">${n}</span><input class="blank ${st}" data-b="${n}" value="${esc(v)}" size="${Math.max(6, Math.min(40, (v.length || PID_BLANKS[n - 1].a[0].length) + 1))}" aria-label="Blank ${n}: ${esc(PID_BLANKS[n - 1].q.replace(/<[^>]+>/g, ''))}" spellcheck="false" autocomplete="off"></span>`;
+  });
+  const allRight = res && res.every(Boolean);
+  const qs = PID_BLANKS.map((b, i) => {
+    const ok = res ? res[i] : null;
+    const fb = ok === true ? '<span class="ok-mark">✓ right</span>' : ok === false ? (hintsAllowed() ? `<span class="hint-inline">Not yet. Hint: ${b.hint}</span>` : '<span class="hint-inline">Not yet. Try again!</span>') : '';
+    return `<li class="${ok === true ? 'right' : ok === false ? 'wrong' : ''}"><b>${i + 1}.</b> ${b.q} ${fb}</li>`;
+  }).join('');
+  return `<div class="worksheet"><h4>Worksheet: fill in the 10 blanks</h4>
+    <pre class="ws-code">${code}</pre>
+    <ol class="ws-q">${qs}</ol>
+    <div class="row"><button class="btn primary" data-ws="check">Check my answers</button><button class="btn" data-ws="put" ${allRight ? '' : 'disabled'}>Put it in my code</button><button class="btn" data-ws="try">Try it anyway</button>
+    ${res ? `<span class="note">${res.filter(Boolean).length} of ${res.length} right${allRight ? ': great, now race it!' : ''}</span>` : ''}</div></div>`;
+}
+function bindWorksheet(L) {
+  const box = $('#lessonBox .worksheet'); if (!box) return;
+  const save = () => { const a = []; $$('#lessonBox .blank').forEach(i => { a[+i.dataset.b - 1] = i.value; }); store.set(progKey(wsKey(L)), a); return a; };
+  $$('#lessonBox .blank').forEach(i => i.addEventListener('input', () => { save(); i.classList.remove('right', 'wrong'); i.size = Math.max(6, Math.min(40, i.value.length + 1)); }));
+  $$('#lessonBox [data-ws]').forEach(b => b.addEventListener('click', () => {
+    const a = save();
+    if (b.dataset.ws === 'check') {
+      const ok = PID_BLANKS.map((x, i) => blankRight(i, a[i]));
+      S.wsResult = { id: L.id, ok };
+      if (ok.some(v => !v) && hintsAllowed() && typeof hostHint === 'function') hostHint(L.id);
+      buildLessons();
+      const first = $('#lessonBox .blank.wrong'); if (first) first.focus();
+      return;
+    }
+    const empty = a.filter((v, i) => i < PID_BLANKS.length && !(v || '').trim()).length;
+    if (b.dataset.ws === 'try' && empty) { toast(`Fill in all the blanks first (${empty} still empty)`); return; }
+    if (S.arena !== L.arena) setArena(L.arena);
+    putCode(L.arena, 'A', fillBlanks(a)); S.robot = 'A'; updateRobotTabs(); loadEditor(); showWork();
+    toast(b.dataset.ws === 'put' ? 'Your PID program is in the editor. Press Upload & run!' : 'Your answers are in the editor. Press Upload & run and see what happens!');
+  }));
+}
+
+/* ---------------- guide with checkpoints ---------------- */
+const guideKey = L => 'guide:' + L.id;
+function guideDone(L) { return store.get(progKey(guideKey(L)), []); }
+function guideHtml(L) {
+  const G = (L.base || L).guide, done = guideDone(L), cur = G.findIndex((g, i) => !done.includes(i));
+  return `<div class="guide"><h4>Guide: ${done.length} of ${G.length} steps done</h4>${G.map((g, i) => {
+    const ok = done.includes(i), open = i === cur || (S.guideOpen && S.guideOpen[L.id] === i);
+    const weak = g.robot ? `<div class="row"><button class="btn small ${S.lessonRobot ? 'yellow' : ''}" data-weak="${i}">${S.lessonRobot ? 'Back to the normal Dowee' : 'Use the Dowee with a 30% weaker right motor'}</button>${S.lessonRobot ? '<span class="chip-weak">Weak-motor Dowee is on</span>' : ''}</div>` : '';
+    return `<details class="gstep ${ok ? 'done' : ''}" ${open ? 'open' : ''} data-gs="${i}"><summary><span class="gmk">${ok ? '✓' : i + 1}</span><b>${esc(g.title)}</b></summary>
+      <p>${g.text}</p>${weak}<p class="gcheck"><span class="tag">Checkpoint</span> ${g.check}${ok ? ' <b class="okc">done!</b>' : ''}</p>${hintsHtml(`${L.id}:${i}`, g.hints)}</details>`;
+  }).join('')}</div>`;
+}
+function bindGuide(L) {
+  $$('#lessonBox .gstep').forEach(d => d.addEventListener('toggle', () => { if (d.open) S.guideOpen = { ...(S.guideOpen || {}), [L.id]: +d.dataset.gs }; }));
+  $$('#lessonBox [data-weak]').forEach(b => b.addEventListener('click', () => {
+    const g = (L.base || L).guide[+b.dataset.weak];
+    if (S.lesson !== L.id) startLesson(L);
+    S.lessonRobot = S.lessonRobot ? null : { ...g.robot };
+    stop(); resetWorld(); buildLessons();
+    toast(S.lessonRobot ? 'This Dowee\'s right motor is 30% weaker. Press Upload & run.' : 'Back to the normal Dowee');
+  }));
+}
+function checkGuide() {
+  const L = findLesson(S.lesson); if (!L || L.arena !== S.arena) return;
+  const G = (L.base || L).guide; if (!G || !S.W) return;
+  const W = S.W, memo = W.guideMemo || (W.guideMemo = G.map(() => ({})));
+  const done = guideDone(L); let changed = false;
+  G.forEach((g, i) => {
+    if (done.includes(i)) return;
+    let ok = false; try { ok = g.ok(W, memo[i]); } catch (e) { ok = false; }
+    if (ok) { done.push(i); changed = true; banner(`Step ${i + 1} done: ${g.title}`, i + 1 < G.length ? `Next: ${G[i + 1].title}` : 'All steps done!', 3500); addTip(`Guide step ${i + 1} done: ${g.title}.`, 0, true); }
+  });
+  if (!changed) return;
+  store.set(progKey(guideKey(L)), done);
+  if (!$('#p-lessons').hidden) buildLessons();
+}
 
 /* ---------------- missions (stars) and hints ---------------- */
 const progKey = k => (typeof HOST !== 'undefined' && HOST.on && HOST.info ? `${k}:${HOST.info.classId}` : k);
@@ -1076,6 +1161,7 @@ function checkMissions() {
 }
 function showLesson(L) { S.lessonView = L.id; buildLessons(); }
 function startLesson(L) {
+  S.lessonRobot = null;
   if (!allowed(L.arena)) { toast(S.lockedArena ? 'Your teacher has locked the class to one activity' : `This class doesn't use ${ARENAS[L.arena].name}`); return; }
   S.lesson = L.id; S.lessonView = L.id;
   if (L.variant && ARENAS[L.arena].variants[L.variant]) { S.variant[L.arena] = L.variant; store.set('variant', S.variant); }

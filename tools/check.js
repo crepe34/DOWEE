@@ -126,6 +126,53 @@ for (const [id, fix] of Object.entries(PID_FIX)) check(`${id}: starter fails, fi
   return W.state.laps.map(l => `${l.time.toFixed(1)} s, wiggle ${Math.round(l.rms)} mm`).join('; ');
 });
 
+console.log('\nAdvanced PID lessons');
+{
+  const lineRun = (code, variant, mis, ms = 45000) => {
+    const W = M.buildWorld('line', variant, { realism: 'ideal', unitA: 1 }, M.makeCfg('dowee', { mismatch: mis || 0 }), M.makeCfg('dowee'), 'none');
+    const r = W.robots[0]; r.board.onError = e => { throw new Error(`program crashed: ${e.message} (line ${e.line})`); };
+    r.board.load(M.compileArduino(code, r.board), 0);
+    const memos = M.PIDI_GUIDE.map(() => ({})), hit = M.PIDI_GUIDE.map(() => false);
+    for (let i = 0; i < ms; i++) { W.step(); if (i % 200 === 0) M.PIDI_GUIDE.forEach((g, k) => { if (!hit[k] && g.ok(W, memos[k])) hit[k] = true; }); }
+    return { W, hit, laps: W.state.laps.map(l => `${l.time.toFixed(1)} s/${Math.round(l.rms)} mm`).join(', ') };
+  };
+  check('worksheet: every blank filled with its answer laps the Snake under 16 s', () => {
+    const { W, laps } = lineRun(M.fillBlanks(M.PID_BLANKS.map(b => b.a[0])), 'snake');
+    want(W.state.laps.some(l => l.time < 16), `laps: ${laps || 'none'}`);
+    return laps;
+  });
+  check('worksheet: answers are checked fairly', () => {
+    M.PID_BLANKS.forEach((b, i) => b.a.forEach(a => want(M.blankRight(i, a), `blank ${i + 1} rejects its own answer "${a}"`)));
+    want(M.blankRight(7, 'Kd*change + Ki * integral+error*Kp;'), 'the PID formula in another order is rejected');
+    want(M.blankRight(1, 'weighted = weighted + position * v'), 'x = x + y form is rejected');
+    want(!M.blankRight(4, 'lastError - error'), 'a wrong D part is accepted');
+    want(!M.blankRight(8, 'baseSpeed - turn, baseSpeed + turn'), 'swapped wheels are accepted');
+  });
+  check('in-editor blanks: Upload says a line still has a blank', () => {
+    try { M.compileArduino(M.PIDI_EDITOR, new M.Board({ cfg: M.makeCfg('dowee') })); } catch (e) { want(/still has a blank/.test(e.message), e.message); return `line ${e.line}`; }
+    want(false, 'the blank version compiled');
+  });
+  const step = {
+    1: c => c.replace(`    // TODO: spin one way, then the other. (millis() - start tells you how long you have been sweeping.)\n\n    // TODO: for each sensor i, update minV[i] and maxV[i].\n\n`, `    unsigned long t = millis() - start;\n    if (t < 250 || (t >= 750 && t < 1250) || t >= 1750) drive(-120, 120); else drive(120, -120);\n    for (int i = 0; i < 5; i++) {\n      int v = analogRead(A0 + i);\n      if (v < minV[i]) minV[i] = v;\n      if (v > maxV[i]) maxV[i] = v;\n    }\n`),
+    2: c => c.replace(`  // TODO: map the reading from minV[i]..maxV[i] to 0..1000, then constrain it to 0..1000.\n  return 0;`, `  long v = map(analogRead(A0 + i), minV[i], maxV[i], 0, 1000);\n  return constrain(v, 0, 1000);`)
+            .replace(`  // TODO: the weighted average of the five sensors, like in PID 1.\n  // If no sensor sees the line, return 2000 or -2000 (the side you saw it last).\n  return 0;`, `  long weighted = 0;\n  long total = 0;\n  for (int i = 0; i < 5; i++) {\n    int v = readSensor(i);\n    if (v < 100) v = 0;\n    weighted += (long)v * (i - 2) * 1000;\n    total += v;\n  }\n  if (total < 300) return lastError > 0 ? 2000 : -2000;\n  return weighted / total;`),
+    3: c => c.replace('  int turn = 0;\n  if (error > 300) turn = 50;\n  if (error < -300) turn = -50;', '  int turn = Kp * error + Kd * (error - lastError);'),
+    4: (c, lim = true) => c.replace('  int turn = Kp * error + Kd * (error - lastError);', `  integral += error;\n${lim ? '  integral = constrain(integral, -iLimit, iLimit);\n' : ''}  int turn = Kp * error + Ki * integral + Kd * (error - lastError);`).replace('float Kp = 0.08;', 'float Kp = 0.04;').replace('float Ki = 0.0;', 'float Ki = 0.001;'),
+    5: c => c.replace('float Kp = 0.04;', 'float Kp = 0.08;').replace('float Ki = 0.001;', 'float Ki = 0.0002;').replace('int baseSpeed = 150;', 'int baseSpeed = 180;'),
+  };
+  const G = M.PIDI_GUIDED;
+  check('guided template: the empty template runs and ticks nothing', () => { const { hit } = lineRun(G, 'oval', 0, 8000); want(!hit.some(Boolean), `ticked step(s) ${hit.map((h, k) => h ? k + 1 : '').join('')}`); });
+  let c = G;
+  const where = { 1: ['oval'], 2: ['oval'], 3: ['oval'], 4: ['oval', 30], 5: ['snake'] };
+  for (const n of [1, 2, 3, 4, 5]) {
+    c = n === 5 ? step[5](c).replace('float Kp = 0.08;', 'float Kp = 0.1;').replace('float Kd = 1.5;', 'float Kd = 2;').replace('int baseSpeed = 180;', 'int baseSpeed = 200;').replace('float Ki = 0.0002;', 'float Ki = 0;') : step[n](c);
+    const code = c;
+    check(`guided step ${n} (${M.PIDI_GUIDE[n - 1].title}) ticks with the reference solution`, () => { const r = lineRun(code, ...where[n]); want(r.hit[n - 1], `not ticked (laps: ${r.laps || 'none'})`); return r.laps; });
+  }
+  check('guided step 4 needs I: PD with a gentle Kp does not tick', () => { const r = lineRun(step[3](step[2](step[1](G))).replace('float Kp = 0.08;', 'float Kp = 0.04;'), 'oval', 30); want(!r.hit[3], 'ticked without I'); return r.laps; });
+  check('guided step 4 needs the anti-windup limit', () => { const r = lineRun(step[4](step[3](step[2](step[1](G))), false), 'oval', 30); want(!r.hit[3], 'ticked without the limit'); return r.laps || 'no lap: windup'; });
+}
+
 console.log('\nRepeatability');
 check('Ideal robot: same code, same result', () => {
   const a = run('line', 'snake', EXAMPLES.line.pid.code, 30000, { seed: 11 }), b = run('line', 'snake', EXAMPLES.line.pid.code, 30000, { seed: 999 });

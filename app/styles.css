@@ -331,3 +331,30 @@ details.adv summary { cursor: pointer; font-weight: 800; }
 .hint-step { display: flex; gap: 8px; align-items: flex-start; border-left: 3px solid var(--signal); background: var(--signal-soft); border-radius: 0 8px 8px 0; padding: 6px 10px; max-width: 66ch; line-height: 1.5; }
 .hint-step .tag { flex: none; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding-top: 2px; }
 .hint-step pre { margin: 4px 0 0; font: 12.5px/1.5 var(--font-mono); white-space: pre-wrap; }
+
+/* fill-in-the-blanks worksheet */
+.worksheet, .guide { margin: 12px 0; border: 1.5px solid var(--line); border-radius: 12px; background: var(--panel); padding: 10px 12px; }
+.worksheet h4, .guide h4 { margin: 0 0 8px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.ws-code { margin: 0 0 10px; max-height: 420px; overflow: auto; background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; font: 12.5px/1.75 var(--font-mono); font-variant-ligatures: none; color: var(--code-ink); white-space: pre; }
+.blank-wrap { display: inline-flex; align-items: center; gap: 3px; vertical-align: baseline; }
+.blank-wrap .bn { font: 800 10px/1 var(--font-body); background: var(--purple); color: #fff; border-radius: 8px; padding: 2px 5px; }
+.blank { font: inherit; line-height: 1.3; padding: 0 5px; border: 1.5px dashed var(--purple); border-radius: 6px; background: #fff; color: var(--ink); min-width: 4ch; }
+.blank:focus { outline: 2px solid var(--blue); outline-offset: 1px; border-style: solid; }
+.blank.right { border: 1.5px solid var(--ok); background: #e8f5df; }
+.blank.wrong { border: 1.5px solid var(--signal); background: var(--signal-soft); }
+.ws-q { margin: 0 0 10px; padding-left: 0; list-style: none; display: grid; gap: 4px; font-size: 13.5px; line-height: 1.5; }
+.ws-q li.right { color: var(--ok); }
+.ws-q .ok-mark { font-weight: 800; }
+.ws-q .hint-inline { display: block; color: var(--ink); background: var(--signal-soft); border-left: 3px solid var(--signal); border-radius: 0 6px 6px 0; padding: 2px 8px; margin-top: 2px; }
+
+/* step-by-step guide with checkpoints */
+.gstep { border: 1px solid var(--line); border-radius: 9px; margin-top: 6px; background: var(--panel-2); }
+.gstep summary { cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 7px 10px; font-size: 14px; }
+.gstep[open] summary { border-bottom: 1px solid var(--line); }
+.gstep > p, .gstep > .row, .gstep > .hints { margin: 8px 12px; max-width: 70ch; line-height: 1.55; }
+.gmk { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--sunk); font-size: 12.5px; font-weight: 800; }
+.gstep.done .gmk { background: var(--ok); color: #fff; }
+.gcheck { background: #fff; border: 1px dashed var(--accent); border-radius: 8px; padding: 6px 10px; }
+.gcheck .tag { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-right: 4px; }
+.gcheck .okc { color: var(--ok); }
+.chip-weak { font-size: 12px; font-weight: 800; padding: 2px 9px; border-radius: 20px; background: var(--signal-soft); border: 1px solid var(--signal); }

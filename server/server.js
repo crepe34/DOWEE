@@ -42,6 +42,7 @@ const BUILTIN = {
   blocks: ['Your first blocks program', 'lab', 'lab'], blink: ['Blink the LED', 'lab', 'lab'], drive: ['Drive exactly 1 metre', 'lab', 'lab'], turn: ['Turn 90 degrees', 'lab', 'lab'],
   see: ['See what the sensors see', 'line', 'oval'], follow: ['Follow the line with 2 sensors', 'line', 'oval'], pid1: ['PID 1: Where is the line?', 'line', 'oval'], pid2: ['PID 2: P, steer smoothly', 'line', 'oval'],
   pid3: ['PID 3: D, calm the wiggle', 'line', 'oval'], pid: ['PID 4: Calibrate and race', 'line', 'snake'],
+  apid1: ['Advanced PID 1: Fill in the blanks (worksheet)', 'line', 'snake'], apid2: ['Advanced PID 2: Fill in the blanks (in the editor)', 'line', 'snake'], apid3: ['Advanced PID 3: Build your own PID racer', 'line', 'oval'],
   rc: ['Bluetooth RC driver', 'race', 'none'], sonar: ['Ultrasonic eyes', 'maze', 'room1'], edge: ['Stay inside the ring', 'sumo', 'none'], fight: ['Win a sumo match', 'sumo', 'hunter'], soccer: ['Score two goals', 'soccer', 'easy'],
 };
 const lowerLabel = l => (/^RC/.test(l) ? l : l.charAt(0).toLowerCase() + l.slice(1));

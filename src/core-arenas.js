@@ -205,6 +205,7 @@ function buildArena(id, variant, opts = {}) {
 function buildWorld(arenaId, variant, opts, cfgA, cfgB, oppMode) {
   const A = buildArena(arenaId, variant, opts);
   const W = new World(A);
+  W.variant = variant;
   W.events = [];
   const level = opts.realism || 'ideal';
   W.env = makeEnv(level, opts.tableSeed || 11, arenaId);
