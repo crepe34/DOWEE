@@ -2465,6 +2465,293 @@ const DEFAULT_EXAMPLE = { line: 'pid', race: 'rc', soccer: 'rc', sumo: 'basic', 
 if (typeof module !== 'undefined') module.exports.EXAMPLES = EXAMPLES;
 
 /* =====================================================================
+   Student templates: the starting program for each playground when a
+   student is in a class. "guided" has the wiring and sensor reading done
+   and the thinking left as TODO steps. "blank" has only the wiring.
+   Missions are small checked goals (one star each). Hints go from a
+   nudge to a code snippet.
+   ===================================================================== */
+const SONAR_FN = `// Measures the distance in front of Dowee in cm (999 = nothing seen). Done for you.
+long readDistanceCm() {
+  digitalWrite(TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG, LOW);
+  long duration = pulseIn(ECHO, HIGH, 30000);
+  if (duration == 0) return 999;
+  return duration * 0.034 / 2;
+}`;
+const blankOf = (title, about, extraPins, extraSetup, extraFns) => `// ${title}: your own program
+// ${about}
+
+${MOTOR_SETUP}${extraPins ? '\n' + extraPins : ''}
+
+void setup() {
+${PINMODES}${extraSetup ? '\n' + extraSetup : ''}
+  Serial.begin(9600);
+}
+
+${DRIVE_FN}${extraFns ? '\n\n' + extraFns : ''}
+
+void loop() {
+  // Write your program here.
+}
+`;
+const SONAR_PINS = 'const int TRIG = 11;\nconst int ECHO = 12;', SONAR_SETUP = '  pinMode(TRIG, OUTPUT);\n  pinMode(ECHO, INPUT);';
+
+const RC_GUIDED = `// RC car template (Guided)
+// The HC-05 Bluetooth module is on pins 0 and 1. The phone app or keyboard sends letters:
+//   F = forward, B = back, L = left, R = right, S = stop
+// Each TODO is one letter. Do them in order and test after each one!
+
+${MOTOR_SETUP}
+
+int speed = 200;   // 0-255
+
+void setup() {
+${PINMODES}
+  Serial.begin(9600);
+}
+
+${DRIVE_FN}
+
+void loop() {
+  if (Serial.available() > 0) {
+    char cmd = Serial.read();   // the letter that just arrived
+
+    if (cmd == 'F') {
+      drive(speed, speed);      // forward: done for you
+    }
+    // TODO 1: if cmd is 'B', drive backwards (use negative speeds).
+
+    // TODO 2: if cmd is 'L', spin left: left wheel backwards, right wheel forwards.
+
+    // TODO 3: if cmd is 'R', spin right.
+
+    // TODO 4: if cmd is 'S', stop with drive(0, 0);
+  }
+}
+`;
+
+const TEMPLATES = {
+  line: {
+    name: 'Line follower',
+    guided: `// Line follower template (Guided)
+// Five IR sensors look at the floor: A0 (far left) ... A4 (far right).
+// analogRead gives a BIG number on black (about 950) and a small one on white (about 100).
+// Fill in the TODOs in loop(), then press Upload & run.
+
+${MOTOR_SETUP}
+
+int speed = 140;   // cruising speed, 0-255
+int black = 500;   // above this number = the sensor sees the black line
+
+void setup() {
+${PINMODES}
+  Serial.begin(9600);
+}
+
+${DRIVE_FN}
+
+void loop() {
+  int left = analogRead(A1);     // left-middle sensor
+  int middle = analogRead(A2);   // centre sensor
+  int right = analogRead(A3);    // right-middle sensor
+
+  // TODO 1: if the MIDDLE sensor sees black (middle > black), drive straight.
+
+  // TODO 2: else if the LEFT sensor sees black, the line is on the left: turn left.
+  //         (Make the left wheel slower than the right one.)
+
+  // TODO 3: else if the RIGHT sensor sees black, turn right.
+
+  // TODO 4: what should Dowee do when no sensor sees the line? Try something!
+}
+`,
+    blank: blankOf('Line follower', 'Five IR sensors on A0 (far left) to A4 (far right). Black is about 950, white about 100. Use analogRead and drive(left, right).'),
+    hints: [
+      'Open the <b>Sensors &amp; pins</b> tab while Dowee sits on the line. Which sensors show a big number?',
+      'A line follower is a chain of <code class="k">if</code> … <code class="k">else if</code> … <code class="k">else</code>: check the middle first, then the left, then the right.',
+      'To turn <b>left</b>, the left wheel goes slower than the right wheel, for example <code class="k">drive(0, speed)</code>.',
+      '<pre>if (middle &gt; black) {\n  drive(speed, speed);\n} else if (left &gt; black) {\n  drive(0, speed);\n} else if (right &gt; black) {\n  drive(speed, 0);\n}</pre>',
+    ],
+    missions: [
+      { text: 'Finish one lap of the Oval', variant: 'oval', goal: { type: 'laps', n: 1 } },
+      { text: 'Finish one lap of the Snake', variant: 'snake', goal: { type: 'laps', n: 1 } },
+      { text: 'Lap the Snake in under 15 seconds', variant: 'snake', goal: { type: 'lapTime', sec: 15 } },
+    ],
+  },
+  race: {
+    name: 'RC car',
+    guided: RC_GUIDED,
+    blank: blankOf('RC car', 'The HC-05 Bluetooth module is on pins 0/1. Read the letters with Serial.available() and Serial.read(): F B L R S.'),
+    hints: [
+      'Press <b>Upload &amp; run</b>, then press the up arrow key (or F on the phone). Forward already works: copy that <code class="k">if</code> for the other letters.',
+      'Every letter gets its own <code class="k">if (cmd == \'B\') { … }</code>. Use single quotes around a letter.',
+      'Backwards means negative speeds: <code class="k">drive(-speed, -speed)</code>. Spinning left means <code class="k">drive(-speed, speed)</code>.',
+      '<pre>if (cmd == \'B\') drive(-speed, -speed);\nif (cmd == \'L\') drive(-speed / 2, speed / 2);\nif (cmd == \'R\') drive(speed / 2, -speed / 2);\nif (cmd == \'S\') drive(0, 0);</pre>',
+    ],
+    missions: [
+      { text: 'Drive 3 metres in total', goal: { type: 'drive', cm: 300 } },
+      { text: 'Finish one lap of the time trial', variant: 'none', goal: { type: 'laps', n: 1 } },
+      { text: 'Lap the time trial in under 25 seconds (faster than the easy AI)', variant: 'none', goal: { type: 'lapTime', sec: 25 } },
+    ],
+  },
+  soccer: {
+    name: 'RC soccer player',
+    guided: RC_GUIDED.replace('// RC car template (Guided)', '// RC soccer template (Guided)'),
+    blank: blankOf('RC soccer player', 'The HC-05 Bluetooth module is on pins 0/1. Read the letters with Serial.available() and Serial.read(): F B L R S.'),
+    hints: null, // same as race
+    missions: [
+      { text: 'Score a goal with no opponent', variant: 'none', goal: { type: 'goals', n: 1 } },
+      { text: 'Score 3 goals with no opponent', variant: 'none', goal: { type: 'goals', n: 3 } },
+      { text: 'Score a goal against the easy AI', variant: 'easy', goal: { type: 'goals', n: 1 } },
+    ],
+  },
+  sumo: {
+    name: 'Sumo robot',
+    guided: `// Sumo template (Guided)
+// Edge sensors: A0 = far left, A4 = far right. The black ring reads about 950, the white edge about 100.
+// Ultrasonic "eyes": TRIG on 11, ECHO on 12 tell you how far away the opponent is.
+
+${MOTOR_SETUP}
+${SONAR_PINS}
+
+int edgeLimit = 400;    // below this number = white edge
+int attackRange = 60;   // cm: charge when the opponent is closer than this
+int searchSpeed = 120;
+
+void setup() {
+${PINMODES}
+${SONAR_SETUP}
+  Serial.begin(9600);
+  delay(5000);          // sumo rule: wait 5 seconds after the start
+}
+
+${DRIVE_FN}
+
+${SONAR_FN}
+
+void loop() {
+  int left = analogRead(A0);
+  int right = analogRead(A4);
+  long d = readDistanceCm();
+
+  // TODO 1: if left OR right is below edgeLimit, Dowee is on the white edge!
+  //         Back up for a moment, turn around, then write  return;  to start loop() again.
+
+  // TODO 2: if the opponent is closer than attackRange, charge at full speed (255).
+
+  // TODO 3: otherwise spin slowly to search for the opponent:
+  drive(searchSpeed, -searchSpeed);
+}
+`,
+    blank: blankOf('Sumo robot', 'Edge sensors on A0 and A4 (black ring about 950, white edge about 100). Ultrasonic on TRIG 11 / ECHO 12.', SONAR_PINS, SONAR_SETUP, SONAR_FN),
+    hints: [
+      'Stay in the ring first, win later. Do <b>TODO 1</b> and test it with no opponent before anything else.',
+      '"Left OR right" is written with <code class="k">||</code>: <code class="k">if (left &lt; edgeLimit || right &lt; edgeLimit) { … }</code>',
+      'To back up: <code class="k">drive(-220, -220); delay(250);</code>. Then turn with opposite wheel speeds and another short delay.',
+      '<pre>if (left &lt; edgeLimit || right &lt; edgeLimit) {\n  drive(-220, -220);\n  delay(250);\n  drive(200, -200);\n  delay(220);\n  return;\n}\nif (d &lt; attackRange) {\n  drive(255, 255);\n  return;\n}</pre>',
+    ],
+    missions: [
+      { text: 'Drive around for 20 seconds without falling off', goal: { type: 'survive', sec: 20 } },
+      { text: 'Beat the Statue', variant: 'statue', goal: { type: 'winSumo' } },
+      { text: 'Beat the Hunter', variant: 'hunter', goal: { type: 'winSumo' } },
+    ],
+  },
+  maze: {
+    name: 'Obstacle avoider',
+    guided: `// Obstacle avoider template (Guided)
+// The ultrasonic sensor (TRIG 11, ECHO 12) measures how far away the nearest wall is.
+// Fill in the TODOs so Dowee drives around without bumping into things.
+
+${MOTOR_SETUP}
+${SONAR_PINS}
+
+int safeDistance = 25;   // cm: closer than this is too close
+int cruise = 180;        // driving speed
+
+void setup() {
+${PINMODES}
+${SONAR_SETUP}
+  Serial.begin(9600);
+}
+
+${DRIVE_FN}
+
+${SONAR_FN}
+
+void loop() {
+  long d = readDistanceCm();
+  Serial.println(d);       // watch the distance in the Serial monitor
+
+  // TODO 1: if something is closer than safeDistance, back up a little,
+  //         then turn for a moment (for example drive(-170, 170); delay(300);).
+
+  // TODO 2: otherwise drive forward at cruise speed.
+
+  delay(30);
+}
+`,
+    blank: blankOf('Obstacle avoider', 'Ultrasonic sensor on TRIG 11 / ECHO 12: readDistanceCm() gives the distance in cm.', SONAR_PINS, SONAR_SETUP, SONAR_FN),
+    hints: [
+      'Run it and watch the <b>Serial monitor</b>. Push Dowee towards a wall: how does the number change?',
+      'You need one <code class="k">if</code> and one <code class="k">else</code>: "too close" or "all clear".',
+      'If Dowee always turns the same way it can get stuck in a corner. <code class="k">random(250, 500)</code> gives a different turn time each time.',
+      '<pre>if (d &lt; safeDistance) {\n  drive(-150, -150);\n  delay(200);\n  drive(-170, 170);\n  delay(random(250, 500));\n} else {\n  drive(cruise, cruise);\n}</pre>',
+    ],
+    missions: [
+      { text: 'Drive 2 metres in total', goal: { type: 'drive', cm: 200 } },
+      { text: 'Reach the green goal in Room 1', variant: 'room1', goal: { type: 'reachGoal', sec: 0 } },
+      { text: 'Reach the green goal in Room 1 in under 60 seconds', variant: 'room1', goal: { type: 'reachGoal', sec: 60 } },
+    ],
+  },
+  lab: {
+    name: 'Test lab',
+    guided: `// Test lab template (Guided)
+// Make Dowee move exactly how you want. Watch "Distance" and "Turned" in the top-left.
+
+${MOTOR_SETUP}
+
+int speed = 180;   // 0-255
+
+void setup() {
+${PINMODES}
+  pinMode(LED_BUILTIN, OUTPUT);
+  Serial.begin(9600);
+
+  // TODO 1: drive forward with drive(speed, speed);
+
+  // TODO 2: wait with delay(...). How many milliseconds for 1 metre? Test and change it!
+
+  // TODO 3: stop with drive(0, 0);
+}
+
+${DRIVE_FN}
+
+void loop() {
+  // Code here runs again and again. For a single move, setup() is enough.
+}
+`,
+    blank: blankOf('Test lab', 'Drive, turn and blink the LED (pin 13). Watch "Distance" and "Turned" in the top-left.', '', '  pinMode(LED_BUILTIN, OUTPUT);'),
+    hints: [
+      'Code in <code class="k">setup()</code> runs once. That is perfect for "drive, wait, stop".',
+      '<code class="k">delay(1000)</code> waits one second while the motors keep running.',
+      'Too short? Make the delay bigger. Too far? Make it smaller. Real robots are tuned like this too.',
+      '<pre>drive(speed, speed);\ndelay(1400);\ndrive(0, 0);</pre>',
+    ],
+    missions: [
+      { text: 'Stop between 95 and 105 cm from the start', goal: { type: 'distance', cm: 100, tol: 5 } },
+      { text: 'Turn 90° (±5°) and stop', goal: { type: 'turn', deg: 90, tol: 5 } },
+      { text: 'Blink the LED 10 times', goal: { type: 'blinks', n: 10 } },
+    ],
+  },
+};
+TEMPLATES.soccer.hints = TEMPLATES.race.hints;
+if (typeof module !== 'undefined') module.exports.TEMPLATES = TEMPLATES;
+
+/* =====================================================================
    Goal types a teacher can pick for a classroom activity.
    check(W, p) runs in the student's simulator; the result is reported
    to the teacher's laptop when it first becomes true.
@@ -2488,6 +2775,140 @@ const GOAL_TYPES = {
 };
 function goalDefaults(type) { const g = { type }; for (const [k, v] of Object.entries((GOAL_TYPES[type] || GOAL_TYPES.none).params)) g[k] = v.def; return g; }
 if (typeof module !== 'undefined') module.exports.GOAL_TYPES = GOAL_TYPES;
+
+/* =====================================================================
+   Fix-the-bug challenges: short programs with one mistake each.
+   Each shows up as a lesson ("Fix the bug" level) with its own goal,
+   which the broken program cannot reach.
+   ===================================================================== */
+// How far Dowee moved forward (in metres) along the direction it started in.
+const forwardOf = r => (r.x - r.start.x) * Math.cos(r.start.th) + (r.y - r.start.y) * Math.sin(r.start.th);
+const stillA = W => { const r = W.robots[0]; return Math.hypot(r.vx, r.vy) < 0.005 && Math.abs(r.w) < 0.02; };
+const driveStraight = fix => `// Drive forward for driveTime ms, then stop.
+${MOTOR_SETUP}
+
+int speed = 180;
+int driveTime = 1500;   // milliseconds
+
+void setup() {
+${fix.pinModes || PINMODES}
+  drive(speed, speed);
+  delay(driveTime)${fix.semi || ';'}
+  drive(0, 0);
+}
+
+${fix.driveFn || DRIVE_FN}
+
+void loop() {
+}
+`;
+const bangWith = (loopBody, extra) => `// 2-sensor line follower. A1 = left-middle, A3 = right-middle. HIGH = sees the black line.
+${MOTOR_SETUP}
+
+int speed = 150;
+
+void setup() {
+${PINMODES}
+}
+
+${DRIVE_FN}
+
+void loop() {
+  int left = digitalRead(A1);
+  int right = digitalRead(A3);
+${loopBody}${extra || ''}
+}
+`;
+const BANG_OK = `
+  if (left == HIGH && right == LOW) {
+    drive(0, speed);          // line on the left: turn left
+  } else if (right == HIGH && left == LOW) {
+    drive(speed, 0);          // line on the right: turn right
+  } else {
+    drive(speed, speed);      // go straight
+  }`;
+const lapOnce = W => W.state.laps && W.state.laps.length >= 1;
+const forwardStop = W => W.time > 600 && stillA(W) && forwardOf(W.robots[0]) > 0.5;
+
+const CHALLENGES = [
+  { id: 'bug-backwards', title: 'Bug: Dowee goes backwards', arena: 'lab', variant: 'lab',
+    intro: 'This program should drive Dowee <b>forward</b> and stop. Instead it drives backwards! One small thing is the wrong way round.',
+    code: driveStraight({ driveFn: DRIVE_FN.replace('digitalWrite(IN1, left >= 0 ? HIGH : LOW);\n  digitalWrite(IN2, left >= 0 ? LOW : HIGH);', 'digitalWrite(IN1, left >= 0 ? LOW : HIGH);\n  digitalWrite(IN2, left >= 0 ? HIGH : LOW);').replace('digitalWrite(IN3, right >= 0 ? HIGH : LOW);\n  digitalWrite(IN4, right >= 0 ? LOW : HIGH);', 'digitalWrite(IN3, right >= 0 ? LOW : HIGH);\n  digitalWrite(IN4, right >= 0 ? HIGH : LOW);') }),
+    hints: ['The speeds in <code class="k">drive(speed, speed)</code> are positive, so the problem is inside the <code class="k">drive()</code> function.', 'IN1 and IN2 choose the direction of the left motor. HIGH/LOW means forward, LOW/HIGH means backwards.', 'Swap HIGH and LOW in the four <code class="k">digitalWrite</code> lines of <code class="k">drive()</code>.'],
+    goal: 'Drive forward at least 50 cm and stop', check: forwardStop },
+  { id: 'bug-pinmode', title: 'Bug: Dowee only turns', arena: 'lab', variant: 'lab',
+    intro: 'Dowee should drive straight, but it only turns in a curve. One motor is not getting its direction signal. Read the messages under the code!',
+    code: driveStraight({ pinModes: '  pinMode(IN1, OUTPUT);\n  pinMode(IN2, OUTPUT);' }),
+    hints: ['Look at the yellow tip under the code after you run it.', 'Every pin you use with <code class="k">digitalWrite</code> needs <code class="k">pinMode(pin, OUTPUT)</code> in setup() first.', 'Add <code class="k">pinMode(IN3, OUTPUT);</code> and <code class="k">pinMode(IN4, OUTPUT);</code> to setup().'],
+    goal: 'Drive forward at least 50 cm and stop', check: W => forwardStop(W) && Math.abs(W.robots[0].headingAcc) < 0.2 },
+  { id: 'bug-semicolon', title: 'Bug: it won\'t upload', arena: 'lab', variant: 'lab',
+    intro: 'Press <b>Upload &amp; run</b>: the program doesn\'t even start. Read the red error message. It tells you the line and what is missing.',
+    code: driveStraight({ semi: ' ' }),
+    hints: ['Click the red error message: it jumps to the line with the problem.', 'In Arduino C almost every line ends with a semicolon <code class="k">;</code>', 'Look at the line just before the one in the error: <code class="k">delay(driveTime)</code> is missing its <code class="k">;</code>'],
+    goal: 'Drive forward at least 50 cm and stop', check: forwardStop },
+  { id: 'bug-swapped', title: 'Bug: turns the wrong way', arena: 'line', variant: 'oval',
+    intro: 'This line follower turns <b>away</b> from the line as soon as it sees it. The left and right turns are mixed up.',
+    code: bangWith(BANG_OK.replace('drive(0, speed);          // line on the left: turn left', 'drive(speed, 0);          // line on the left: turn left').replace('drive(speed, 0);          // line on the right: turn right', 'drive(0, speed);          // line on the right: turn right')),
+    hints: ['Turn on <b>Trail</b> and watch where Dowee goes when the line is on its left.', 'To turn left, the LEFT wheel must be slower. Which number in <code class="k">drive(left, right)</code> is the left wheel?', 'Line on the left → <code class="k">drive(0, speed)</code>. Line on the right → <code class="k">drive(speed, 0)</code>.'],
+    goal: 'Complete one full lap', check: lapOnce },
+  { id: 'bug-equals', title: 'Bug: one = or two?', arena: 'line', variant: 'oval',
+    intro: 'Dowee keeps going round in circles. In C, <code class="k">=</code> and <code class="k">==</code> mean very different things. Find the wrong one.',
+    code: bangWith(BANG_OK.replace('if (left == HIGH && right == LOW)', 'if (left = HIGH)')),
+    hints: ['Look closely at every <code class="k">if</code>.', '<code class="k">=</code> puts a value into a variable. <code class="k">==</code> asks "are these equal?".', 'The first <code class="k">if</code> says <code class="k">left = HIGH</code>, which makes left HIGH every time. Make it <code class="k">left == HIGH</code>.'],
+    goal: 'Complete one full lap', check: lapOnce },
+  { id: 'bug-sleepy', title: 'Bug: the sleepy follower', arena: 'line', variant: 'oval',
+    intro: 'This follower has the right idea, but it misses the turns. It only looks at the line every now and then.',
+    code: bangWith(BANG_OK, '\n  delay(400);                 // rest a little'),
+    hints: ['How long does one trip through <code class="k">loop()</code> take? Look for anything that waits.', 'While <code class="k">delay()</code> runs, Dowee keeps driving but doesn\'t look at its sensors.', 'Remove the <code class="k">delay(400);</code> line (or make it very small).'],
+    goal: 'Complete one full lap', check: lapOnce },
+  { id: 'bug-threshold', title: 'Bug: black or white?', arena: 'line', variant: 'oval',
+    intro: 'This follower uses analogRead. Black gives a big number and white a small one, but the program checks it the wrong way round.',
+    code: `// Analog line follower. Black ≈ 950, white ≈ 100.
+${MOTOR_SETUP}
+
+int speed = 140;
+int black = 500;
+
+void setup() {
+${PINMODES}
+  Serial.begin(9600);
+}
+
+${DRIVE_FN}
+
+void loop() {
+  int left = analogRead(A1);
+  int middle = analogRead(A2);
+  int right = analogRead(A3);
+
+  if (middle < black) {
+    drive(speed, speed);
+  } else if (left < black) {
+    drive(0, speed);
+  } else if (right < black) {
+    drive(speed, 0);
+  }
+}
+`,
+    hints: ['Open <b>Sensors &amp; pins</b>: what number does a sensor on the black line show?', '"Sees black" means the number is <b>bigger</b> than <code class="k">black</code>.', 'Change all three <code class="k">&lt;</code> to <code class="k">&gt;</code>.'],
+    goal: 'Complete one full lap', check: lapOnce },
+  { id: 'bug-rc', title: 'Bug: forward is broken', arena: 'race', variant: 'none',
+    intro: 'Every key works except <b>forward</b>. Look carefully at the letter the program waits for.',
+    code: EXAMPLES.race.rc.code.replace("case 'F':", "case 'f':"),
+    hints: ['Open the <b>Serial monitor</b> and press the up arrow: which letter arrives?', 'Letters are case-sensitive: <code class="k">\'f\'</code> and <code class="k">\'F\'</code> are different.', "Change <code class=\"k\">case 'f':</code> to <code class=\"k\">case 'F':</code>"],
+    goal: 'Drive forward at least 1 metre', check: W => forwardOf(W.robots[0]) > 1 },
+  { id: 'bug-sonar', title: 'Bug: scared of nothing', arena: 'maze', variant: 'room1',
+    intro: 'This obstacle avoider turns all the time, even with nothing in front of it, and never gets anywhere.',
+    code: EXAMPLES.maze.avoid.code.replace('if (d < safeDistance) {', 'if (d > safeDistance) {'),
+    hints: ['Watch the distance in the <b>Serial monitor</b>. Is it big or small when the way is clear?', 'The <code class="k">if</code> should be true when the wall is <b>close</b>, so when d is small.', 'Change <code class="k">d &gt; safeDistance</code> to <code class="k">d &lt; safeDistance</code>.'],
+    goal: 'Reach the green goal zone', check: W => W.state.done != null },
+  { id: 'bug-edge', title: 'Bug: afraid of the ring', arena: 'sumo', variant: 'statue',
+    intro: 'This sumo robot backs away all the time, even in the middle of the black ring. Its edge check is upside down.',
+    code: EXAMPLES.sumo.basic.code.replace('if (left < edgeLimit || right < edgeLimit) {', 'if (left > edgeLimit || right > edgeLimit) {'),
+    hints: ['The black ring reads about 950 and the white edge about 100. Which one is "below edgeLimit"?', 'Dowee is on the edge when a sensor reads a <b>small</b> number.', 'Change both <code class="k">&gt;</code> in the edge check to <code class="k">&lt;</code>.'],
+    goal: 'Push the Statue out of the ring', check: W => W.state.result === 'A' },
+];
+if (typeof module !== 'undefined') { module.exports.CHALLENGES = CHALLENGES; module.exports.forwardOf = forwardOf; }
 
 /* =====================================================================
    Lessons: a path from "blink an LED" to sumo and soccer.
@@ -2569,6 +2990,31 @@ const LESSONS = [
     goal: 'Score 2 goals', check: W => W.state.score && W.state.score[0] >= 2 },
 ];
 
+// Classroom students start these lessons from a version with TODOs instead of the finished program.
+const LESSON_TODO = {
+  follow: { code: EXAMPLES.line.bang.code.replace(/  if \(left == HIGH && right == LOW\) \{[\s\S]*?\n  \}\n\}/, `  // TODO 1: if left is HIGH and right is LOW, the line is on the left: turn left with drive(0, speed);
+
+  // TODO 2: else if right is HIGH and left is LOW, the line is on the right: turn right.
+
+  // TODO 3: else (both see the same thing) go straight.
+}`),
+    hints: ['Look at the <b>Sensors &amp; pins</b> tab: which sensor turns HIGH when the line is on the left?', 'Use <code class="k">&amp;&amp;</code> for "and": <code class="k">if (left == HIGH &amp;&amp; right == LOW) { … }</code>', '<pre>if (left == HIGH &amp;&amp; right == LOW) {\n  drive(0, speed);\n} else if (right == HIGH &amp;&amp; left == LOW) {\n  drive(speed, 0);\n} else {\n  drive(speed, speed);\n}</pre>'],
+    steps: ['Read the three <b>TODO</b>s in <code class="k">loop()</code> and write them as <code class="k">if</code> / <code class="k">else if</code> / <code class="k">else</code>.', 'Press <b>Upload &amp; run</b>. Does Dowee follow the oval?', 'Make <code class="k">speed</code> bigger. At some point it misses the turn — why?', 'Turn on <b>Trail</b> to see the path it really drove.'] },
+  pid: { code: EXAMPLES.line.pid.code.replace('  int turn = Kp * error + Kd * (error - lastError);', `  // TODO: work out how hard to turn. Right now turn is 0, so Dowee never steers!
+  //   P part: Kp * error              (far from the line = turn harder)
+  //   D part: Kd * (error - lastError) (calms the wiggle down)
+  //   Add the two parts together.
+  int turn = 0;`),
+    hints: ['<code class="k">error</code> says how far the line is from the centre. The bigger it is, the harder Dowee should turn.', 'The P part is <code class="k">Kp * error</code>. The D part looks at how fast the error changes: <code class="k">error - lastError</code>.', '<pre>int turn = Kp * error + Kd * (error - lastError);</pre>'],
+    steps: ['Run it. Dowee calibrates for 2 seconds, then drives straight off the line: <code class="k">turn</code> is always 0.', 'Fill in the <b>TODO</b>: <code class="k">turn</code> is the P part plus the D part.', 'Open the <b>Tune</b> tab and move the sliders <b>while the robot drives</b>. Set <code class="k">Kd</code> to 0: what happens to the wiggle?', 'Raise <code class="k">baseSpeed</code> and adjust Kp and Kd. Every lap is logged so you can compare.', 'When you are happy, press <b>Write values into code</b>.'] },
+  rc: { code: TEMPLATES.race.guided, hints: TEMPLATES.race.hints, steps: ['Run it and press the up arrow (or W): forward already works.', 'Fill in the <b>TODO</b>s one letter at a time and test each one.', 'Watch the Serial monitor to see each letter the controller sends.'] },
+  soccer: { code: TEMPLATES.soccer.guided, hints: TEMPLATES.race.hints, steps: ['Fill in the <b>TODO</b>s so all the arrow keys work (or reuse your RC car program).', 'Use the speed slider: slower is easier to aim.', 'Push the ball into the goal on the right.'] },
+  sonar: { code: TEMPLATES.maze.guided, hints: TEMPLATES.maze.hints, steps: ['Run it and turn on <b>Sensor view</b> to see the sound beam. The distance appears in the Serial monitor.', 'Fill in the two <b>TODO</b>s: turn away when a wall is close, otherwise drive on.', 'Change <code class="k">safeDistance</code>. Too small and it bumps; too big and it gets stuck turning.'] },
+  fight: { code: TEMPLATES.sumo.guided, hints: TEMPLATES.sumo.hints, steps: ['Fill in <b>TODO 1</b> first and test that Dowee stays in the ring.', 'Then do <b>TODO 2</b>: charge when the ultrasonic sees the Hunter.', 'Try different start positions — a good robot wins from any of them.'] },
+};
+for (const L of LESSONS) if (LESSON_TODO[L.id]) L.todo = LESSON_TODO[L.id];
+for (const c of CHALLENGES) LESSONS.push({ ...c, level: 'Fix the bug', bug: true, steps: ['Press <b>Upload &amp; run</b> and watch what goes wrong.', 'Find the mistake and fix it. Use <b>Hint</b> if you are stuck.', 'Run it again until the goal turns green.'] });
+
 /* =====================================================================
    RoboBench UI
    ===================================================================== */
@@ -2595,8 +3041,19 @@ const S = {
 };
 for (const k of Object.keys(ARENAS)) if (!S.variant[k] || !ARENAS[k].variants[S.variant[k]]) S.variant[k] = DEFAULT_VARIANT[k];
 
+/* ---------------- templates and samples ---------------- */
+// In a class, students write their own code: they start from a template and only get the
+// samples their teacher unlocks or sends. The teacher, and solo/offline use, see every sample.
+function samplesLocked() { return typeof HOST !== 'undefined' && HOST.on && HOST.role !== 'teacher'; }
+function classSettings() { return (typeof HOST !== 'undefined' && HOST.on && HOST.state && HOST.state.settings) || {}; }
+function templateLevel() { return classSettings().level === 'blank' ? 'blank' : 'guided'; }
+function templateCode(arena, level) { const t = TEMPLATES[arena]; return t ? t[level || templateLevel()] : ''; }
+function unlockedSamples(arena) { return (classSettings().unlocked || []).map(k => k.split('/')).filter(([a, e]) => a === arena && EXAMPLES[a] && EXAMPLES[a][e]); }
+function hintsAllowed() { return !samplesLocked() || classSettings().hints !== false; }
+
 /* ---------------- code buffers ---------------- */
 function defaultCode(arena, robot) {
+  if (robot !== 'B' && samplesLocked() && TEMPLATES[arena]) return templateCode(arena);
   const ex = EXAMPLES[arena];
   if (robot === 'B') { if (arena === 'sumo') return EXAMPLES.sumo.basic.code; return EXAMPLES.race.rc.code; }
   return ex[DEFAULT_EXAMPLE[arena]].code;
@@ -2766,20 +3223,35 @@ function fillExamples() {
     $('#exampleSel').innerHTML = '<option value="">Load starter blocks…</option>' + Object.entries(BLOCK_STARTERS).filter(([k]) => allowed(k)).map(([k, v]) => `<option value="blk:${k}">${esc(ARENAS[k].name)}: ${esc(v.name)}</option>`).join('');
     return;
   }
+  const t = TEMPLATES[S.arena], bugs = LESSONS.filter(l => l.bug && l.arena === S.arena && allowed(l.arena));
+  const tpl = !t ? '' : `<optgroup label="Start again from a template">${templateLevel() === 'guided' || !samplesLocked() ? `<option value="tpl:guided">${esc(t.name)}: guided (with TODO steps)</option>` : ''}<option value="tpl:blank">${esc(t.name)}: blank</option></optgroup>`;
+  const bug = bugs.length ? `<optgroup label="Fix the bug">${bugs.map(l => `<option value="bug:${l.id}">${esc(l.title)}</option>`).join('')}</optgroup>` : '';
+  if (samplesLocked()) {
+    const un = unlockedSamples(S.arena);
+    $('#exampleSel').innerHTML = '<option value="">Templates and challenges…</option>' + tpl + bug + (un.length ? `<optgroup label="Unlocked by your teacher">${un.map(([a, e]) => `<option value="${a}/${e}">${esc(EXAMPLES[a][e].name)}</option>`).join('')}</optgroup>` : '');
+    return;
+  }
   const ex = EXAMPLES[S.arena];
-  $('#exampleSel').innerHTML = '<option value="">Load an example…</option>' + Object.entries(ex).map(([k, v]) => `<option value="${k}">${esc(v.name)}</option>`).join('') + (Object.keys(EXAMPLES).filter(allowed).length > 1 ? '<option value="__all">More from other arenas…</option>' : '');
+  $('#exampleSel').innerHTML = '<option value="">Load an example…</option>' + tpl + bug + Object.entries(ex).map(([k, v]) => `<option value="${k}">${esc(v.name)}</option>`).join('') + (Object.keys(EXAMPLES).filter(allowed).length > 1 ? '<option value="__all">More from other arenas…</option>' : '');
 }
 $('#exampleSel').addEventListener('change', e => {
   const k = e.target.value; e.target.value = '';
   if (!k) return;
   if (k.startsWith('blk:')) { loadBlockStarter(k.slice(4)); return; }
+  if (k.startsWith('bug:')) { const L = LESSONS.find(l => l.id === k.slice(4)); if (L) startLesson(L); fillExamples(); return; }
+  if (k.startsWith('tpl:')) {
+    ta.focus(); ta.select(); insertText(templateCode(S.arena, k.slice(4))); ta.scrollTop = 0; syncScroll();
+    toast('Template loaded. Undo with Ctrl+Z.'); fillExamples(); return;
+  }
   if (k === '__all') {
+    if (samplesLocked()) return;
     const all = [];
     for (const [a, ex] of Object.entries(EXAMPLES)) for (const [kk, v] of Object.entries(ex)) all.push(`${a}/${kk}: ${v.name}`);
     $('#exampleSel').innerHTML = '<option value="">Load an example…</option>' + Object.entries(EXAMPLES).filter(([a]) => allowed(a)).flatMap(([a, ex]) => Object.entries(ex).map(([kk, v]) => `<option value="${a}/${kk}">${esc(ARENAS[a].name)}: ${esc(v.name)}</option>`)).join('');
     return;
   }
   const [a, kk] = k.includes('/') ? k.split('/') : [S.arena, k];
+  if (!EXAMPLES[a] || !EXAMPLES[a][kk] || (samplesLocked() && !unlockedSamples(a).some(([, e]) => e === kk))) { fillExamples(); return; }
   const src = EXAMPLES[a][kk].code;
   ta.focus(); ta.select(); insertText(src); ta.scrollTop = 0; syncScroll();
   toast('Example loaded. Undo with Ctrl+Z.');
@@ -2897,7 +3369,7 @@ function frame(now) {
     }
     pollGamepads();
     handleEvents();
-    if (S.lesson && now - (S.lastCheck || 0) > 200) { S.lastCheck = now; checkLesson(); }
+    if (now - (S.lastCheck || 0) > 200) { S.lastCheck = now; if (S.lesson) checkLesson(); checkMissions(); }
   }
   S.last = now;
   draw();
@@ -3569,12 +4041,56 @@ function buildLessons() {
   const all = [...acts, ...lessons];
   const L = (S.lessonView && all.find(l => l.id === S.lessonView)) || (S.lesson && all.find(l => l.id === S.lesson)) || all[0];
   const isDone = l => (l.actId ? activityDone(l) : S.lessonDone[l.id]);
+  const steps = usesTodo(L) ? (L.base || L).todo.steps : L.steps;
   const item = (l, i) => `<button data-id="${l.id}" aria-current="${l === L}" class="${isDone(l) ? 'done' : ''}"><span class="num">${isDone(l) ? '✓' : i + 1}</span><b>${esc(l.title)}</b><small>${esc(l.actId ? (ARENAS[l.arena] ? ARENAS[l.arena].name : '') : l.level)}</small></button>`;
-  $('#lessonBox').innerHTML = `<div class="lesson-list">${acts.length ? `<p class="lbl" style="margin:0 0 2px">From your teacher</p>${acts.map(item).join('')}<p class="lbl" style="margin:10px 0 2px">All lessons</p>` : ''}${lessons.map(item).join('')}</div>
-  <div class="lesson-body"><h3>${esc(L.title)}</h3><p>${L.intro}</p><ol>${L.steps.map(s => `<li>${s}</li>`).join('')}</ol>
+  $('#lessonBox').innerHTML = `${missionsHtml()}<div class="lesson-list">${acts.length ? `<p class="lbl" style="margin:0 0 2px">From your teacher</p>${acts.map(item).join('')}<p class="lbl" style="margin:10px 0 2px">All lessons</p>` : ''}${lessons.map(item).join('')}</div>
+  <div class="lesson-body"><h3>${esc(L.title)}</h3><p>${L.intro}</p><ol>${steps.map(s => `<li>${s}</li>`).join('')}</ol>
+  ${hintsHtml(L.id, lessonHints(L))}
   <div class="goal ${isDone(L) && S.lesson === L.id ? 'done' : ''}" id="goalBox"><span>Goal: ${esc(L.goal)}${isDone(L) ? ' — done!' : ''}</span><button class="btn primary" id="lessonStart">${S.lesson === L.id ? 'Restart lesson' : 'Start this lesson'}</button></div></div>`;
   $$('#lessonBox .lesson-list button').forEach(b => b.addEventListener('click', () => { S.lessonView = b.dataset.id; const l = all.find(x => x.id === b.dataset.id); showLesson(l); }));
   $('#lessonStart').addEventListener('click', () => startLesson(L));
+  $$('#lessonBox [data-hint]').forEach(b => b.addEventListener('click', () => revealHint(b.dataset.hint)));
+  $$('#lessonBox [data-askhand]').forEach(b => b.addEventListener('click', () => { const h = $('#handBtn'); if (h && !h.classList.contains('up')) h.click(); else toast('Your hand is up. Your teacher is coming!'); }));
+}
+// Built-in lessons start from a TODO version for classroom students (unless the teacher picked a starter).
+function usesTodo(L) { const b = L.base || L, st = L.starter; return samplesLocked() && !!b.todo && (!st || st.kind === 'lesson'); }
+function lessonHints(L) { const b = L.base || L; return b.hints || (usesTodo(L) ? b.todo.hints : null) || null; }
+
+/* ---------------- missions (stars) and hints ---------------- */
+const progKey = k => (typeof HOST !== 'undefined' && HOST.on && HOST.info ? `${k}:${HOST.info.classId}` : k);
+const starsGot = a => (store.get(progKey('stars'), {})[a] || []);
+function missionsHtml() {
+  const a = S.arena, t = TEMPLATES[a]; if (!t) return '';
+  const got = starsGot(a);
+  return `<div class="missions"><div class="mhead"><b>Missions: ${esc(t.name)}</b><span class="stars" aria-label="${got.length} of ${t.missions.length} stars">${t.missions.map((m, i) => `<span class="${got.includes(i) ? 'on' : ''}">★</span>`).join('')}</span></div>
+    <ol class="mlist">${t.missions.map((m, i) => `<li class="${got.includes(i) ? 'done' : ''}"><span class="mk">${got.includes(i) ? '★' : i + 1}</span>${esc(m.text)}${m.variant && ARENAS[a].variants[m.variant] ? ` <small>${esc(ARENAS[a].variants[m.variant])}</small>` : ''}</li>`).join('')}</ol>
+    ${hintsHtml('tpl:' + a, t.hints)}</div>`;
+}
+function hintsHtml(key, hints) {
+  if (!hints || !hints.length) return '';
+  if (!hintsAllowed()) return `<div class="hints"><span class="note">Stuck? Your teacher has turned hints off.</span> <button class="btn small" data-askhand="1">Raise your hand</button></div>`;
+  const n = Math.min(hints.length, store.get(progKey('hints'), {})[key] || 0);
+  return `<div class="hints">${hints.slice(0, n).map((h, i) => `<div class="hint-step"><span class="tag">Hint ${i + 1}</span><div>${h}</div></div>`).join('')}${n < hints.length ? `<button class="btn small" data-hint="${esc(key)}">${n ? 'Next hint' : 'Hint'} (${n + 1} of ${hints.length})${n === hints.length - 1 ? ': show the code' : ''}</button>` : ''}</div>`;
+}
+function revealHint(key) {
+  if (!hintsAllowed()) return;
+  const all = store.get(progKey('hints'), {}); all[key] = (all[key] || 0) + 1; store.set(progKey('hints'), all);
+  if (typeof hostHint === 'function') hostHint(key);
+  buildLessons();
+}
+function checkMissions() {
+  const a = S.arena, t = TEMPLATES[a]; if (!t || !S.W || S.W.arena.id !== a) return;
+  const all = store.get(progKey('stars'), {}), got = all[a] || [];
+  let changed = false;
+  t.missions.forEach((m, i) => {
+    if (got.includes(i) || (m.variant && S.variant[a] !== m.variant)) return;
+    let ok = false; try { ok = GOAL_TYPES[m.goal.type].check(S.W, m.goal); } catch (e) { ok = false; }
+    if (ok) { got.push(i); changed = true; banner(`Mission complete! ${'★'.repeat(got.length)}`, m.text, 3500); addTip(`Mission complete: ${m.text}. You have ${got.length} of ${t.missions.length} stars here.`, 0, true); }
+  });
+  if (!changed) return;
+  all[a] = got; store.set(progKey('stars'), all);
+  if (typeof hostStars === 'function') hostStars(a, got.length);
+  if (!$('#p-lessons').hidden) buildLessons();
 }
 function showLesson(L) { S.lessonView = L.id; buildLessons(); }
 function startLesson(L) {
@@ -3591,6 +4107,7 @@ function startLesson(L) {
   else if (st && st.kind === 'blocks' && st.xml) { store.set(`mode:${L.arena}:A`, 'blocks'); store.set(`blocks:${L.arena}:A`, st.xml); loadEditor(); }
   else if (st && st.kind === 'example' && EXAMPLES[L.arena][st.example]) { putCode(L.arena, 'A', EXAMPLES[L.arena][st.example].code); loadEditor(); }
   else if (base.blocks) { store.set(`mode:${L.arena}:A`, 'blocks'); store.set(`blocks:${L.arena}:A`, null); loadEditor(); }
+  else if (usesTodo(L)) { putCode(L.arena, 'A', base.todo.code); loadEditor(); }
   else if (base.code || base.example) { putCode(L.arena, 'A', base.code || EXAMPLES[L.arena][base.example].code); loadEditor(); }
   else loadEditor();
   buildLessons(); showWork();
@@ -4321,6 +4838,8 @@ function hostAttempt() {
   const L = S.lesson && S.lesson.startsWith('act:') ? findLesson(S.lesson) : null;
   if (HOST.on && HOST.role === 'student' && L && L.actId) hostApi('POST', '/api/progress', { activity: L.actId, attempt: true }).catch(() => {});
 }
+function hostStars(arena, n) { if (HOST.on && HOST.role === 'student') hostApi('POST', '/api/stars', { arena, n }).catch(() => {}); }
+function hostHint(key) { if (HOST.on && HOST.role === 'student') hostApi('POST', '/api/hint', { key }).catch(() => {}); }
 function hostBest(arena, key, value) { if (HOST.on && HOST.role === 'student') hostApi('POST', '/api/best', { arena, key, value }).catch(() => {}); }
 
 /* lock: the teacher keeps everyone on one activity */
@@ -4331,6 +4850,9 @@ function applyLock() {
   S.lockedArena = a ? a.arena : null;
   S.allowedArenas = a ? [a.arena] : classArenas;
   buildArenaTabs(); fillExamples();
+  // a new template level (or joining) shows the right template, unless the student already wrote code here
+  const lk = samplesLocked() + ':' + templateLevel();
+  if (S.tplKey !== lk) { S.tplKey = lk; if (store.get(codeKey(S.arena, S.robot), null) == null && modeOf(S.arena, S.robot) === 'code') loadEditor(); }
   if (S.allowedArenas && !S.allowedArenas.includes(S.arena) && !a) { setArena(S.allowedArenas.find(x => x !== 'lab') || S.allowedArenas[0]); if (S.view === 'meet') buildRobotPanel(); }
   if (S.view === 'meet' && st && S.lastType !== st.robot) { S.lastType = st.robot; buildRobotPanel(); }
   $('#variantSel').disabled = !!a; $('#realSel').disabled = !!a && !!a.realism;

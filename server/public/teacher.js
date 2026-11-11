@@ -80,6 +80,9 @@ function statusOf(s) {
 function progressBar(s) {
   return `<span class="prog" title="${C().activities.map(a => a.title + ': ' + (s.progress[a.id] && s.progress[a.id].done ? 'done' : s.progress[a.id] ? 'tried' : 'not started')).join('\n')}">${C().activities.map(a => `<i class="${s.progress[a.id] && s.progress[a.id].done ? 'd' : s.progress[a.id] ? 't' : ''}"></i>`).join('')}</span>`;
 }
+const starsOf = s => Object.values(s.stars || {}).reduce((a, b) => a + b, 0);
+const hintsOf = s => Object.values(s.hints || {}).reduce((a, b) => a + b, 0);
+const extras = s => `${starsOf(s) ? ` · <span title="Mission stars">★ ${starsOf(s)}</span>` : ''}${hintsOf(s) ? ` · <span title="Hints used">💡 ${hintsOf(s)}</span>` : ''}`;
 function renderLive() {
   const c = C(), stu = [...c.students].sort((a, b) => (b.online - a.online) || a.name.localeCompare(b.name));
   if (document.activeElement !== $('#annText')) $('#annText').value = c.announcement || '';
@@ -92,7 +95,7 @@ function renderLive() {
     const { doing, chips } = statusOf(s), subs = Object.entries(s.subs);
     return `<tr><td><span class="dot ${s.online ? 'on' : ''}"></span><b>${esc(s.name)}</b>${s.team ? `<br><span class="note">${esc(s.team)}</span>` : ''}${s.hand ? ' <span class="chip p">hand up</span>' : ''}</td>
       <td>${esc(doing)}<br><span class="note">${s.online ? 'active ' + ago(s.status && s.status.at || s.lastSeen) : 'last seen ' + ago(s.lastSeen)}</span></td>
-      <td>${chips}</td><td>${progressBar(s)}<br><span class="note">${c.activities.filter(a => s.progress[a.id] && s.progress[a.id].done).length}/${c.activities.length}</span></td>
+      <td>${chips}</td><td>${progressBar(s)}<br><span class="note">${c.activities.filter(a => s.progress[a.id] && s.progress[a.id].done).length}/${c.activities.length}${extras(s)}</span></td>
       <td>${subs.length ? subs.map(([a, v]) => `<button class="btn small" data-code="${esc(s.id)}" data-arena="${esc(a)}" title="Handed in ${ago(v.at)}">${esc(arenaName(a))}</button>`).join(' ') : '<span class="note">nothing yet</span>'}</td>
       <td><div class="row" style="justify-content:flex-end"><button class="btn small" data-msg="${esc(s.id)}">Message</button><button class="btn small" data-send="${esc(s.id)}">Send code</button><button class="btn small danger" data-remove="${esc(s.id)}">Remove</button></div></td></tr>`;
   }).join('');
@@ -133,7 +136,7 @@ function messageModal(id) {
   $('#msgForm').addEventListener('submit', async e => { e.preventDefault(); const text = $('#msgText').value.trim(); if (!text) return; try { await api('POST', '/api/teacher/message', { target: id, text }); toast('Message sent'); closeModal(); } catch (err) { toast(err.message); } });
 }
 function exampleOptions(arena) { const ex = T.meta.examples[arena] || {}; return Object.entries(ex).map(([k, v]) => `<option value="${esc(k)}">${esc(v.name)}</option>`).join(''); }
-function handoutModal(target) {
+function handoutModal(target, presetArena, presetEx) {
   const s = target === 'all' ? null : C().students.find(x => x.id === target);
   const arenas = Object.entries(T.meta.arenas).filter(([k]) => classArenas().includes(k)).map(([k, a]) => `<option value="${k}">${esc(a.name)}</option>`).join('');
   openModal(`<h3>Send a program to ${s ? esc(s.name) : 'everyone'}</h3>
@@ -142,9 +145,12 @@ function handoutModal(target) {
     <textarea class="code" id="hoCode" style="margin-top:8px" placeholder="Arduino code"></textarea>
     <div class="row" style="margin-top:8px"><button class="btn primary" type="submit">Send</button><button class="btn" type="button" data-close>Cancel</button></div></form>`);
   const fill = () => { $('#hoEx').innerHTML = '<option value="">(type your own)</option>' + exampleOptions($('#hoArena').value); };
+  const pick = () => { const ex = T.meta.examples[$('#hoArena').value][$('#hoEx').value]; if (ex) $('#hoCode').value = ex.code; };
+  if (presetArena) $('#hoArena').value = presetArena;
   fill();
+  if (presetEx) { $('#hoEx').value = presetEx; pick(); }
   $('#hoArena').addEventListener('change', fill);
-  $('#hoEx').addEventListener('change', () => { const ex = T.meta.examples[$('#hoArena').value][$('#hoEx').value]; if (ex) $('#hoCode').value = ex.code; });
+  $('#hoEx').addEventListener('change', pick);
   $('#hoForm').addEventListener('submit', async e => { e.preventDefault(); const code = $('#hoCode').value; if (!code.trim()) { toast('Type or pick some code first'); return; } try { await api('POST', '/api/teacher/handout', { target, arena: $('#hoArena').value, kind: 'code', code, note: $('#hoNote').value.trim() }); toast('Sent'); closeModal(); } catch (err) { toast(err.message); } });
 }
 
@@ -165,7 +171,24 @@ function renderPlan() {
         <button class="btn small ${c.lock === a.id ? 'yellow' : ''}" data-lock="${esc(a.id)}">${c.lock === a.id ? 'Unlock' : 'Lock class here'}</button>
         <button class="btn small" data-edit="${i}">Edit</button><button class="btn small danger" data-del="${i}">Delete</button></div></div>`).join('')
     : '<p class="empty">No activities yet. Add one from the built-in lessons, or make your own.</p>';
+  renderSamples();
 }
+function renderSamples() {
+  const c = C(), un = new Set(c.settings.unlocked || []), rows = [];
+  for (const a of classArenas()) for (const [k, v] of Object.entries(T.meta.examples[a] || {})) {
+    const key = `${a}/${k}`, on = un.has(key);
+    rows.push(`<div class="lbrow" style="grid-template-columns:1fr auto"><span><b>${esc(v.name)}</b> <span class="note">${esc(arenaName(a))}</span>${on ? ' <span class="chip run">students can load it</span>' : ''}</span>
+      <span class="row"><button class="btn small ${on ? 'yellow' : ''}" data-unlock="${esc(key)}">${on ? 'Lock again' : 'Unlock for class'}</button><button class="btn small" data-sendex="${esc(key)}">Send to everyone</button></span></div>`);
+  }
+  $('#samples').innerHTML = rows.join('') || '<p class="empty">No samples for this class\'s playgrounds.</p>';
+}
+$('#samples').addEventListener('click', async e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.sendex) { const [a, k] = b.dataset.sendex.split('/'); handoutModal('all', a, k); return; }
+  const key = b.dataset.unlock, un = new Set(C().settings.unlocked || []), on = !un.has(key);
+  if (on) un.add(key); else un.delete(key);
+  try { await api('POST', '/api/teacher/class', { settings: { unlocked: [...un] } }); toast(on ? 'Unlocked: students see it in their example menu' : 'Locked again'); } catch (err) { toast(err.message); }
+});
 async function savePlan(acts, msg) { try { await api('POST', '/api/teacher/class', { activities: acts }); if (msg) toast(msg); } catch (err) { toast(err.message); } }
 $('#acts').addEventListener('click', async e => {
   const b = e.target.closest('button'); if (!b) return;
@@ -258,8 +281,8 @@ function editActivity(index) {
 /* ---------- results ---------- */
 function renderResults() {
   const c = C(), acts = c.activities, stu = [...c.students].sort((a, b) => a.name.localeCompare(b.name));
-  $('#grid').innerHTML = stu.length && acts.length ? `<thead><tr><th>Student</th>${acts.map((a, i) => `<th title="${esc(a.title)}">${i + 1}. ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</th>`).join('')}<th>Done</th></tr></thead><tbody>${stu.map(s => `<tr><td><b>${esc(s.name)}</b>${s.team ? ` <span class="note">${esc(s.team)}</span>` : ''}</td>${acts.map(a => { const p = s.progress[a.id]; return `<td class="c">${p && p.done ? `<span class="ok">✓</span>${p.result ? `<br><span class="note">${esc(p.result)}</span>` : ''}` : p ? `<span class="note">tried ${p.attempts || ''}</span>` : ''}</td>`; }).join('')}<td class="c"><b>${acts.filter(a => s.progress[a.id] && s.progress[a.id].done).length}/${acts.length}</b></td></tr>`).join('')}</tbody>
-    <tfoot><tr><th>Class</th>${acts.map(a => `<th class="c">${Math.round(100 * stu.filter(s => s.progress[a.id] && s.progress[a.id].done).length / Math.max(1, stu.length))}%</th>`).join('')}<th></th></tr></tfoot>` : '<tr><td class="empty">Results appear here when students start the activities.</td></tr>';
+  $('#grid').innerHTML = stu.length && acts.length ? `<thead><tr><th>Student</th>${acts.map((a, i) => `<th title="${esc(a.title)}">${i + 1}. ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</th>`).join('')}<th>Done</th><th title="Mission stars earned">★</th><th title="Hints used">💡</th></tr></thead><tbody>${stu.map(s => `<tr><td><b>${esc(s.name)}</b>${s.team ? ` <span class="note">${esc(s.team)}</span>` : ''}</td>${acts.map(a => { const p = s.progress[a.id]; return `<td class="c">${p && p.done ? `<span class="ok">✓</span>${p.result ? `<br><span class="note">${esc(p.result)}</span>` : ''}` : p ? `<span class="note">tried ${p.attempts || ''}</span>` : ''}</td>`; }).join('')}<td class="c"><b>${acts.filter(a => s.progress[a.id] && s.progress[a.id].done).length}/${acts.length}</b></td><td class="c">${starsOf(s)}</td><td class="c">${hintsOf(s)}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><th>Class</th>${acts.map(a => `<th class="c">${Math.round(100 * stu.filter(s => s.progress[a.id] && s.progress[a.id].done).length / Math.max(1, stu.length))}%</th>`).join('')}<th></th><th></th><th></th></tr></tfoot>` : '<tr><td class="empty">Results appear here when students start the activities.</td></tr>';
   const lb = c.leaderboard, boxes = [];
   for (const [arena, keys] of Object.entries(lb)) for (const [key, rows] of Object.entries(keys)) {
     const ar = T.meta.arenas[arena], label = key === 'wins' ? 'Battle wins' : key === 'lap' ? 'Best lap' : (ar && ar.variants[key]) || key;
@@ -299,13 +322,13 @@ $('#batGo').addEventListener('click', () => {
 /* ---------- settings & classes ---------- */
 function renderSettings() {
   const c = C();
-  if (!$('#t-settings').contains(document.activeElement)) { $('#setRobot').innerHTML = Object.entries(T.st.robotTypes).map(([k, v]) => `<option value="${k}">${esc(v.label)} — ${esc(v.arenas.map(arenaName).join(', '))}</option>`).join(''); $('#setRobot').value = c.robot || 'all'; $('#setName').value = c.name; $('#setPin').value = c.pin || ''; $('#setShow').checked = !!c.settings.showCode; }
+  if (!$('#t-settings').contains(document.activeElement)) { $('#setRobot').innerHTML = Object.entries(T.st.robotTypes).map(([k, v]) => `<option value="${k}">${esc(v.label)} — ${esc(v.arenas.map(arenaName).join(', '))}</option>`).join(''); $('#setRobot').value = c.robot || 'all'; $('#setName').value = c.name; $('#setPin').value = c.pin || ''; $('#setShow').checked = !!c.settings.showCode; $('#setLevel').value = c.settings.level || 'guided'; $('#setHints').checked = c.settings.hints !== false; }
   $('#classList').innerHTML = T.st.classes.map(k => `<div class="lbrow" style="grid-template-columns:1fr auto"><span><b>${esc(k.name)}</b> <span class="note">${k.students} students · made ${new Date(k.created).toLocaleDateString()}</span>${k.id === c.id ? ' <span class="chip p">open now</span>' : ''}</span><span class="row">${k.id !== c.id ? `<button class="btn small" data-open="${esc(k.id)}">Open this class</button><button class="btn small danger" data-delclass="${esc(k.id)}">Delete</button>` : ''}</span></div>`).join('');
   const lan = T.st.lan[Math.min(T.lan, T.st.lan.length - 1)];
   $('#teacherLink').textContent = (lan ? lan.url : `http://localhost:${T.st.port}/`) + 'teacher?key=' + T.st.teacherKey;
   $('#dataFile').textContent = `Class data is saved on this laptop in ${T.st.dataFile} · DOWEE ${T.st.version}`;
 }
-$('#saveSettings').addEventListener('click', async () => { try { await api('POST', '/api/teacher/class', { name: $('#setName').value.trim(), robot: $('#setRobot').value, pin: $('#setPin').value.trim(), settings: { ...C().settings, showCode: $('#setShow').checked } }); toast('Saved'); } catch (err) { toast(err.message); } });
+$('#saveSettings').addEventListener('click', async () => { try { await api('POST', '/api/teacher/class', { name: $('#setName').value.trim(), robot: $('#setRobot').value, pin: $('#setPin').value.trim(), settings: { ...C().settings, showCode: $('#setShow').checked, level: $('#setLevel').value, hints: $('#setHints').checked } }); toast('Saved'); } catch (err) { toast(err.message); } });
 $('#classList').addEventListener('click', async e => {
   const b = e.target.closest('button'); if (!b) return;
   try {
@@ -317,10 +340,11 @@ $('#classSel').addEventListener('change', async e => { try { await api('POST', '
 $('#newClassBtn').addEventListener('click', () => {
   openModal(`<h3>New class</h3><form id="ncForm"><label class="fld">Name<input type="text" id="ncName" maxlength="60" required placeholder="e.g. Grade 7 – Section B"></label>
     <span class="fld" style="margin-top:10px">Robot for this class (students only see these playgrounds; you see all of them)</span>${robotPicker('ncRobot', 'line')}
+    <label class="fld" style="margin-top:10px">Student templates<select id="ncLevel"><option value="guided">Guided: wiring done, the thinking as TODO steps (good for beginners)</option><option value="blank">Blank: only the wiring, students write the rest</option></select></label>
     <label class="fld" style="flex-direction:row;align-items:center;gap:8px;color:var(--ink);margin-top:10px"><input type="checkbox" id="ncCopy"> Copy the lesson plan from "${esc(C().name)}" instead of a ready-made plan for this robot</label>
     <div class="row" style="margin-top:10px"><button class="btn primary" type="submit">Create and open</button><button class="btn" type="button" data-close>Cancel</button></div></form>`);
   $('#ncName').focus();
-  $('#ncForm').addEventListener('submit', async e => { e.preventDefault(); try { await api('POST', '/api/teacher/classes/new', { name: $('#ncName').value.trim(), robot: ($('input[name=ncRobot]:checked') || {}).value || 'line', copyFrom: $('#ncCopy').checked ? C().id : null }); toast('Class created'); closeModal(); } catch (err) { toast(err.message); } });
+  $('#ncForm').addEventListener('submit', async e => { e.preventDefault(); try { await api('POST', '/api/teacher/classes/new', { name: $('#ncName').value.trim(), robot: ($('input[name=ncRobot]:checked') || {}).value || 'line', level: $('#ncLevel').value, copyFrom: $('#ncCopy').checked ? C().id : null }); toast('Class created'); closeModal(); } catch (err) { toast(err.message); } });
 });
 
 /* ---------- render ---------- */

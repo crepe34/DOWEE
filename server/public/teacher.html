@@ -58,6 +58,9 @@
       <div class="row mb-10"><h3 class="m-0">Lesson plan</h3><span class="spacer"></span><button class="btn primary" id="addAct">Add activity</button></div>
       <p class="note mt-0">Students see these activities first in their Lessons tab, in this order. When they reach an activity's goal it is ticked off here automatically. <b>Lock</b> keeps every student on one activity.</p>
       <div id="acts"></div>
+      <h3 class="mt-20">Sample programs</h3>
+      <p class="note mt-0">Students write their own code from a template. They only get a finished sample when you <b>unlock</b> it for the class (it appears in their example menu) or <b>send</b> it.</p>
+      <div id="samples"></div>
     </div>
 
     <div class="card" id="t-results" hidden>
@@ -86,6 +89,8 @@
         <label class="fld">Class name<input type="text" id="setName" maxlength="60"></label>
         <label class="fld">Robot for this class<select id="setRobot"></select></label>
         <label class="fld">Class PIN (optional)<input type="text" id="setPin" maxlength="12" placeholder="Leave empty for no PIN"></label>
+        <label class="fld">Student templates<select id="setLevel"><option value="guided">Guided: wiring done, the thinking as TODO steps</option><option value="blank">Blank: only the wiring, students write the rest</option></select></label>
+        <label class="fld fld-check"><input type="checkbox" id="setHints"> Students can use the Hint button</label>
         <label class="fld fld-check"><input type="checkbox" id="setShow"> Students can open classmates' handed-in code</label>
       </div>
       <div class="row mt-10"><button class="btn primary" id="saveSettings">Save</button></div>

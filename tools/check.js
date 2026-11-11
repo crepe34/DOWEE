@@ -64,6 +64,50 @@ for (const lv of ['ideal', 'real']) {
   });
 }
 
+console.log('\nStudent templates');
+for (const [a, t] of Object.entries(M.TEMPLATES)) for (const lv of ['guided', 'blank']) check(`${t.name} template (${lv}) compiles and runs`, () => {
+  run(a, Object.keys(M.ARENAS[a].variants)[0], t[lv], 3000);
+});
+// A reference program for each playground must earn every star it can without a human driving.
+const REF = { line: [EXAMPLES.line.pid.code, EXAMPLES.line.pid.code.replace('int baseSpeed = 150;', 'int baseSpeed = 180;')], sumo: [EXAMPLES.sumo.basic.code], maze: [EXAMPLES.maze.avoid.code, EXAMPLES.maze.avoid.code.replace('int safeDistance = 25;', 'int safeDistance = 30;').replace('int cruise = 200;', 'int cruise = 255;')],
+  lab: [EXAMPLES.lab.meter.code.replace('int driveTime = 1500;', 'int driveTime = 2150;'), EXAMPLES.lab.turn.code.replace('int turnTime = 400;', 'int turnTime = TT;'), EXAMPLES.lab.blink.code] };
+for (const [a, codes] of Object.entries(REF)) M.TEMPLATES[a].missions.forEach((m, i) => check(`mission ${a} ${i + 1}: ${m.text}`, () => {
+  const g = M.GOAL_TYPES[m.goal.type], v = m.variant || Object.keys(M.ARENAS[a].variants)[0];
+  let res = null;
+  for (const code of codes) if (!res) for (const tt of (code.includes('TT') ? Array.from({ length: 50 }, (_, k) => 250 + k * 10) : [0])) {
+    const x = run(a, v, code.replace('TT', tt), 150000, { opp: a === 'sumo' ? v : 'none', until: W => g.check(W, m.goal) || (W.state && W.state.over) });
+    if (g.check(x.W, m.goal)) { res = x; break; }
+  }
+  want(res, 'not reachable by the reference program');
+  return `${(res.W.time / 1000).toFixed(1)} s`;
+}));
+
+console.log('\nFix-the-bug challenges');
+// The fix for each challenge: [broken text, fixed text]
+const FIX = {
+  'bug-backwards': [['digitalWrite(IN1, left >= 0 ? LOW : HIGH);\n  digitalWrite(IN2, left >= 0 ? HIGH : LOW);', 'digitalWrite(IN1, left >= 0 ? HIGH : LOW);\n  digitalWrite(IN2, left >= 0 ? LOW : HIGH);'], ['digitalWrite(IN3, right >= 0 ? LOW : HIGH);\n  digitalWrite(IN4, right >= 0 ? HIGH : LOW);', 'digitalWrite(IN3, right >= 0 ? HIGH : LOW);\n  digitalWrite(IN4, right >= 0 ? LOW : HIGH);']],
+  'bug-pinmode': [['  pinMode(IN2, OUTPUT);', '  pinMode(IN2, OUTPUT);\n  pinMode(IN3, OUTPUT);\n  pinMode(IN4, OUTPUT);']],
+  'bug-semicolon': [['delay(driveTime) ', 'delay(driveTime);']],
+  'bug-swapped': [['drive(speed, 0);          // line on the left', 'drive(0, speed);          // line on the left'], ['drive(0, speed);          // line on the right', 'drive(speed, 0);          // line on the right']],
+  'bug-equals': [['if (left = HIGH)', 'if (left == HIGH)']],
+  'bug-sleepy': [['  delay(400);                 // rest a little', '']],
+  'bug-threshold': [['middle < black', 'middle > black'], ['left < black', 'left > black'], ['right < black', 'right > black']],
+  'bug-rc': [["case 'f':", "case 'F':"]],
+  'bug-sonar': [['if (d > safeDistance) {', 'if (d < safeDistance) {']],
+  'bug-edge': [['if (left > edgeLimit || right > edgeLimit) {', 'if (left < edgeLimit || right < edgeLimit) {']],
+};
+for (const c of M.CHALLENGES) {
+  const opts = { opp: c.arena === 'sumo' ? c.variant : 'none', until: W => c.check(W) || (W.state && W.state.over), onStep: c.arena === 'race' ? (W, i) => { if (i % 500 === 100) W.deliver(W.robots[0].board, 'F'); } : null };
+  const attempt = code => { try { return c.check(run(c.arena, c.variant, code, 150000, opts).W); } catch (e) { return false; } };
+  check(`${c.id}: broken program fails, fixed one passes`, () => {
+    want(FIX[c.id], 'no fix listed in tools/check.js');
+    want(!attempt(c.code), 'the broken program already reaches the goal');
+    let fixed = c.code;
+    for (const [a, b] of FIX[c.id]) { want(fixed.includes(a), `fix text not found: ${a.slice(0, 40)}`); fixed = fixed.split(a).join(b); }
+    want(attempt(fixed), 'the fixed program does not reach the goal');
+  });
+}
+
 console.log('\nRepeatability');
 check('Ideal robot: same code, same result', () => {
   const a = run('line', 'snake', EXAMPLES.line.pid.code, 30000, { seed: 11 }), b = run('line', 'snake', EXAMPLES.line.pid.code, 30000, { seed: 999 });

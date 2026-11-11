@@ -24,8 +24,19 @@ const S = {
 };
 for (const k of Object.keys(ARENAS)) if (!S.variant[k] || !ARENAS[k].variants[S.variant[k]]) S.variant[k] = DEFAULT_VARIANT[k];
 
+/* ---------------- templates and samples ---------------- */
+// In a class, students write their own code: they start from a template and only get the
+// samples their teacher unlocks or sends. The teacher, and solo/offline use, see every sample.
+function samplesLocked() { return typeof HOST !== 'undefined' && HOST.on && HOST.role !== 'teacher'; }
+function classSettings() { return (typeof HOST !== 'undefined' && HOST.on && HOST.state && HOST.state.settings) || {}; }
+function templateLevel() { return classSettings().level === 'blank' ? 'blank' : 'guided'; }
+function templateCode(arena, level) { const t = TEMPLATES[arena]; return t ? t[level || templateLevel()] : ''; }
+function unlockedSamples(arena) { return (classSettings().unlocked || []).map(k => k.split('/')).filter(([a, e]) => a === arena && EXAMPLES[a] && EXAMPLES[a][e]); }
+function hintsAllowed() { return !samplesLocked() || classSettings().hints !== false; }
+
 /* ---------------- code buffers ---------------- */
 function defaultCode(arena, robot) {
+  if (robot !== 'B' && samplesLocked() && TEMPLATES[arena]) return templateCode(arena);
   const ex = EXAMPLES[arena];
   if (robot === 'B') { if (arena === 'sumo') return EXAMPLES.sumo.basic.code; return EXAMPLES.race.rc.code; }
   return ex[DEFAULT_EXAMPLE[arena]].code;
@@ -195,20 +206,35 @@ function fillExamples() {
     $('#exampleSel').innerHTML = '<option value="">Load starter blocks…</option>' + Object.entries(BLOCK_STARTERS).filter(([k]) => allowed(k)).map(([k, v]) => `<option value="blk:${k}">${esc(ARENAS[k].name)}: ${esc(v.name)}</option>`).join('');
     return;
   }
+  const t = TEMPLATES[S.arena], bugs = LESSONS.filter(l => l.bug && l.arena === S.arena && allowed(l.arena));
+  const tpl = !t ? '' : `<optgroup label="Start again from a template">${templateLevel() === 'guided' || !samplesLocked() ? `<option value="tpl:guided">${esc(t.name)}: guided (with TODO steps)</option>` : ''}<option value="tpl:blank">${esc(t.name)}: blank</option></optgroup>`;
+  const bug = bugs.length ? `<optgroup label="Fix the bug">${bugs.map(l => `<option value="bug:${l.id}">${esc(l.title)}</option>`).join('')}</optgroup>` : '';
+  if (samplesLocked()) {
+    const un = unlockedSamples(S.arena);
+    $('#exampleSel').innerHTML = '<option value="">Templates and challenges…</option>' + tpl + bug + (un.length ? `<optgroup label="Unlocked by your teacher">${un.map(([a, e]) => `<option value="${a}/${e}">${esc(EXAMPLES[a][e].name)}</option>`).join('')}</optgroup>` : '');
+    return;
+  }
   const ex = EXAMPLES[S.arena];
-  $('#exampleSel').innerHTML = '<option value="">Load an example…</option>' + Object.entries(ex).map(([k, v]) => `<option value="${k}">${esc(v.name)}</option>`).join('') + (Object.keys(EXAMPLES).filter(allowed).length > 1 ? '<option value="__all">More from other arenas…</option>' : '');
+  $('#exampleSel').innerHTML = '<option value="">Load an example…</option>' + tpl + bug + Object.entries(ex).map(([k, v]) => `<option value="${k}">${esc(v.name)}</option>`).join('') + (Object.keys(EXAMPLES).filter(allowed).length > 1 ? '<option value="__all">More from other arenas…</option>' : '');
 }
 $('#exampleSel').addEventListener('change', e => {
   const k = e.target.value; e.target.value = '';
   if (!k) return;
   if (k.startsWith('blk:')) { loadBlockStarter(k.slice(4)); return; }
+  if (k.startsWith('bug:')) { const L = LESSONS.find(l => l.id === k.slice(4)); if (L) startLesson(L); fillExamples(); return; }
+  if (k.startsWith('tpl:')) {
+    ta.focus(); ta.select(); insertText(templateCode(S.arena, k.slice(4))); ta.scrollTop = 0; syncScroll();
+    toast('Template loaded. Undo with Ctrl+Z.'); fillExamples(); return;
+  }
   if (k === '__all') {
+    if (samplesLocked()) return;
     const all = [];
     for (const [a, ex] of Object.entries(EXAMPLES)) for (const [kk, v] of Object.entries(ex)) all.push(`${a}/${kk}: ${v.name}`);
     $('#exampleSel').innerHTML = '<option value="">Load an example…</option>' + Object.entries(EXAMPLES).filter(([a]) => allowed(a)).flatMap(([a, ex]) => Object.entries(ex).map(([kk, v]) => `<option value="${a}/${kk}">${esc(ARENAS[a].name)}: ${esc(v.name)}</option>`)).join('');
     return;
   }
   const [a, kk] = k.includes('/') ? k.split('/') : [S.arena, k];
+  if (!EXAMPLES[a] || !EXAMPLES[a][kk] || (samplesLocked() && !unlockedSamples(a).some(([, e]) => e === kk))) { fillExamples(); return; }
   const src = EXAMPLES[a][kk].code;
   ta.focus(); ta.select(); insertText(src); ta.scrollTop = 0; syncScroll();
   toast('Example loaded. Undo with Ctrl+Z.');
@@ -326,7 +352,7 @@ function frame(now) {
     }
     pollGamepads();
     handleEvents();
-    if (S.lesson && now - (S.lastCheck || 0) > 200) { S.lastCheck = now; checkLesson(); }
+    if (now - (S.lastCheck || 0) > 200) { S.lastCheck = now; if (S.lesson) checkLesson(); checkMissions(); }
   }
   S.last = now;
   draw();
@@ -998,12 +1024,56 @@ function buildLessons() {
   const all = [...acts, ...lessons];
   const L = (S.lessonView && all.find(l => l.id === S.lessonView)) || (S.lesson && all.find(l => l.id === S.lesson)) || all[0];
   const isDone = l => (l.actId ? activityDone(l) : S.lessonDone[l.id]);
+  const steps = usesTodo(L) ? (L.base || L).todo.steps : L.steps;
   const item = (l, i) => `<button data-id="${l.id}" aria-current="${l === L}" class="${isDone(l) ? 'done' : ''}"><span class="num">${isDone(l) ? '✓' : i + 1}</span><b>${esc(l.title)}</b><small>${esc(l.actId ? (ARENAS[l.arena] ? ARENAS[l.arena].name : '') : l.level)}</small></button>`;
-  $('#lessonBox').innerHTML = `<div class="lesson-list">${acts.length ? `<p class="lbl" style="margin:0 0 2px">From your teacher</p>${acts.map(item).join('')}<p class="lbl" style="margin:10px 0 2px">All lessons</p>` : ''}${lessons.map(item).join('')}</div>
-  <div class="lesson-body"><h3>${esc(L.title)}</h3><p>${L.intro}</p><ol>${L.steps.map(s => `<li>${s}</li>`).join('')}</ol>
+  $('#lessonBox').innerHTML = `${missionsHtml()}<div class="lesson-list">${acts.length ? `<p class="lbl" style="margin:0 0 2px">From your teacher</p>${acts.map(item).join('')}<p class="lbl" style="margin:10px 0 2px">All lessons</p>` : ''}${lessons.map(item).join('')}</div>
+  <div class="lesson-body"><h3>${esc(L.title)}</h3><p>${L.intro}</p><ol>${steps.map(s => `<li>${s}</li>`).join('')}</ol>
+  ${hintsHtml(L.id, lessonHints(L))}
   <div class="goal ${isDone(L) && S.lesson === L.id ? 'done' : ''}" id="goalBox"><span>Goal: ${esc(L.goal)}${isDone(L) ? ' — done!' : ''}</span><button class="btn primary" id="lessonStart">${S.lesson === L.id ? 'Restart lesson' : 'Start this lesson'}</button></div></div>`;
   $$('#lessonBox .lesson-list button').forEach(b => b.addEventListener('click', () => { S.lessonView = b.dataset.id; const l = all.find(x => x.id === b.dataset.id); showLesson(l); }));
   $('#lessonStart').addEventListener('click', () => startLesson(L));
+  $$('#lessonBox [data-hint]').forEach(b => b.addEventListener('click', () => revealHint(b.dataset.hint)));
+  $$('#lessonBox [data-askhand]').forEach(b => b.addEventListener('click', () => { const h = $('#handBtn'); if (h && !h.classList.contains('up')) h.click(); else toast('Your hand is up. Your teacher is coming!'); }));
+}
+// Built-in lessons start from a TODO version for classroom students (unless the teacher picked a starter).
+function usesTodo(L) { const b = L.base || L, st = L.starter; return samplesLocked() && !!b.todo && (!st || st.kind === 'lesson'); }
+function lessonHints(L) { const b = L.base || L; return b.hints || (usesTodo(L) ? b.todo.hints : null) || null; }
+
+/* ---------------- missions (stars) and hints ---------------- */
+const progKey = k => (typeof HOST !== 'undefined' && HOST.on && HOST.info ? `${k}:${HOST.info.classId}` : k);
+const starsGot = a => (store.get(progKey('stars'), {})[a] || []);
+function missionsHtml() {
+  const a = S.arena, t = TEMPLATES[a]; if (!t) return '';
+  const got = starsGot(a);
+  return `<div class="missions"><div class="mhead"><b>Missions: ${esc(t.name)}</b><span class="stars" aria-label="${got.length} of ${t.missions.length} stars">${t.missions.map((m, i) => `<span class="${got.includes(i) ? 'on' : ''}">★</span>`).join('')}</span></div>
+    <ol class="mlist">${t.missions.map((m, i) => `<li class="${got.includes(i) ? 'done' : ''}"><span class="mk">${got.includes(i) ? '★' : i + 1}</span>${esc(m.text)}${m.variant && ARENAS[a].variants[m.variant] ? ` <small>${esc(ARENAS[a].variants[m.variant])}</small>` : ''}</li>`).join('')}</ol>
+    ${hintsHtml('tpl:' + a, t.hints)}</div>`;
+}
+function hintsHtml(key, hints) {
+  if (!hints || !hints.length) return '';
+  if (!hintsAllowed()) return `<div class="hints"><span class="note">Stuck? Your teacher has turned hints off.</span> <button class="btn small" data-askhand="1">Raise your hand</button></div>`;
+  const n = Math.min(hints.length, store.get(progKey('hints'), {})[key] || 0);
+  return `<div class="hints">${hints.slice(0, n).map((h, i) => `<div class="hint-step"><span class="tag">Hint ${i + 1}</span><div>${h}</div></div>`).join('')}${n < hints.length ? `<button class="btn small" data-hint="${esc(key)}">${n ? 'Next hint' : 'Hint'} (${n + 1} of ${hints.length})${n === hints.length - 1 ? ': show the code' : ''}</button>` : ''}</div>`;
+}
+function revealHint(key) {
+  if (!hintsAllowed()) return;
+  const all = store.get(progKey('hints'), {}); all[key] = (all[key] || 0) + 1; store.set(progKey('hints'), all);
+  if (typeof hostHint === 'function') hostHint(key);
+  buildLessons();
+}
+function checkMissions() {
+  const a = S.arena, t = TEMPLATES[a]; if (!t || !S.W || S.W.arena.id !== a) return;
+  const all = store.get(progKey('stars'), {}), got = all[a] || [];
+  let changed = false;
+  t.missions.forEach((m, i) => {
+    if (got.includes(i) || (m.variant && S.variant[a] !== m.variant)) return;
+    let ok = false; try { ok = GOAL_TYPES[m.goal.type].check(S.W, m.goal); } catch (e) { ok = false; }
+    if (ok) { got.push(i); changed = true; banner(`Mission complete! ${'★'.repeat(got.length)}`, m.text, 3500); addTip(`Mission complete: ${m.text}. You have ${got.length} of ${t.missions.length} stars here.`, 0, true); }
+  });
+  if (!changed) return;
+  all[a] = got; store.set(progKey('stars'), all);
+  if (typeof hostStars === 'function') hostStars(a, got.length);
+  if (!$('#p-lessons').hidden) buildLessons();
 }
 function showLesson(L) { S.lessonView = L.id; buildLessons(); }
 function startLesson(L) {
@@ -1020,6 +1090,7 @@ function startLesson(L) {
   else if (st && st.kind === 'blocks' && st.xml) { store.set(`mode:${L.arena}:A`, 'blocks'); store.set(`blocks:${L.arena}:A`, st.xml); loadEditor(); }
   else if (st && st.kind === 'example' && EXAMPLES[L.arena][st.example]) { putCode(L.arena, 'A', EXAMPLES[L.arena][st.example].code); loadEditor(); }
   else if (base.blocks) { store.set(`mode:${L.arena}:A`, 'blocks'); store.set(`blocks:${L.arena}:A`, null); loadEditor(); }
+  else if (usesTodo(L)) { putCode(L.arena, 'A', base.todo.code); loadEditor(); }
   else if (base.code || base.example) { putCode(L.arena, 'A', base.code || EXAMPLES[L.arena][base.example].code); loadEditor(); }
   else loadEditor();
   buildLessons(); showWork();

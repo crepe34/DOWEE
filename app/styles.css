@@ -314,3 +314,20 @@ details.adv summary { cursor: pointer; font-weight: 800; }
 
 .dot.a { background: var(--robot-a); }
 .dot.b { background: var(--robot-b); }
+
+/* missions (stars) and hints in the Lessons panel */
+.missions { grid-column: 1 / -1; border: 1.5px solid var(--line); border-radius: 12px; background: var(--panel); padding: 10px 12px; }
+.missions .mhead { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.missions .mhead b { font-family: var(--font-display); font-size: 17px; }
+.missions .stars { font-size: 22px; letter-spacing: 2px; color: var(--line); }
+.missions .stars .on { color: var(--yellow); text-shadow: 0 1px 0 rgba(0, 0, 0, .15); }
+.mlist { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 6px; }
+.mlist li { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 9px; padding: 6px 9px; font-weight: 700; font-size: 13px; background: var(--panel-2); }
+.mlist li small { color: var(--muted); font-weight: 700; margin-left: auto; white-space: nowrap; }
+.mlist .mk { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--sunk); font-size: 12.5px; font-weight: 800; }
+.mlist li.done { border-color: var(--yellow); background: #fff6d1; }
+.mlist li.done .mk { background: var(--yellow); color: var(--ink); }
+.hints { margin: 10px 0; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.hint-step { display: flex; gap: 8px; align-items: flex-start; border-left: 3px solid var(--signal); background: var(--signal-soft); border-radius: 0 8px 8px 0; padding: 6px 10px; max-width: 66ch; line-height: 1.5; }
+.hint-step .tag { flex: none; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding-top: 2px; }
+.hint-step pre { margin: 4px 0 0; font: 12.5px/1.5 var(--font-mono); white-space: pre-wrap; }

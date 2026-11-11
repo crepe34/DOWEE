@@ -18,7 +18,8 @@ The example programs also run on a real Dowee wired as shown in the Wiring tab.
 - **Real physics, by default:** even the perfect **Ideal robot** moves like a real one. Motors need about 60 PWM and a kick to start, and take a moment to spin up. The battery dips under load, the IR reading depends on sensor height, and the ultrasonic can't see walls hit at a steep slant. The same code gives the same result every run.
 - **Realistic world and Competition day:** each student gets their own Dowee unit with motor, sensor and mounting quirks, plus floor and tape variation, room light, sensor noise, missed echoes, Bluetooth delay and a battery that runs down.
 - **Tuning tools:** Serial monitor and plotter, live sensor and pin view, sliders for global variables while the robot runs, and an experiment log.
-- **Lessons**, from "Blink the LED" through PID tuning to sumo and soccer.
+- **Lessons**, from "Blink the LED" through PID tuning to sumo and soccer, plus ten **Fix the bug** challenges (a swapped motor, `=` instead of `==`, a missing `pinMode`, and so on).
+- **Templates and missions:** every playground has a template to start from (Guided with TODO steps, or Blank) and three missions that earn stars. A **Hint** button reveals hints one at a time, from a nudge to a code snippet.
 - **Class features** (when published as a claude.ai artifact): teams, program submissions, leaderboards, class battles and a teacher's challenge.
 
 ## Run a classroom
@@ -47,13 +48,15 @@ Each class is about one robot. When you make a class you pick its **robot type**
 
 Students start on the **Meet Dowee** page: a numbered picture of the robot and its parts, with the parts that matter for the class highlighted.
 
+In a class, students write their own programs. Each playground opens with the class's **template** (Guided or Blank, your choice), and built-in lessons start from a version with TODO steps. The finished sample programs stay hidden until you **unlock** one for the class or **send** it. When the app is used on its own, without a class, every sample is available.
+
 On the dashboard the teacher can:
 
 - **Live class:** see who is online, what each student is working on, whether their program is running or crashed, and raised hands. Message a student, send code to one student or the whole class, and post a class announcement.
-- **Lesson plan:** build a list of activities from the built-in lessons or your own. Each activity has an arena, a track or opponent, a world (Ideal robot, Realistic world or Competition day), a starter program and an automatic goal, such as "lap under 15 s" or "stop at 100 cm". **Lock** keeps every student on one activity.
-- **Results:** a student × activity grid that ticks itself off as goals are reached, leaderboards, and a CSV download for your gradebook.
+- **Lesson plan:** build a list of activities from the built-in lessons or your own. Each activity has an arena, a track or opponent, a world (Ideal robot, Realistic world or Competition day), a starter program and an automatic goal, such as "lap under 15 s" or "stop at 100 cm". **Lock** keeps every student on one activity. Under **Sample programs** you unlock or send the finished samples.
+- **Results:** a student × activity grid that ticks itself off as goals are reached, mission stars and hints used, leaderboards, and a CSV download for your gradebook.
 - **Battles:** pick two students' handed-in sumo or soccer programs and run the match on the projector. Results go to the class leaderboard.
-- **Settings:** the class's robot type, several classes (sections), a class PIN, whether students can open classmates' code, and a private link for using the dashboard from your phone.
+- **Settings:** the class's robot type, Guided or Blank templates, whether students can use hints, several classes (sections), a class PIN, whether students can open classmates' code, and a private link for using the dashboard from your phone.
 
 Class data is saved on the laptop in `data/dowee-classroom.json`. Use `npm start -- --port 9000` to pick another port, or `--data <folder>` to store data elsewhere.
 
@@ -79,6 +82,8 @@ Set `LV=ideal|real|tough` before `node tools/test.js` to choose the realism leve
 | `src/core-sim.js` | Board runtime, Dowee physics, realism model, collisions, AI opponents |
 | `src/core-arenas.js` | Arenas, floors, rules and scoring |
 | `src/examples.js` | Example Arduino programs |
+| `src/templates.js` | Student templates, missions and hints for each playground |
+| `src/challenges.js` | Fix-the-bug challenges |
 | `src/lessons.js` | Lessons |
 | `src/goals.js` | Goal types teachers can attach to activities |
 | `src/ui.js` | Interface: editor, drawing, panels, blocks mode, artifact class features |

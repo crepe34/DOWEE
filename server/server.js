@@ -55,13 +55,22 @@ const newToken = () => crypto.randomBytes(24).toString('base64url');
 const str = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').slice(0, max);
 const num = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
 const now = () => Date.now();
+// sample programs per arena (from the build), used to check what a teacher unlocks
+let META = null;
+function examplesMeta() { if (!META) { try { META = JSON.parse(fs.readFileSync(path.join(__dirname, 'public', 'meta.json'), 'utf8')); } catch (e) { META = { examples: {} }; } } return META.examples || {}; }
+function cleanSettings(v, robot) {
+  v = v && typeof v === 'object' ? v : {};
+  const arenas = ROBOT_TYPES[ROBOT_TYPES[robot] ? robot : 'all'].arenas, ex = examplesMeta();
+  const unlocked = Array.isArray(v.unlocked) ? [...new Set(v.unlocked.map(x => str(x, 40)))].filter(k => { const [a, e] = k.split('/'); return arenas.includes(a) && ex[a] && ex[a][e]; }).slice(0, 40) : [];
+  return { showCode: v.showCode !== false, battles: v.battles !== false, level: v.level === 'blank' ? 'blank' : 'guided', hints: v.hints !== false, unlocked };
+}
 
 /* ---------------- data ---------------- */
 function newClass(name, robot) {
   robot = ROBOT_TYPES[robot] ? robot : 'line';
   return {
     id: newId(), name: str(name, 60) || 'My robotics class', robot, created: now(), pin: '', announcement: '',
-    lock: null, settings: { showCode: true, battles: true },
+    lock: null, settings: cleanSettings({}, robot),
     activities: seedActivities(robot),
     students: {}, matches: [], handouts: [],
   };
@@ -75,7 +84,10 @@ function load() {
     save(true);
   }
   if (!db.classes[db.activeClass]) db.activeClass = Object.keys(db.classes)[0];
-  for (const c of Object.values(db.classes)) if (!ROBOT_TYPES[c.robot]) c.robot = 'all';   // classes saved before robot types existed
+  for (const c of Object.values(db.classes)) {
+    if (!ROBOT_TYPES[c.robot]) c.robot = 'all';   // classes saved before robot types existed
+    c.settings = cleanSettings(c.settings, c.robot);   // older classes: guided templates, hints on, nothing unlocked
+  }
 }
 let saveTimer = null;
 function save(immediate) {
@@ -152,7 +164,7 @@ function publicState(me) {
     roster: Object.values(c.students).map(s => ({ id: s.id, name: s.name, team: s.team, online: on.has(s.id), subs: Object.keys(s.subs || {}) })),
     leaderboard: leaderboards(c),
     matches: c.matches.slice(0, 20).map(m => ({ arena: m.arena, a: m.a, b: m.b, winner: m.winner, text: m.text, at: m.at })),
-    me: me ? { id: me.id, name: me.name, team: me.team, hand: !!me.hand, progress: me.progress || {}, subs: Object.fromEntries(Object.entries(me.subs || {}).map(([k, v]) => [k, { at: v.at, activity: v.activity }])) } : null,
+    me: me ? { id: me.id, name: me.name, team: me.team, hand: !!me.hand, progress: me.progress || {}, stars: me.stars || {}, hints: me.hints || {}, subs: Object.fromEntries(Object.entries(me.subs || {}).map(([k, v]) => [k, { at: v.at, activity: v.activity }])) } : null,
   };
 }
 function teacherState() {
@@ -165,7 +177,7 @@ function teacherState() {
       ...c, ...robotInfo(c),
       students: Object.values(c.students).map(s => ({
         id: s.id, name: s.name, team: s.team, joined: s.joined, lastSeen: s.lastSeen, online: on.has(s.id) || now() - (s.lastSeen || 0) < 30000,
-        status: s.status || {}, hand: s.hand || null, progress: s.progress || {}, bests: s.bests || {},
+        status: s.status || {}, hand: s.hand || null, progress: s.progress || {}, bests: s.bests || {}, stars: s.stars || {}, hints: s.hints || {},
         subs: Object.fromEntries(Object.entries(s.subs || {}).map(([k, v]) => [k, { at: v.at, mode: v.mode, activity: v.activity, size: (v.code || '').length }])),
       })),
       leaderboard: leaderboards(c),
@@ -270,13 +282,13 @@ async function handle(req, res) {
     if (!name) return fail(res, 400, 'Please type your name.');
     if (c.pin && str(body.pin, 12).trim() !== c.pin) return fail(res, 403, 'That class PIN is not right. Ask your teacher.');
     if (Object.keys(c.students).length >= LIM.students) return fail(res, 403, 'This class is full.');
-    const s = { id: newId(), token: newToken(), name, team, joined: now(), lastSeen: now(), status: {}, progress: {}, bests: {}, subs: {}, hand: null };
+    const s = { id: newId(), token: newToken(), name, team, joined: now(), lastSeen: now(), status: {}, progress: {}, bests: {}, stars: {}, hints: {}, subs: {}, hand: null };
     c.students[s.id] = s; save(); broadcast();
     return send(res, 200, { token: s.token, student: { id: s.id, name, team } });
   }
 
   // student
-  if (p.startsWith('/api/') && ['/api/leave', '/api/status', '/api/hand', '/api/submit', '/api/best', '/api/progress', '/api/profile'].includes(p)) {
+  if (p.startsWith('/api/') && ['/api/leave', '/api/status', '/api/hand', '/api/submit', '/api/best', '/api/progress', '/api/profile', '/api/stars', '/api/hint'].includes(p)) {
     if (!me) return fail(res, 401, 'Join the class first.');
     me.lastSeen = now();
     if (p === '/api/leave') { delete c.students[me.id]; save(); broadcast(); return send(res, 200, { ok: true }); }
@@ -304,6 +316,19 @@ async function handle(req, res) {
       if (b[key] === undefined || v < b[key]) { b[key] = +v.toFixed(2); save(); broadcast(); }
       return send(res, 200, { ok: true });
     }
+    if (p === '/api/stars') {
+      if (!ARENAS.includes(body.arena)) return fail(res, 400, 'Unknown arena.');
+      if (!allowedArenas(c).includes(body.arena)) return notInClass();
+      const n = Math.round(num(body.n, 0, 3, 0)), st = (me.stars = me.stars || {});
+      if (!(st[body.arena] >= n)) { st[body.arena] = n; save(); broadcast(); }
+      return send(res, 200, { ok: true });
+    }
+    if (p === '/api/hint') {
+      if (c.settings.hints === false) return fail(res, 403, 'Your teacher has turned hints off. Raise your hand instead!');
+      const key = str(body.key, 40); if (!key) return fail(res, 400, 'Bad hint.');
+      const h = (me.hints = me.hints || {}); h[key] = Math.min(99, (h[key] || 0) + 1);
+      save(); broadcast(); return send(res, 200, { ok: true });
+    }
     if (p === '/api/progress') {
       const id = str(body.activity, 16);
       if (!c.activities.some(a => a.id === id)) return fail(res, 400, 'Unknown activity.');
@@ -326,17 +351,17 @@ async function handle(req, res) {
     if (M === 'GET' && p === '/api/teacher/state') return send(res, 200, teacherState());
     if (M === 'POST' && p === '/api/teacher/class') {
       if (body.name !== undefined) c.name = str(body.name, 60) || c.name;
-      if (body.robot !== undefined && ROBOT_TYPES[body.robot]) c.robot = body.robot;
+      if (body.robot !== undefined && ROBOT_TYPES[body.robot]) { c.robot = body.robot; c.settings = cleanSettings(c.settings, c.robot); }
       if (body.pin !== undefined) c.pin = str(body.pin, 12).trim();
       if (body.announcement !== undefined) c.announcement = str(body.announcement, 500);
       if (body.lock !== undefined) c.lock = body.lock && c.activities.some(a => a.id === body.lock) ? body.lock : null;
-      if (body.settings && typeof body.settings === 'object') c.settings = { showCode: !!body.settings.showCode, battles: body.settings.battles !== false };
+      if (body.settings && typeof body.settings === 'object') c.settings = cleanSettings({ ...c.settings, ...body.settings }, c.robot);
       if (Array.isArray(body.activities)) c.activities = body.activities.slice(0, LIM.activities).map(cleanActivity).filter(Boolean);
       // a lock on an activity that no longer exists, or isn't in this class's playgrounds, is lifted
       if (c.lock) { const la = c.activities.find(a => a.id === c.lock); if (!la || !allowedArenas(c).includes(la.arena)) c.lock = null; }
       save(); broadcast(); return send(res, 200, { ok: true });
     }
-    if (M === 'POST' && p === '/api/teacher/classes/new') { const k = newClass(body.name, body.robot); if (body.copyFrom && db.classes[body.copyFrom]) k.activities = JSON.parse(JSON.stringify(db.classes[body.copyFrom].activities)); db.classes[k.id] = k; db.activeClass = k.id; save(); broadcast(); return send(res, 200, { ok: true, id: k.id }); }
+    if (M === 'POST' && p === '/api/teacher/classes/new') { const k = newClass(body.name, body.robot); if (body.level === 'blank') k.settings.level = 'blank'; if (body.copyFrom && db.classes[body.copyFrom]) k.activities = JSON.parse(JSON.stringify(db.classes[body.copyFrom].activities)); db.classes[k.id] = k; db.activeClass = k.id; save(); broadcast(); return send(res, 200, { ok: true, id: k.id }); }
     if (M === 'POST' && p === '/api/teacher/classes/activate') { if (!db.classes[body.id]) return fail(res, 404, 'No such class.'); db.activeClass = body.id; save(); for (const cl of clients) if (cl.role === 'student') sse(cl.res, 'switched', {}); broadcast(); return send(res, 200, { ok: true }); }
     if (M === 'POST' && p === '/api/teacher/classes/delete') {
       if (!db.classes[body.id]) return fail(res, 404, 'No such class.');
@@ -360,10 +385,10 @@ async function handle(req, res) {
       c.matches.unshift(m); c.matches = c.matches.slice(0, LIM.matches); save(); broadcast(); return send(res, 200, { ok: true });
     }
     if (M === 'GET' && p === '/api/teacher/export.csv') {
-      const acts = c.activities, rows = [['Name', 'Team', ...acts.map(a => a.title), 'Activities done', 'Joined']];
+      const acts = c.activities, rows = [['Name', 'Team', ...acts.map(a => a.title), 'Activities done', 'Mission stars', 'Hints used', 'Joined']];
       for (const s of Object.values(c.students)) {
         const pr = s.progress || {};
-        rows.push([s.name, s.team, ...acts.map(a => (pr[a.id] && pr[a.id].done ? 'done' + (pr[a.id].result ? ' (' + pr[a.id].result + ')' : '') : (pr[a.id] ? 'tried' : ''))), acts.filter(a => pr[a.id] && pr[a.id].done).length, new Date(s.joined).toLocaleString()]);
+        rows.push([s.name, s.team, ...acts.map(a => (pr[a.id] && pr[a.id].done ? 'done' + (pr[a.id].result ? ' (' + pr[a.id].result + ')' : '') : (pr[a.id] ? 'tried' : ''))), acts.filter(a => pr[a.id] && pr[a.id].done).length, Object.values(s.stars || {}).reduce((x, y) => x + y, 0), Object.values(s.hints || {}).reduce((x, y) => x + y, 0), new Date(s.joined).toLocaleString()]);
       }
       return send(res, 200, '﻿' + rows.map(r => r.map(csvCell).join(',')).join('\r\n'), 'text/csv; charset=utf-8', { 'Content-Disposition': `attachment; filename="${c.name.replace(/[^\w -]/g, '').trim() || 'class'} results.csv"` });
     }

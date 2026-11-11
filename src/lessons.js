@@ -77,3 +77,28 @@ const LESSONS = [
     steps: ['Run it and drive with the keyboard or the on-screen pad.', 'Use the speed slider: slower is easier to aim.', 'Want a friend to play? Choose <b>Player 2 (arrow keys)</b> as the opponent.'],
     goal: 'Score 2 goals', check: W => W.state.score && W.state.score[0] >= 2 },
 ];
+
+// Classroom students start these lessons from a version with TODOs instead of the finished program.
+const LESSON_TODO = {
+  follow: { code: EXAMPLES.line.bang.code.replace(/  if \(left == HIGH && right == LOW\) \{[\s\S]*?\n  \}\n\}/, `  // TODO 1: if left is HIGH and right is LOW, the line is on the left: turn left with drive(0, speed);
+
+  // TODO 2: else if right is HIGH and left is LOW, the line is on the right: turn right.
+
+  // TODO 3: else (both see the same thing) go straight.
+}`),
+    hints: ['Look at the <b>Sensors &amp; pins</b> tab: which sensor turns HIGH when the line is on the left?', 'Use <code class="k">&amp;&amp;</code> for "and": <code class="k">if (left == HIGH &amp;&amp; right == LOW) { … }</code>', '<pre>if (left == HIGH &amp;&amp; right == LOW) {\n  drive(0, speed);\n} else if (right == HIGH &amp;&amp; left == LOW) {\n  drive(speed, 0);\n} else {\n  drive(speed, speed);\n}</pre>'],
+    steps: ['Read the three <b>TODO</b>s in <code class="k">loop()</code> and write them as <code class="k">if</code> / <code class="k">else if</code> / <code class="k">else</code>.', 'Press <b>Upload &amp; run</b>. Does Dowee follow the oval?', 'Make <code class="k">speed</code> bigger. At some point it misses the turn — why?', 'Turn on <b>Trail</b> to see the path it really drove.'] },
+  pid: { code: EXAMPLES.line.pid.code.replace('  int turn = Kp * error + Kd * (error - lastError);', `  // TODO: work out how hard to turn. Right now turn is 0, so Dowee never steers!
+  //   P part: Kp * error              (far from the line = turn harder)
+  //   D part: Kd * (error - lastError) (calms the wiggle down)
+  //   Add the two parts together.
+  int turn = 0;`),
+    hints: ['<code class="k">error</code> says how far the line is from the centre. The bigger it is, the harder Dowee should turn.', 'The P part is <code class="k">Kp * error</code>. The D part looks at how fast the error changes: <code class="k">error - lastError</code>.', '<pre>int turn = Kp * error + Kd * (error - lastError);</pre>'],
+    steps: ['Run it. Dowee calibrates for 2 seconds, then drives straight off the line: <code class="k">turn</code> is always 0.', 'Fill in the <b>TODO</b>: <code class="k">turn</code> is the P part plus the D part.', 'Open the <b>Tune</b> tab and move the sliders <b>while the robot drives</b>. Set <code class="k">Kd</code> to 0: what happens to the wiggle?', 'Raise <code class="k">baseSpeed</code> and adjust Kp and Kd. Every lap is logged so you can compare.', 'When you are happy, press <b>Write values into code</b>.'] },
+  rc: { code: TEMPLATES.race.guided, hints: TEMPLATES.race.hints, steps: ['Run it and press the up arrow (or W): forward already works.', 'Fill in the <b>TODO</b>s one letter at a time and test each one.', 'Watch the Serial monitor to see each letter the controller sends.'] },
+  soccer: { code: TEMPLATES.soccer.guided, hints: TEMPLATES.race.hints, steps: ['Fill in the <b>TODO</b>s so all the arrow keys work (or reuse your RC car program).', 'Use the speed slider: slower is easier to aim.', 'Push the ball into the goal on the right.'] },
+  sonar: { code: TEMPLATES.maze.guided, hints: TEMPLATES.maze.hints, steps: ['Run it and turn on <b>Sensor view</b> to see the sound beam. The distance appears in the Serial monitor.', 'Fill in the two <b>TODO</b>s: turn away when a wall is close, otherwise drive on.', 'Change <code class="k">safeDistance</code>. Too small and it bumps; too big and it gets stuck turning.'] },
+  fight: { code: TEMPLATES.sumo.guided, hints: TEMPLATES.sumo.hints, steps: ['Fill in <b>TODO 1</b> first and test that Dowee stays in the ring.', 'Then do <b>TODO 2</b>: charge when the ultrasonic sees the Hunter.', 'Try different start positions — a good robot wins from any of them.'] },
+};
+for (const L of LESSONS) if (LESSON_TODO[L.id]) L.todo = LESSON_TODO[L.id];
+for (const c of CHALLENGES) LESSONS.push({ ...c, level: 'Fix the bug', bug: true, steps: ['Press <b>Upload &amp; run</b> and watch what goes wrong.', 'Find the mistake and fix it. Use <b>Hint</b> if you are stuck.', 'Run it again until the goal turns green.'] });

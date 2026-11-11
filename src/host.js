@@ -125,6 +125,8 @@ function hostAttempt() {
   const L = S.lesson && S.lesson.startsWith('act:') ? findLesson(S.lesson) : null;
   if (HOST.on && HOST.role === 'student' && L && L.actId) hostApi('POST', '/api/progress', { activity: L.actId, attempt: true }).catch(() => {});
 }
+function hostStars(arena, n) { if (HOST.on && HOST.role === 'student') hostApi('POST', '/api/stars', { arena, n }).catch(() => {}); }
+function hostHint(key) { if (HOST.on && HOST.role === 'student') hostApi('POST', '/api/hint', { key }).catch(() => {}); }
 function hostBest(arena, key, value) { if (HOST.on && HOST.role === 'student') hostApi('POST', '/api/best', { arena, key, value }).catch(() => {}); }
 
 /* lock: the teacher keeps everyone on one activity */
@@ -135,6 +137,9 @@ function applyLock() {
   S.lockedArena = a ? a.arena : null;
   S.allowedArenas = a ? [a.arena] : classArenas;
   buildArenaTabs(); fillExamples();
+  // a new template level (or joining) shows the right template, unless the student already wrote code here
+  const lk = samplesLocked() + ':' + templateLevel();
+  if (S.tplKey !== lk) { S.tplKey = lk; if (store.get(codeKey(S.arena, S.robot), null) == null && modeOf(S.arena, S.robot) === 'code') loadEditor(); }
   if (S.allowedArenas && !S.allowedArenas.includes(S.arena) && !a) { setArena(S.allowedArenas.find(x => x !== 'lab') || S.allowedArenas[0]); if (S.view === 'meet') buildRobotPanel(); }
   if (S.view === 'meet' && st && S.lastType !== st.robot) { S.lastType = st.robot; buildRobotPanel(); }
   $('#variantSel').disabled = !!a; $('#realSel').disabled = !!a && !!a.realism;
