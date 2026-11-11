@@ -128,13 +128,37 @@ function banner(title, sub, ms = 2600) {
 }
 
 /* ---------------- arena selection ---------------- */
+const DOWEE_ICON = '<svg viewBox="0 0 48 48" aria-hidden="true"><polygon points="8,14 40,14 44,22 40,38 8,38 4,22" fill="#f8cf3f"/><polygon points="40,14 44,22 24,14" fill="#f39a3b"/><polygon points="4,22 8,38 24,38" fill="#f39a3b"/><rect x="11" y="20" width="26" height="12" rx="6" fill="#2e2a4f"/><circle cx="18" cy="26" r="3.2" fill="#a3dcea"/><circle cx="30" cy="26" r="3.2" fill="#a3dcea"/></svg>';
+const allowed = id => !S.allowedArenas || S.allowedArenas.includes(id);
 function buildArenaTabs() {
-  $('#arenaTabs').innerHTML = Object.entries(ARENAS).map(([k, a]) => `<button role="tab" data-a="${k}" aria-selected="${k === S.arena}">${a.name}</button>`).join('');
+  const meet = S.view === 'meet';
+  $('#arenaTabs').innerHTML = `<button role="tab" class="meet-tab" data-a="meet" aria-selected="${meet}">${DOWEE_ICON}Meet Dowee</button><span class="sep" aria-hidden="true"></span>`
+    + Object.entries(ARENAS).filter(([k]) => allowed(k)).map(([k, a]) => `<button role="tab" data-a="${k}" aria-selected="${!meet && k === S.arena}">${a.name}</button>`).join('');
 }
-$('#arenaTabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setArena(b.dataset.a); });
+$('#arenaTabs').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.a === 'meet') { showMeet(); return; }
+  if (b.dataset.a !== S.arena) setArena(b.dataset.a);
+  showWork();
+});
+// Two main views: the Meet Dowee page, and the workspace (code + arena + instruments).
+function showMeet() {
+  if (S.running && !S.paused) { S.paused = true; S.pausedByMeet = true; setState(); }
+  S.view = 'meet'; store.set('view', 'meet');
+  $('.work').hidden = true; $('#meetPage').hidden = false;
+  buildArenaTabs(); buildRobotPanel();
+}
+function showWork() {
+  const was = S.view;
+  S.view = 'arena'; store.set('view', 'arena');
+  $('.work').hidden = false; $('#meetPage').hidden = true;
+  if (S.pausedByMeet) { S.pausedByMeet = false; S.paused = false; S.last = performance.now(); setState(); }
+  buildArenaTabs();
+  if (was === 'meet') { fit(); draw(); if (typeof BK !== 'undefined' && BK.ws && !$('#blkWrap').hidden) Blockly.svgResize(BK.ws); }
+}
 function needsB() { const v = S.variant[S.arena]; return v === 'code' || v === 'p2'; }
 function setArena(id, keepCode) {
-  if (S.lockedArena && id !== S.lockedArena) { toast('Your teacher has locked the class to one activity'); return; }
+  if (!allowed(id)) { toast(S.lockedArena ? 'Your teacher has locked the class to one activity' : `This class doesn't use ${ARENAS[id].name}. Pick one of the playgrounds at the top.`); return false; }
   stop();
   S.arena = id; store.set('arena', id);
   buildArenaTabs();
@@ -151,6 +175,7 @@ function setArena(id, keepCode) {
   S.bestTrail = null; S.bestLap = Infinity;
   clearMsgs(); resetWorld(); buildRobotPanel(); buildWiring(); buildTune();
   if (typeof renderClass === 'function' && window.__clReady) renderClass();
+  return true;
 }
 function updateRobotTabs() {
   $('#tabB').hidden = !needsB();
@@ -166,11 +191,11 @@ $('#variantSel').addEventListener('change', e => {
 $('#startSel').addEventListener('change', e => { S.start = e.target.value; store.set('start', S.start); stop(); resetWorld(); });
 function fillExamples() {
   if (typeof modeOf === 'function' && modeOf(S.arena, S.robot) === 'blocks') {
-    $('#exampleSel').innerHTML = '<option value="">Load starter blocks…</option>' + Object.entries(BLOCK_STARTERS).map(([k, v]) => `<option value="blk:${k}">${esc(ARENAS[k].name)}: ${esc(v.name)}</option>`).join('');
+    $('#exampleSel').innerHTML = '<option value="">Load starter blocks…</option>' + Object.entries(BLOCK_STARTERS).filter(([k]) => allowed(k)).map(([k, v]) => `<option value="blk:${k}">${esc(ARENAS[k].name)}: ${esc(v.name)}</option>`).join('');
     return;
   }
   const ex = EXAMPLES[S.arena];
-  $('#exampleSel').innerHTML = '<option value="">Load an example…</option>' + Object.entries(ex).map(([k, v]) => `<option value="${k}">${esc(v.name)}</option>`).join('') + '<option value="__all">More from other arenas…</option>';
+  $('#exampleSel').innerHTML = '<option value="">Load an example…</option>' + Object.entries(ex).map(([k, v]) => `<option value="${k}">${esc(v.name)}</option>`).join('') + (Object.keys(EXAMPLES).filter(allowed).length > 1 ? '<option value="__all">More from other arenas…</option>' : '');
 }
 $('#exampleSel').addEventListener('change', e => {
   const k = e.target.value; e.target.value = '';
@@ -179,7 +204,7 @@ $('#exampleSel').addEventListener('change', e => {
   if (k === '__all') {
     const all = [];
     for (const [a, ex] of Object.entries(EXAMPLES)) for (const [kk, v] of Object.entries(ex)) all.push(`${a}/${kk}: ${v.name}`);
-    $('#exampleSel').innerHTML = '<option value="">Load an example…</option>' + Object.entries(EXAMPLES).flatMap(([a, ex]) => Object.entries(ex).map(([kk, v]) => `<option value="${a}/${kk}">${esc(ARENAS[a].name)}: ${esc(v.name)}</option>`)).join('');
+    $('#exampleSel').innerHTML = '<option value="">Load an example…</option>' + Object.entries(EXAMPLES).filter(([a]) => allowed(a)).flatMap(([a, ex]) => Object.entries(ex).map(([kk, v]) => `<option value="${a}/${kk}">${esc(ARENAS[a].name)}: ${esc(v.name)}</option>`)).join('');
     return;
   }
   const [a, kk] = k.includes('/') ? k.split('/') : [S.arena, k];
@@ -752,31 +777,39 @@ function buildRobotPanel() {
     return `<label class="field"><span>${label}${unit && typeof unit === 'string' && !['bool', 'pin'].includes(unit) ? ` <small style="display:inline">(${unit})</small>` : ''}</span>${input}</label>`;
   }).join('')}</fieldset>`).join('');
   const changed = JSON.stringify({ ...cfg, label: 0 }) !== JSON.stringify({ ...makeCfg('dowee'), label: 0 });
-  const p = cfg.pins;
-  $('#robotBox').innerHTML = `<div class="dowee">
-    <div class="dowee-pic"><canvas id="doweeCv" width="640" height="640" aria-label="Dowee seen from above"></canvas></div>
-    <div>
-      <h3>Meet Dowee</h3><p>The standard class robot. Every arena uses the same Dowee, just like a real robot you carry from table to table.</p>
-      <dl class="spec">
-        <dt>Brain</dt><dd><span class="chip b">Arduino Uno</span> ATmega328P, 16 MHz, 2 KB of memory</dd>
-        <dt>Motor driver</dt><dd><span class="chip p">L298N</span> ENA ${pinName(p.ena)} · IN1 ${pinName(p.in1)} · IN2 ${pinName(p.in2)} · ENB ${pinName(p.enb)} · IN3 ${pinName(p.in3)} · IN4 ${pinName(p.in4)}</dd>
-        <dt>Motors</dt><dd><span class="chip y">2 × TT gear motor</span> 1:48, 65 mm wheels, ball caster at the back</dd>
-        <dt>Line sensors</dt><dd><span class="chip g">5-channel IR array</span> TCRT5000 on ${pinName(p.s0)}–${pinName(p.s0 + cfg.sensors - 1)}, ${Math.round(cfg.spacing * 1000)} mm apart. Black ≈ 950, white ≈ 100</dd>
-        <dt>Distance</dt><dd><span class="chip v">HC-SR04</span> TRIG ${pinName(p.trig)} · ECHO ${pinName(p.echo)}, 2–400 cm</dd>
-        <dt>Bluetooth</dt><dd><span class="chip b">HC-05</span> on D0 / D1, Serial at 9600</dd>
-        <dt>Light</dt><dd>LED on pin 13 (LED_BUILTIN)</dd>
-        <dt>Power</dt><dd>2 × 18650 cells, 7.4 V</dd>
-        <dt>Size</dt><dd>${Math.round(cfg.length * 100)} × ${Math.round(cfg.width * 100)} cm, ${Math.round(cfg.mass * 1000)} g</dd>
-        <dt>Speed</dt><dd>about ${Math.round(cfg.vmax * 100)} cm/s at full power. Needs a PWM of at least ${cfg.deadband} to start moving.</dd>
-      </dl>
-      ${unitHtml()}
-      ${changed ? '<p class="note" style="margin-top:10px"><b>This Dowee has been changed</b> to match a real build. <button class="btn small" id="doweeReset">Reset to standard Dowee</button></p>' : ''}
+  const p = cfg.pins, ct = classTypeInfo(), focus = new Set(ct ? ct.focus : []);
+  const part = (n, label, chip, cls, text) => `<span class="no ${focus.has(n) ? 'focus' : ''}">${n}</span><dt>${label}</dt><dd class="${focus.has(n) ? 'focus' : ''}"><span class="chip ${cls}">${chip}</span> ${text}${focus.has(n) ? '<span class="tag-focus">used a lot here</span>' : ''}</dd>`;
+  const first = S.allowedArenas ? S.allowedArenas.find(x => x !== 'lab') || S.allowedArenas[0] : S.arena;
+  const goArena = allowed(S.arena) && S.arena !== 'lab' ? S.arena : first;
+  $('#robotBox').innerHTML = `<div class="meet-wrap">
+    ${ct ? `<div class="class-banner">${DOWEE_ICON.replace('<svg', '<svg width="44" height="44"')}<div><b>${esc(ct.title)}</b><span>${esc(ct.text)}</span></div></div>` : ''}
+    <div class="meet-grid">
+      <div class="meet-pic"><canvas id="doweeCv" width="900" height="900" aria-label="Dowee seen from above, with its parts numbered"></canvas></div>
+      <div>
+        <h1>Meet Dowee</h1>
+        <p class="lede">Dowee is the class robot. It's a real Arduino robot you can build, and the code you write here also runs on the real one. The numbers match the picture.</p>
+        <dl class="parts">
+          ${part(1, 'Brain', 'Arduino Uno', 'b', 'ATmega328P, 16 MHz, 2 KB of memory. It runs your program.')}
+          ${part(2, 'Motor driver', 'L298N', 'p', `Gives the motors power. ENA ${pinName(p.ena)} · IN1 ${pinName(p.in1)} · IN2 ${pinName(p.in2)} · ENB ${pinName(p.enb)} · IN3 ${pinName(p.in3)} · IN4 ${pinName(p.in4)}`)}
+          ${part(3, 'Motors', '2 × TT gear motor', 'y', '1:48 gearbox, 65 mm wheels, ball caster at the back.')}
+          ${part(4, 'Line sensors', '5-channel IR array', 'g', `TCRT5000 on ${pinName(p.s0)}–${pinName(p.s0 + cfg.sensors - 1)}, ${Math.round(cfg.spacing * 1000)} mm apart. Black ≈ 950, white ≈ 100.`)}
+          ${part(5, 'Distance', 'HC-SR04', 'v', `Ultrasonic "eyes": TRIG ${pinName(p.trig)} · ECHO ${pinName(p.echo)}, 2–400 cm.`)}
+          ${part(6, 'Bluetooth', 'HC-05', 'b', 'On D0 / D1. Talks to a phone or keyboard remote at 9600.')}
+          ${part(7, 'Light', 'LED 13', 'y', 'The LED_BUILTIN on the Arduino board.')}
+          ${part(8, 'Power', '2 × 18650', 'p', '7.4 V battery pack.')}
+        </dl>
+        <p class="note" style="margin:0 0 12px">${Math.round(cfg.length * 100)} × ${Math.round(cfg.width * 100)} cm · ${Math.round(cfg.mass * 1000)} g · about ${Math.round(cfg.vmax * 100)} cm/s at full power · needs a PWM of at least ${cfg.deadband} to start moving.</p>
+        <div class="start-row"><button class="btn primary" id="startProg">Start programming: ${esc(ARENAS[goArena].name)} →</button><span class="note">The <b>Wiring</b> tab shows how every part connects.</span></div>
+        ${unitHtml()}
+        ${changed ? '<p class="note" style="margin-top:10px"><b>This Dowee has been changed</b> to match a real build. <button class="btn small" id="doweeReset">Reset to standard Dowee</button></p>' : ''}
+      </div>
     </div>
-  </div>
-  <details class="adv"${changed ? ' open' : ''}><summary>Match your real robot (advanced)</summary>
-    <p class="note">Built your own Dowee? Measure it, weigh it, test its motors and copy your wiring here, so the simulator behaves like your robot. Changes apply when you press Reset or run again.</p>
-    <div class="form">${fs}</div>
-  </details>`;
+    <details class="adv"${changed ? ' open' : ''}><summary>Match your real robot (advanced)</summary>
+      <p class="note">Built your own Dowee? Measure it, weigh it, test its motors and copy your wiring here, so the simulator behaves like your robot. Changes apply when you press Reset or run again.</p>
+      <div class="form">${fs}</div>
+    </details>
+  </div>`;
+  $('#startProg').addEventListener('click', () => { if (goArena !== S.arena) { if (setArena(goArena) === false) return; } showWork(); });
   const dr = $('#doweeReset'); if (dr) dr.addEventListener('click', () => { store.set('cfg:dowee', null); buildRobotPanel(); stop(); resetWorld(); buildWiring(); toast('Dowee is back to standard'); });
   drawDoweePortrait();
   const nb = $('#newUnit'); if (nb) nb.addEventListener('click', () => { S.unit = 1000 + Math.floor(Math.random() * 9000); store.set('unit', S.unit); stop(); resetWorld(); buildRobotPanel(); toast(`You got Dowee #${S.unit}. It has its own quirks: calibrate again!`); });
@@ -817,12 +850,33 @@ function unitHtml() {
     <div class="row" style="margin-top:8px"><button class="btn small" id="newUnit">Get a different Dowee</button></div>
   </div>`;
 }
+// What each class is about, and which numbered parts matter most for it.
+const CLASS_TYPES = {
+  line: { title: 'This is a line follower class', text: 'Dowee uses its 5 IR sensors (4) to see the black line and steers with its two motors (3).', focus: [3, 4] },
+  sumo: { title: 'This is a sumo robot class', text: 'Dowee finds its opponent with the ultrasonic sensor (5), pushes with its motors (3) and uses the IR sensors (4) to stay inside the ring.', focus: [3, 4, 5] },
+  rc: { title: 'This is an RC robot class', text: 'You drive Dowee from a phone or keyboard. The commands arrive through the HC-05 Bluetooth module (6).', focus: [3, 6] },
+  obstacle: { title: 'This is an obstacle avoider class', text: 'Dowee measures the distance ahead with its ultrasonic sensor (5) and turns before it bumps into things.', focus: [3, 5] },
+};
+function classTypeInfo() { const t = typeof HOST !== 'undefined' && HOST.on ? ((HOST.state && HOST.state.robot) || (HOST.info && HOST.info.robot)) : null; return CLASS_TYPES[t] || null; }
 function drawDoweePortrait() {
   const cv2 = $('#doweeCv'); if (!cv2) return;
-  const g = cv2.getContext('2d'), cfg = cfgFor(), W2 = cv2.width, s = W2 / Math.max(0.26, cfg.length + 0.06, cfg.width + 0.06);
+  const g = cv2.getContext('2d'), cfg = cfgFor(), W2 = cv2.width, s = W2 / Math.max(0.26, cfg.length + 0.07, cfg.width + 0.07);
   g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, W2, W2);
   g.setTransform(s, 0, 0, -s, W2 / 2, W2 / 2); g.rotate(Math.PI / 2);
   drawDowee(g, cfg, { px: s, team: 'A', led: true, sensorsOn: i => i === 2 });
+  // numbered badges on the parts (robot frame: x forward, y left; forward points up on screen)
+  const hl = cfg.length / 2, py = Math.max(0.03, cfg.track / 2 - 0.015), focus = new Set((classTypeInfo() || {}).focus || []);
+  const spots = [[1, -0.012, -0.006], [2, 0.042, -0.012], [3, cfg.axle, cfg.track / 2], [4, cfg.sensorFwd, ((cfg.sensors - 1) / 2) * cfg.spacing + 0.004], [5, hl - 0.024, 0.013], [6, -0.023, -py + 0.01], [7, 0.012, 0.012], [8, -hl + 0.026, 0.02]];
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  const r = W2 * 0.026;
+  for (const [n, x, y] of spots) {
+    const sx = W2 / 2 - s * y, sy = W2 / 2 - s * x, f = focus.has(n);
+    g.beginPath(); g.arc(sx, sy, r * (f ? 1.25 : 1), 0, Math.PI * 2);
+    g.fillStyle = f ? '#e9467e' : '#2e2a4f'; g.fill();
+    g.lineWidth = r * 0.22; g.strokeStyle = '#fffaf1'; g.stroke();
+    g.fillStyle = '#fffaf1'; g.font = `800 ${Math.round(r * 1.15)}px Nunito, system-ui, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(String(n), sx, sy + 1);
+  }
 }
 
 /* ---------------- wiring diagram ---------------- */
@@ -869,12 +923,13 @@ function buildWiring() {
 
 /* ---------------- lessons ---------------- */
 function buildLessons() {
-  const acts = typeof hostActivities === 'function' ? hostActivities().map(activityToLesson) : [];
-  const all = [...acts, ...LESSONS];
+  const acts = (typeof hostActivities === 'function' ? hostActivities().map(activityToLesson) : []).filter(l => allowed(l.arena));
+  const lessons = LESSONS.filter(l => allowed(l.arena));
+  const all = [...acts, ...lessons];
   const L = (S.lessonView && all.find(l => l.id === S.lessonView)) || (S.lesson && all.find(l => l.id === S.lesson)) || all[0];
   const isDone = l => (l.actId ? activityDone(l) : S.lessonDone[l.id]);
   const item = (l, i) => `<button data-id="${l.id}" aria-current="${l === L}" class="${isDone(l) ? 'done' : ''}"><span class="num">${isDone(l) ? '✓' : i + 1}</span><b>${esc(l.title)}</b><small>${esc(l.actId ? (ARENAS[l.arena] ? ARENAS[l.arena].name : '') : l.level)}</small></button>`;
-  $('#lessonBox').innerHTML = `<div class="lesson-list">${acts.length ? `<p class="lbl" style="margin:0 0 2px">From your teacher</p>${acts.map(item).join('')}<p class="lbl" style="margin:10px 0 2px">All lessons</p>` : ''}${LESSONS.map(item).join('')}</div>
+  $('#lessonBox').innerHTML = `<div class="lesson-list">${acts.length ? `<p class="lbl" style="margin:0 0 2px">From your teacher</p>${acts.map(item).join('')}<p class="lbl" style="margin:10px 0 2px">All lessons</p>` : ''}${lessons.map(item).join('')}</div>
   <div class="lesson-body"><h3>${esc(L.title)}</h3><p>${L.intro}</p><ol>${L.steps.map(s => `<li>${s}</li>`).join('')}</ol>
   <div class="goal ${isDone(L) && S.lesson === L.id ? 'done' : ''}" id="goalBox"><span>Goal: ${esc(L.goal)}${isDone(L) ? ' — done!' : ''}</span><button class="btn primary" id="lessonStart">${S.lesson === L.id ? 'Restart lesson' : 'Start this lesson'}</button></div></div>`;
   $$('#lessonBox .lesson-list button').forEach(b => b.addEventListener('click', () => { S.lessonView = b.dataset.id; const l = all.find(x => x.id === b.dataset.id); showLesson(l); }));
@@ -882,7 +937,7 @@ function buildLessons() {
 }
 function showLesson(L) { S.lessonView = L.id; buildLessons(); }
 function startLesson(L) {
-  if (S.lockedArena && L.arena !== S.lockedArena) { toast('Your teacher has locked the class to one activity'); return; }
+  if (!allowed(L.arena)) { toast(S.lockedArena ? 'Your teacher has locked the class to one activity' : `This class doesn't use ${ARENAS[L.arena].name}`); return; }
   S.lesson = L.id; S.lessonView = L.id;
   if (L.variant && ARENAS[L.arena].variants[L.variant]) { S.variant[L.arena] = L.variant; store.set('variant', S.variant); }
   if (L.realism) { S.realism = L.realism; store.set('realism', S.realism); $('#realSel').value = S.realism; }
@@ -897,7 +952,7 @@ function startLesson(L) {
   else if (base.blocks) { store.set(`mode:${L.arena}:A`, 'blocks'); store.set(`blocks:${L.arena}:A`, null); loadEditor(); }
   else if (base.code || base.example) { putCode(L.arena, 'A', base.code || EXAMPLES[L.arena][base.example].code); loadEditor(); }
   else loadEditor();
-  buildLessons();
+  buildLessons(); showWork();
   toast(`Lesson: ${L.title}`);
 }
 function checkLesson() {
@@ -1508,6 +1563,7 @@ serialSys('Welcome! Pick an arena above, then press "Upload & run". Your code is
 buildLessons();
 window.__clReady = true;
 window.__blkReady = true; fillExamples(); applyMode();
+if (store.get('view', 'meet') === 'meet') showMeet(); else showWork();
 initHost().then(on => { if (!on) initClass(); else { buildLessons(); renderClass(); } });
 requestAnimationFrame(t => { S.last = t; requestAnimationFrame(frame); });
 })();

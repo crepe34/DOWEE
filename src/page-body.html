@@ -86,7 +86,6 @@
           <button data-p="plot">Plotter</button>
           <button data-p="sensors">Sensors &amp; pins</button>
           <button data-p="tune">Tune</button>
-          <button data-p="robot">Meet Dowee</button>
           <button data-p="wiring">Wiring</button>
           <button data-p="lessons">Lessons</button>
           <button data-p="class">Class</button>
@@ -112,7 +111,6 @@
           </div>
           <div class="panel" id="p-sensors" hidden><div class="sensors" id="sensorsBox"></div></div>
           <div class="panel" id="p-tune" hidden><div id="tuneBox"></div></div>
-          <div class="panel" id="p-robot" hidden><div id="robotBox"></div></div>
           <div class="panel wiring" id="p-wiring" hidden><div id="wiringBox"></div></div>
           <div class="panel" id="p-lessons" hidden><div class="lessons" id="lessonBox"></div></div>
           <div class="panel" id="p-class" hidden><div id="classBox"></div></div>
@@ -120,6 +118,7 @@
       </div>
     </section>
   </main>
+  <main class="meet" id="meetPage" hidden aria-label="Meet Dowee"><div id="robotBox"></div></main>
 </div>
 <div class="toast" id="toast" hidden></div>
 <div class="modal" id="joinModal" hidden>
@@ -127,6 +126,7 @@
     <svg viewBox="0 0 48 48" width="52" height="52" aria-hidden="true"><polygon points="24,4 30,10 18,10" fill="#e9467e"/><polygon points="8,14 40,14 44,22 40,38 8,38 4,22" fill="#f8cf3f"/><polygon points="40,14 44,22 24,14" fill="#f39a3b"/><polygon points="4,22 8,38 24,38" fill="#f39a3b"/><rect x="11" y="20" width="26" height="12" rx="6" fill="#2e2a4f"/><circle cx="18" cy="26" r="3.2" fill="#a3dcea"/><circle cx="30" cy="26" r="3.2" fill="#a3dcea"/></svg>
     <p class="lbl">Join the class</p>
     <h2 id="joinClass">Robotics class</h2>
+    <p class="join-type" id="joinType"></p>
     <p class="note" id="joinNote"></p>
     <label class="fld">Your name<input id="joinName" maxlength="40" required autocomplete="off" placeholder="First name"></label>
     <label class="fld">Team (optional)<input id="joinTeam" maxlength="40" autocomplete="off" placeholder="e.g. The Line Hunters"></label>

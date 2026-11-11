@@ -34,13 +34,25 @@ The teacher's laptop hosts the class. Students only need a browser on the same W
 3. The **teacher dashboard** opens at `http://localhost:8080/teacher`. Press **Show join screen** to put a big QR code and link on the projector.
 4. Students scan the QR code or type the link, enter their name and join.
 
+Each class is about one robot. When you make a class you pick its **robot type**, and students only see that robot's playgrounds (plus the Test lab for calibrating). You always see every playground.
+
+| Robot type | Playgrounds for students |
+| --- | --- |
+| Line follower | Line following, Test lab |
+| Sumo robot | Sumo, Test lab |
+| RC robot | RC race, Robot soccer, Test lab |
+| Obstacle avoider | Obstacle room, Test lab |
+| Everything (free play) | All six |
+
+Students start on the **Meet Dowee** page: a numbered picture of the robot and its parts, with the parts that matter for the class highlighted.
+
 On the dashboard the teacher can:
 
 - **Live class:** see who is online, what each student is working on, whether their program is running or crashed, and raised hands. Message a student, send code to one student or the whole class, and post a class announcement.
 - **Lesson plan:** build a list of activities from the built-in lessons or your own. Each activity has an arena, a track or opponent, a world (Ideal, Realistic or Competition day), a starter program and an automatic goal, such as "lap under 15 s" or "stop at 100 cm". **Lock** keeps every student on one activity.
 - **Results:** a student × activity grid that ticks itself off as goals are reached, leaderboards, and a CSV download for your gradebook.
 - **Battles:** pick two students' handed-in sumo or soccer programs and run the match on the projector. Results go to the class leaderboard.
-- **Settings:** several classes (sections), a class PIN, whether students can open classmates' code, and a private link for using the dashboard from your phone.
+- **Settings:** the class's robot type, several classes (sections), a class PIN, whether students can open classmates' code, and a private link for using the dashboard from your phone.
 
 Class data is saved on the laptop in `data/dowee-classroom.json`. Use `npm start -- --port 9000` to pick another port, or `--data <folder>` to store data elsewhere.
 

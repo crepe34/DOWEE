@@ -36,6 +36,8 @@ Done:
 - Realism levels.
 - Lessons.
 - Classroom mode: join, lesson plan, live roster, hands, handouts, lock, results with CSV export, battles, several classes, and PIN.
+- Class robot types (`ROBOT_TYPES` in `server/server.js`): line, sumo, rc, obstacle and all. Students only see their class's playgrounds plus the Test lab (`S.allowedArenas` in the app); the teacher sees everything. Classes saved before this feature load as `all`.
+- Meet Dowee is a main tab (`showMeet()` / `showWork()` in `src/ui.js`) and the students' starting page. It has numbered parts, and the parts that matter for the class type are highlighted (`CLASS_TYPES`).
 
 Next:
 1. **Standalone app:** wrap the server and dashboard with Electron for a normal installer. Open question for the user: which systems should it support (Windows, macOS, Linux)?

@@ -29,6 +29,26 @@ const START_PORT = +(arg('--port') || process.env.PORT || 8080);
 const LIM = { body: 300 * 1024, code: 30000, xml: 60000, name: 40, text: 2000, activities: 60, students: 200, matches: 200 };
 const ARENAS = ['line', 'race', 'soccer', 'sumo', 'maze', 'lab'];
 const REALISM = ['', 'ideal', 'real', 'tough'];
+// Each class is about one kind of robot. Students only see these playgrounds; the Test lab is always included.
+const ROBOT_TYPES = {
+  line: { label: 'Line follower', arenas: ['line', 'lab'], seed: ['drive', 'see', 'follow', 'pid'] },
+  sumo: { label: 'Sumo robot', arenas: ['sumo', 'lab'], seed: ['drive', 'turn', 'edge', 'fight'] },
+  rc: { label: 'RC robot', arenas: ['race', 'soccer', 'lab'], seed: ['drive', 'rc', 'soccer'] },
+  obstacle: { label: 'Obstacle avoider', arenas: ['maze', 'lab'], seed: ['drive', 'turn', 'sonar'] },
+  all: { label: 'Everything (free play)', arenas: ['line', 'race', 'soccer', 'sumo', 'maze', 'lab'], seed: ['blocks', 'drive', 'follow'] },
+};
+const BUILTIN = {
+  blocks: ['Your first blocks program', 'lab', 'lab'], blink: ['Blink the LED', 'lab', 'lab'], drive: ['Drive exactly 1 metre', 'lab', 'lab'], turn: ['Turn 90 degrees', 'lab', 'lab'],
+  see: ['See what the sensors see', 'line', 'oval'], follow: ['Follow the line with 2 sensors', 'line', 'oval'], pid: ['Tune a PID racer', 'line', 'snake'],
+  rc: ['Bluetooth RC driver', 'race', 'none'], sonar: ['Ultrasonic eyes', 'maze', 'room1'], edge: ['Stay inside the ring', 'sumo', 'none'], fight: ['Win a sumo match', 'sumo', 'hunter'], soccer: ['Score two goals', 'soccer', 'easy'],
+};
+const lowerLabel = l => (/^RC/.test(l) ? l : l.charAt(0).toLowerCase() + l.slice(1));
+const robotOf = c => (ROBOT_TYPES[c.robot] ? c.robot : 'all');
+const allowedArenas = c => ROBOT_TYPES[robotOf(c)].arenas;
+const robotInfo = c => ({ robot: robotOf(c), robotLabel: ROBOT_TYPES[robotOf(c)].label, arenas: allowedArenas(c) });
+function seedActivities(robot) {
+  return ROBOT_TYPES[robot].seed.map(id => ({ id: newId(4), title: BUILTIN[id][0], builtin: id, arena: BUILTIN[id][1], variant: BUILTIN[id][2], realism: '', intro: '', steps: [], starter: { kind: 'lesson' }, goal: { type: 'builtin' } }));
+}
 const newId = (n = 6) => crypto.randomBytes(n).toString('hex');
 const newToken = () => crypto.randomBytes(24).toString('base64url');
 const str = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').slice(0, max);
@@ -36,15 +56,12 @@ const num = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ?
 const now = () => Date.now();
 
 /* ---------------- data ---------------- */
-function newClass(name) {
+function newClass(name, robot) {
+  robot = ROBOT_TYPES[robot] ? robot : 'line';
   return {
-    id: newId(), name: str(name, 60) || 'My robotics class', created: now(), pin: '', announcement: '',
+    id: newId(), name: str(name, 60) || 'My robotics class', robot, created: now(), pin: '', announcement: '',
     lock: null, settings: { showCode: true, battles: true },
-    activities: [
-      { id: newId(4), title: 'Your first blocks program', builtin: 'blocks', arena: 'lab', variant: 'lab', realism: '', intro: '', steps: [], starter: { kind: 'lesson' }, goal: { type: 'builtin' } },
-      { id: newId(4), title: 'Drive exactly 1 metre', builtin: 'drive', arena: 'lab', variant: 'lab', realism: '', intro: '', steps: [], starter: { kind: 'lesson' }, goal: { type: 'builtin' } },
-      { id: newId(4), title: 'Follow the line with 2 sensors', builtin: 'follow', arena: 'line', variant: 'oval', realism: '', intro: '', steps: [], starter: { kind: 'lesson' }, goal: { type: 'builtin' } },
-    ],
+    activities: seedActivities(robot),
     students: {}, matches: [], handouts: [],
   };
 }
@@ -57,6 +74,7 @@ function load() {
     save(true);
   }
   if (!db.classes[db.activeClass]) db.activeClass = Object.keys(db.classes)[0];
+  for (const c of Object.values(db.classes)) if (!ROBOT_TYPES[c.robot]) c.robot = 'all';   // classes saved before robot types existed
 }
 let saveTimer = null;
 function save(immediate) {
@@ -129,7 +147,7 @@ function leaderboards(c) {
 function publicState(me) {
   const c = cls(), on = onlineIds();
   return {
-    classId: c.id, name: c.name, announcement: c.announcement, lock: c.lock, settings: c.settings, activities: c.activities,
+    classId: c.id, name: c.name, ...robotInfo(c), announcement: c.announcement, lock: c.lock, settings: c.settings, activities: c.activities,
     roster: Object.values(c.students).map(s => ({ id: s.id, name: s.name, team: s.team, online: on.has(s.id), subs: Object.keys(s.subs || {}) })),
     leaderboard: leaderboards(c),
     matches: c.matches.slice(0, 20).map(m => ({ arena: m.arena, a: m.a, b: m.b, winner: m.winner, text: m.text, at: m.at })),
@@ -140,9 +158,10 @@ function teacherState() {
   const c = cls(), on = onlineIds();
   return {
     version: VERSION, port: PORT, lan: lanUrls(), teacherKey: db.teacherKey, dataFile: DATA_FILE,
-    classes: Object.values(db.classes).map(k => ({ id: k.id, name: k.name, students: Object.keys(k.students).length, created: k.created })),
+    robotTypes: Object.fromEntries(Object.entries(ROBOT_TYPES).map(([k, v]) => [k, { label: v.label, arenas: v.arenas }])),
+    classes: Object.values(db.classes).map(k => ({ id: k.id, name: k.name, robotLabel: ROBOT_TYPES[robotOf(k)].label, students: Object.keys(k.students).length, created: k.created })),
     active: {
-      ...c,
+      ...c, ...robotInfo(c),
       students: Object.values(c.students).map(s => ({
         id: s.id, name: s.name, team: s.team, joined: s.joined, lastSeen: s.lastSeen, online: on.has(s.id) || now() - (s.lastSeen || 0) < 30000,
         status: s.status || {}, hand: s.hand || null, progress: s.progress || {}, bests: s.bests || {},
@@ -238,7 +257,7 @@ async function handle(req, res) {
   const me = studentFrom(req, url);
 
   // public
-  if (M === 'GET' && p === '/api/info') return send(res, 200, { app: 'dowee', version: VERSION, classId: c.id, className: c.name, pinRequired: !!c.pin });
+  if (M === 'GET' && p === '/api/info') return send(res, 200, { app: 'dowee', version: VERSION, classId: c.id, className: c.name, ...robotInfo(c), pinRequired: !!c.pin });
   if (M === 'GET' && p === '/api/whoami') {
     if (me) return send(res, 200, { role: 'student', student: { id: me.id, name: me.name, team: me.team } });
     return send(res, 200, { role: isTeacher(req) ? 'teacher' : 'guest' });
@@ -265,8 +284,10 @@ async function handle(req, res) {
       broadcast(); return send(res, 200, { ok: true });
     }
     if (p === '/api/hand') { me.hand = body.up ? { at: now(), note: str(body.note, 200) } : null; broadcast(); return send(res, 200, { ok: true }); }
+    const notInClass = () => fail(res, 400, `This class is a ${lowerLabel(ROBOT_TYPES[robotOf(c)].label)} class, so it doesn't use that playground.`);
     if (p === '/api/submit') {
       if (!ARENAS.includes(body.arena)) return fail(res, 400, 'Unknown arena.');
+      if (!allowedArenas(c).includes(body.arena)) return notInClass();
       const code = str(body.code, LIM.code + 1);
       if (code.length > LIM.code) return fail(res, 413, 'This program is too long to hand in.');
       me.subs[body.arena] = { code, mode: body.mode === 'blocks' ? 'blocks' : 'code', activity: str(body.activity, 16), at: now() };
@@ -274,6 +295,7 @@ async function handle(req, res) {
     }
     if (p === '/api/best') {
       if (!ARENAS.includes(body.arena)) return fail(res, 400, 'Unknown arena.');
+      if (!allowedArenas(c).includes(body.arena)) return notInClass();
       const key = str(body.key, 20), v = num(body.value, 0, 1e6, null);
       if (!key || v === null) return fail(res, 400, 'Bad value.');
       const b = (me.bests[body.arena] = me.bests[body.arena] || {});
@@ -302,14 +324,17 @@ async function handle(req, res) {
     if (M === 'GET' && p === '/api/teacher/state') return send(res, 200, teacherState());
     if (M === 'POST' && p === '/api/teacher/class') {
       if (body.name !== undefined) c.name = str(body.name, 60) || c.name;
+      if (body.robot !== undefined && ROBOT_TYPES[body.robot]) c.robot = body.robot;
       if (body.pin !== undefined) c.pin = str(body.pin, 12).trim();
       if (body.announcement !== undefined) c.announcement = str(body.announcement, 500);
       if (body.lock !== undefined) c.lock = body.lock && c.activities.some(a => a.id === body.lock) ? body.lock : null;
       if (body.settings && typeof body.settings === 'object') c.settings = { showCode: !!body.settings.showCode, battles: body.settings.battles !== false };
-      if (Array.isArray(body.activities)) { c.activities = body.activities.slice(0, LIM.activities).map(cleanActivity).filter(Boolean); if (c.lock && !c.activities.some(a => a.id === c.lock)) c.lock = null; }
+      if (Array.isArray(body.activities)) c.activities = body.activities.slice(0, LIM.activities).map(cleanActivity).filter(Boolean);
+      // a lock on an activity that no longer exists, or isn't in this class's playgrounds, is lifted
+      if (c.lock) { const la = c.activities.find(a => a.id === c.lock); if (!la || !allowedArenas(c).includes(la.arena)) c.lock = null; }
       save(); broadcast(); return send(res, 200, { ok: true });
     }
-    if (M === 'POST' && p === '/api/teacher/classes/new') { const k = newClass(body.name); if (body.copyFrom && db.classes[body.copyFrom]) k.activities = JSON.parse(JSON.stringify(db.classes[body.copyFrom].activities)); db.classes[k.id] = k; db.activeClass = k.id; save(); broadcast(); return send(res, 200, { ok: true, id: k.id }); }
+    if (M === 'POST' && p === '/api/teacher/classes/new') { const k = newClass(body.name, body.robot); if (body.copyFrom && db.classes[body.copyFrom]) k.activities = JSON.parse(JSON.stringify(db.classes[body.copyFrom].activities)); db.classes[k.id] = k; db.activeClass = k.id; save(); broadcast(); return send(res, 200, { ok: true, id: k.id }); }
     if (M === 'POST' && p === '/api/teacher/classes/activate') { if (!db.classes[body.id]) return fail(res, 404, 'No such class.'); db.activeClass = body.id; save(); for (const cl of clients) if (cl.role === 'student') sse(cl.res, 'switched', {}); broadcast(); return send(res, 200, { ok: true }); }
     if (M === 'POST' && p === '/api/teacher/classes/delete') {
       if (!db.classes[body.id]) return fail(res, 404, 'No such class.');
@@ -321,7 +346,8 @@ async function handle(req, res) {
     if (M === 'POST' && p === '/api/teacher/student/hand') { const s = c.students[body.id]; if (s) { s.hand = null; save(); broadcast(); } return send(res, 200, { ok: true }); }
     if (M === 'POST' && p === '/api/teacher/student/reset') { const s = c.students[body.id]; if (s) { if (body.activity) delete s.progress[body.activity]; else s.progress = {}; save(); broadcast(); } return send(res, 200, { ok: true }); }
     if (M === 'POST' && p === '/api/teacher/handout') {
-      const h = { id: newId(4), arena: ARENAS.includes(body.arena) ? body.arena : 'lab', kind: body.kind === 'blocks' ? 'blocks' : 'code', code: str(body.code, LIM.code), xml: str(body.xml, LIM.xml), note: str(body.note, 300), target: body.target === 'all' || c.students[body.target] ? body.target : 'all', at: now() };
+      if (!allowedArenas(c).includes(body.arena)) return fail(res, 400, `That playground isn't part of this ${lowerLabel(ROBOT_TYPES[robotOf(c)].label)} class.`);
+      const h = { id: newId(4), arena: body.arena, kind: body.kind === 'blocks' ? 'blocks' : 'code', code: str(body.code, LIM.code), xml: str(body.xml, LIM.xml), note: str(body.note, 300), target: body.target === 'all' || c.students[body.target] ? body.target : 'all', at: now() };
       c.handouts.unshift(h); c.handouts = c.handouts.slice(0, 20); save();
       pushTo(h.target, 'handout', h); broadcast(); return send(res, 200, { ok: true });
     }

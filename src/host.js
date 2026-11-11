@@ -24,6 +24,8 @@ async function initHost() {
   if (HOST.role === 'guest' && HOST.token) { HOST.token = null; store.set(hostKey(), null); }
   $('#hostChip').hidden = false;
   renderHostChip();
+  applyLock();
+  if (HOST.role !== 'teacher') showMeet();   // students always start by meeting the robot
   if (HOST.role === 'guest') showJoin(); else connectHost();
   setInterval(() => sendStatus(true), 15000);
   return true;
@@ -47,6 +49,7 @@ function connectHost() {
 function showJoin(note) {
   const m = $('#joinModal');
   $('#joinClass').textContent = HOST.info.className;
+  $('#joinType').textContent = HOST.info.robotLabel && HOST.info.robot !== 'all' ? HOST.info.robotLabel + ' class' : '';
   $('#joinPinRow').hidden = !HOST.info.pinRequired;
   $('#joinNote').textContent = note || '';
   $('#joinErr').textContent = '';
@@ -61,7 +64,7 @@ $('#joinForm').addEventListener('submit', async e => {
     HOST.token = r.token; HOST.me = r.student; HOST.role = 'student'; store.set(hostKey(), r.token);
     $('#joinModal').hidden = true; renderHostChip(); connectHost();
     toast(`Welcome, ${r.student.name}!`);
-    $(`#dockTabs [data-p="lessons"]`).click();
+    showMeet();
   } catch (err) { $('#joinErr').textContent = err.message; }
   btn.disabled = false;
 });
@@ -70,7 +73,8 @@ $('#joinSolo').addEventListener('click', () => { $('#joinModal').hidden = true; 
 /* header chip */
 function renderHostChip() {
   const chip = $('#hostChip'); if (!chip) return;
-  const name = HOST.state ? HOST.state.name : HOST.info.className;
+  const src = HOST.state || HOST.info, typeLbl = src.robot && src.robot !== 'all' ? ' · ' + src.robotLabel : '';
+  const name = (HOST.state ? HOST.state.name : HOST.info.className) + typeLbl;
   if (HOST.role === 'teacher') chip.innerHTML = `<b>${esc(name)}</b><span>Teacher view</span><a class="btn small" href="/teacher" target="_blank" rel="noopener">Dashboard</a>`;
   else if (HOST.role === 'student' && HOST.me) {
     const up = HOST.state && HOST.state.me && HOST.state.me.hand;
@@ -125,9 +129,14 @@ function hostBest(arena, key, value) { if (HOST.on && HOST.role === 'student') h
 
 /* lock: the teacher keeps everyone on one activity */
 function applyLock() {
-  const st = HOST.state, a = st && st.lock && HOST.role === 'student' ? st.activities.find(x => x.id === st.lock) : null;
+  const st = HOST.state, student = HOST.role !== 'teacher';
+  const a = st && st.lock && HOST.role === 'student' ? st.activities.find(x => x.id === st.lock) : null;
+  const classArenas = student ? ((st && st.arenas) || (HOST.info && HOST.info.arenas) || null) : null;
   S.lockedArena = a ? a.arena : null;
-  $$('#arenaTabs button').forEach(b => { b.disabled = !!a && b.dataset.a !== a.arena; });
+  S.allowedArenas = a ? [a.arena] : classArenas;
+  buildArenaTabs(); fillExamples();
+  if (S.allowedArenas && !S.allowedArenas.includes(S.arena) && !a) { setArena(S.allowedArenas.find(x => x !== 'lab') || S.allowedArenas[0]); if (S.view === 'meet') buildRobotPanel(); }
+  if (S.view === 'meet' && st && S.lastType !== st.robot) { S.lastType = st.robot; buildRobotPanel(); }
   $('#variantSel').disabled = !!a; $('#realSel').disabled = !!a && !!a.realism;
   if (a && (S.arena !== a.arena || S.lesson !== 'act:' + a.id) && !S.lockApplied) { S.lockApplied = a.id; startLesson(activityToLesson(a)); toast(`Your teacher started: ${a.title}`); }
   if (!a) S.lockApplied = null;
@@ -148,8 +157,9 @@ function renderHostNotices() {
   $$('#hostNotice [data-ho]').forEach(b => b.addEventListener('click', () => { const n = HOST.notices[+b.dataset.ho]; loadHandout(n.h); HOST.notices.splice(+b.dataset.ho, 1); renderHostNotices(); }));
 }
 function loadHandout(h) {
-  if (S.lockedArena && h.arena !== S.lockedArena) { toast('Your teacher has locked the class to another arena'); return; }
+  if (!allowed(h.arena)) { toast('That program is for a playground this class doesn\'t use'); return; }
   if (S.arena !== h.arena) setArena(h.arena);
+  showWork();
   if (h.kind === 'blocks' && h.xml) { store.set(`blocks:${h.arena}:A`, h.xml); store.set(`mode:${h.arena}:A`, 'blocks'); }
   else putCode(h.arena, 'A', h.code);
   S.robot = 'A'; updateRobotTabs(); loadEditor();
@@ -188,13 +198,13 @@ async function handleHostParams() {
   try {
     if (q.get('view')) {
       const c = await getCodeOf(q.get('view'));
-      setArena(arena); putCode(arena, 'A', c.code); S.robot = 'A'; updateRobotTabs(); loadEditor();
+      setArena(arena); showWork(); putCode(arena, 'A', c.code); S.robot = 'A'; updateRobotTabs(); loadEditor();
       banner(`${c.name}'s program`, `${ARENAS[arena].name} · handed in ${new Date(c.at).toLocaleTimeString()}`, 3500);
     } else if (q.get('battle') && HOST.role === 'teacher') {
       const [a, b] = q.get('battle').split(','), [ca, cb] = await Promise.all([getCodeOf(a), getCodeOf(b)]);
       putCode(arena, 'A', ca.code); putCode(arena, 'B', cb.code);
       S.variant[arena] = 'code'; store.set('variant', S.variant);
-      setArena(arena);
+      setArena(arena); showWork();
       S.classMatch = { arena, aId: a, bId: b, a: ca.name, b: cb.name, host: true };
       run();
       banner(`${ca.name} vs ${cb.name}`, 'Class battle', 3000);

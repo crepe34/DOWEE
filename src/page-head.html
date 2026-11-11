@@ -253,6 +253,31 @@ code.k { font-family: var(--font-mono); font-size: 12.5px; background: var(--sun
 .blocklyToolboxDiv { font-family: var(--font-body); }
 .blocklyTreeLabel { font-weight: 800; }
 
+/* Meet Dowee page (a main tab) */
+.arena-tabs .meet-tab { display: inline-flex; align-items: center; gap: 6px; }
+.arena-tabs .meet-tab svg { width: 18px; height: 18px; }
+.arena-tabs .sep { width: 1px; background: rgba(255,255,255,.35); margin: 4px 2px; }
+.meet { flex: 1; min-height: 0; overflow: auto; background: var(--panel); border-radius: var(--r); box-shadow: 0 4px 0 var(--teal-deep); }
+.meet-wrap { padding: 18px 20px 22px; display: flex; flex-direction: column; gap: 14px; max-width: 1240px; margin: 0 auto; }
+.meet-grid { display: grid; grid-template-columns: minmax(280px, 500px) minmax(0, 1fr); gap: 22px; align-items: start; }
+.meet-pic { background: var(--sky); border-radius: 18px; padding: 10px; position: relative; }
+.meet-pic canvas { width: 100%; aspect-ratio: 1; display: block; }
+.meet h1 { font-family: var(--font-display); font-size: clamp(30px, 4vw, 46px); line-height: 1; margin: 0; font-weight: 800; }
+.meet .lede { font-size: 15.5px; color: var(--muted); font-weight: 700; margin: 6px 0 12px; max-width: 60ch; }
+.class-banner { background: var(--yellow); color: var(--navy); border-radius: 14px; padding: 12px 16px; display: flex; gap: 12px; align-items: center; box-shadow: 0 3px 0 #c99d16; }
+.class-banner svg { flex: none; width: 44px; height: 44px; }
+.class-banner b { font-family: var(--font-display); font-size: 19px; display: block; line-height: 1.15; }
+.class-banner span { font-weight: 700; }
+.parts { display: grid; grid-template-columns: 30px max-content 1fr; gap: 6px 10px; align-items: baseline; font-size: 13.5px; margin: 0 0 12px; }
+.parts .no { width: 24px; height: 24px; border-radius: 50%; background: var(--navy); color: var(--cloud); display: grid; place-items: center; font-weight: 800; font-size: 12px; align-self: center; }
+.parts .focus.no { background: var(--pink); box-shadow: 0 0 0 3px #fde2ec; }
+.parts dt { font-weight: 800; color: var(--muted); }
+.parts dd { margin: 0; }
+.parts dd.focus { font-weight: 700; }
+.parts .tag-focus { font-size: 11px; font-weight: 800; color: var(--pink); margin-left: 6px; text-transform: uppercase; letter-spacing: .05em; }
+.start-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 4px 0 4px; }
+.start-row .btn.primary { font-size: 16px; padding: 10px 20px; }
+
 /* Meet Dowee */
 .dowee { display: grid; grid-template-columns: minmax(240px, 340px) 1fr; gap: 16px; align-items: start; }
 .dowee-pic { background: var(--sky); border-radius: 14px; padding: 10px; display: grid; place-items: center; }
@@ -281,6 +306,8 @@ details.adv summary { cursor: pointer; font-weight: 800; }
 .note { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
 .btn.small { padding: 3px 8px; font-size: 12px; }
 @media (max-width: 760px) { .dowee { grid-template-columns: 1fr; } }
+@media (max-width: 860px) { .meet-grid { grid-template-columns: minmax(0, 1fr); } .meet-wrap { padding: 14px; } }
+.join-type { margin: -4px 0 6px; font-weight: 800; color: var(--pink); }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>

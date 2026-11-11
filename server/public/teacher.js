@@ -14,6 +14,12 @@ async function api(method, url, body) {
 }
 const C = () => T.st.active;
 const arenaName = a => (T.meta && T.meta.arenas[a] ? T.meta.arenas[a].name : a);
+const lowerLabel = l => (/^RC/.test(l || '') ? l : (l || '').charAt(0).toLowerCase() + (l || '').slice(1));
+const classArenas = () => C().arenas || Object.keys(T.meta.arenas);
+const typeLabel = () => (C().robot && C().robot !== 'all' ? C().robotLabel + ' class' : 'All playgrounds (free play)');
+function robotPicker(name, current) {
+  return `<div class="robot-pick">${Object.entries(T.st.robotTypes).map(([k, v]) => `<label><input type="radio" name="${name}" value="${k}" ${k === current ? 'checked' : ''}>${esc(v.label)}<small>${v.arenas.map(arenaName).join(' + ')}</small></label>`).join('')}</div>`;
+}
 
 /* ---------- live connection ---------- */
 function connect() {
@@ -31,6 +37,7 @@ function qrSvg(text) {
 function renderJoin() {
   const c = C(), url = joinUrl(), lan = T.st.lan;
   $('#className').textContent = c.name;
+  $('#classType').textContent = typeLabel();
   if ($('#qr').dataset.url !== url) { $('#qr').innerHTML = qrSvg(url); $('#qr').dataset.url = url; }
   $('#joinUrl').textContent = url;
   $('#lanSel').hidden = lan.length < 2;
@@ -39,7 +46,7 @@ function renderJoin() {
   $('#onlineCount').textContent = c.students.filter(s => s.online).length;
   $('#totalCount').textContent = c.students.length;
   $('#pinStat').hidden = !c.pin; $('#pinShow').textContent = c.pin;
-  $('#classSel').innerHTML = T.st.classes.map(k => `<option value="${esc(k.id)}" ${k.id === c.id ? 'selected' : ''}>${esc(k.name)} (${k.students})</option>`).join('');
+  $('#classSel').innerHTML = T.st.classes.map(k => `<option value="${esc(k.id)}" ${k.id === c.id ? 'selected' : ''}>${esc(k.name)} · ${esc(k.robotLabel)} (${k.students})</option>`).join('');
   if (!$('#joinScreen').hidden) renderJoinScreen();
 }
 $('#lanSel').addEventListener('change', e => { T.lan = +e.target.value; renderJoin(); });
@@ -47,6 +54,7 @@ function renderJoinScreen() {
   const c = C(), url = joinUrl();
   if ($('#qrBig').dataset.url !== url) { $('#qrBig').innerHTML = qrSvg(url); $('#qrBig').dataset.url = url; }
   $('#jsName').textContent = c.name; $('#jsUrl').textContent = url;
+  $('#jsType').textContent = c.robot && c.robot !== 'all' ? c.robotLabel + ' class' : '';
   $('#jsPin').textContent = c.pin ? `Class PIN: ${c.pin}` : '';
   $('#jsNames').innerHTML = c.students.filter(s => s.online).map(s => `<span>${esc(s.name)}</span>`).join('');
 }
@@ -127,7 +135,7 @@ function messageModal(id) {
 function exampleOptions(arena) { const ex = T.meta.examples[arena] || {}; return Object.entries(ex).map(([k, v]) => `<option value="${esc(k)}">${esc(v.name)}</option>`).join(''); }
 function handoutModal(target) {
   const s = target === 'all' ? null : C().students.find(x => x.id === target);
-  const arenas = Object.entries(T.meta.arenas).map(([k, a]) => `<option value="${k}">${esc(a.name)}</option>`).join('');
+  const arenas = Object.entries(T.meta.arenas).filter(([k]) => classArenas().includes(k)).map(([k, a]) => `<option value="${k}">${esc(a.name)}</option>`).join('');
   openModal(`<h3>Send a program to ${s ? esc(s.name) : 'everyone'}</h3>
     <p class="note" style="margin-top:0">Students get a notice with a "Load it" button. It replaces the code in their editor for that arena.</p>
     <form id="hoForm"><div class="form"><label class="fld">Arena<select id="hoArena">${arenas}</select></label><label class="fld">Start from an example<select id="hoEx"><option value="">(type your own)</option></select></label><label class="fld wide">Note to students<input type="text" id="hoNote" maxlength="300" placeholder="e.g. Here is a faster PID — find the best Kd"></label></div>
@@ -152,7 +160,7 @@ function renderPlan() {
   const done = id => c.students.filter(s => s.progress[id] && s.progress[id].done).length;
   $('#acts').innerHTML = acts.length ? acts.map((a, i) => `<div class="act ${c.lock === a.id ? 'locked' : ''}">
       <span class="n">${i + 1}</span>
-      <div><b>${esc(a.title)}</b>${c.lock === a.id ? ' <span class="chip p">locked: everyone is here</span>' : ''}<br><span class="note">${esc(arenaName(a.arena))}${a.variant && T.meta.arenas[a.arena] && T.meta.arenas[a.arena].variants[a.variant] ? ' · ' + esc(T.meta.arenas[a.arena].variants[a.variant]) : ''}${a.realism ? ' · ' + ({ ideal: 'Ideal world', real: 'Realistic', tough: 'Competition day' })[a.realism] : ''} · Goal: ${esc(goalText(a))}</span><br><span class="note"><b class="ok">${done(a.id)}</b> of ${c.students.length} students done</span></div>
+      <div><b>${esc(a.title)}</b>${c.lock === a.id ? ' <span class="chip p">locked: everyone is here</span>' : ''}${classArenas().includes(a.arena) ? '' : ` <span class="chip warn">students can't open this: ${esc(arenaName(a.arena))} isn't in a ${esc(lowerLabel(c.robotLabel))} class</span>`}<br><span class="note">${esc(arenaName(a.arena))}${a.variant && T.meta.arenas[a.arena] && T.meta.arenas[a.arena].variants[a.variant] ? ' · ' + esc(T.meta.arenas[a.arena].variants[a.variant]) : ''}${a.realism ? ' · ' + ({ ideal: 'Ideal world', real: 'Realistic', tough: 'Competition day' })[a.realism] : ''} · Goal: ${esc(goalText(a))}</span><br><span class="note"><b class="ok">${done(a.id)}</b> of ${c.students.length} students done</span></div>
       <div class="row"><button class="btn small" data-up="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Move up">↑</button><button class="btn small" data-down="${i}" ${i === acts.length - 1 ? 'disabled' : ''} aria-label="Move down">↓</button>
         <button class="btn small ${c.lock === a.id ? 'yellow' : ''}" data-lock="${esc(a.id)}">${c.lock === a.id ? 'Unlock' : 'Lock class here'}</button>
         <button class="btn small" data-edit="${i}">Edit</button><button class="btn small danger" data-del="${i}">Delete</button></div></div>`).join('')
@@ -170,14 +178,15 @@ $('#acts').addEventListener('click', async e => {
 });
 $('#addAct').addEventListener('click', () => editActivity(-1));
 function editActivity(index) {
-  const isNew = index < 0, a = isNew ? { id: '', title: '', arena: 'line', variant: 'oval', realism: '', intro: '', steps: [], starter: { kind: 'example', example: 'bang' }, goal: { type: 'laps', n: 1 } } : JSON.parse(JSON.stringify(C().activities[index]));
-  const lessons = T.meta.lessons.map(l => `<option value="${esc(l.id)}" ${a.builtin === l.id ? 'selected' : ''}>${esc(l.title)} · ${esc(arenaName(l.arena))}</option>`).join('');
+  const firstArena = classArenas().find(x => x !== 'lab') || 'lab';
+  const isNew = index < 0, a = isNew ? { id: '', title: '', arena: firstArena, variant: '', realism: '', intro: '', steps: [], starter: { kind: firstArena === 'line' ? 'example' : 'none', example: firstArena === 'line' ? 'bang' : undefined }, goal: firstArena === 'line' ? { type: 'laps', n: 1 } : { type: 'none' } } : JSON.parse(JSON.stringify(C().activities[index]));
+  const lessons = T.meta.lessons.filter(l => classArenas().includes(l.arena) || l.id === a.builtin).map(l => `<option value="${esc(l.id)}" ${a.builtin === l.id ? 'selected' : ''}>${esc(l.title)} · ${esc(arenaName(l.arena))}</option>`).join('');
   openModal(`<h3>${isNew ? 'Add an activity' : 'Edit activity'}</h3>
     <form id="actForm">
       <div class="form">
         <label class="fld wide">Start from a built-in lesson<select id="aBuiltin"><option value="">— Make my own activity —</option>${lessons}</select></label>
         <label class="fld wide">Title<input type="text" id="aTitle" maxlength="80" required value="${esc(a.title)}" placeholder="e.g. Tune a PID racer"></label>
-        <label class="fld">Arena<select id="aArena">${Object.entries(T.meta.arenas).map(([k, x]) => `<option value="${k}" ${a.arena === k ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
+        <label class="fld">Arena<select id="aArena">${Object.entries(T.meta.arenas).filter(([k]) => classArenas().includes(k) || k === a.arena).map(([k, x]) => `<option value="${k}" ${a.arena === k ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
         <label class="fld"><span id="aVarLbl">Track</span><select id="aVariant"></select></label>
         <label class="fld">World<select id="aReal"><option value="">Students choose</option><option value="ideal">Ideal world</option><option value="real">Realistic</option><option value="tough">Competition day</option></select></label>
         <label class="fld">Goal<select id="aGoal"></select></label>
@@ -261,6 +270,11 @@ function renderResults() {
 
 /* ---------- battles ---------- */
 function renderBattles() {
+  const battleArenas = ['sumo', 'soccer'].filter(x => classArenas().includes(x));
+  const keepArena = $('#batArena').value;
+  $('#batArena').innerHTML = battleArenas.map(x => `<option value="${x}">${esc(arenaName(x))}</option>`).join('');
+  if (battleArenas.includes(keepArena)) $('#batArena').value = keepArena;
+  if (!battleArenas.length) { $('#batA').innerHTML = $('#batB').innerHTML = ''; $('#batGo').disabled = true; $('#batNote').textContent = `Battles are for sumo and soccer. This is a ${lowerLabel(C().robotLabel)} class, so there are no battles. Change the robot in Settings to use them.`; renderMatches(); return; }
   const c = C(), arena = $('#batArena').value;
   const ok = c.students.filter(s => s.subs[arena]);
   const opts = ok.map(s => `<option value="${esc(s.id)}">${esc(s.name)}${s.team ? ' · ' + esc(s.team) : ''}</option>`).join('');
@@ -269,6 +283,10 @@ function renderBattles() {
   if (keepA) $('#batA').value = keepA; if (keepB) $('#batB').value = keepB; else if (ok.length > 1) $('#batB').selectedIndex = 1;
   $('#batGo').disabled = ok.length < 2;
   $('#batNote').textContent = ok.length < 2 ? `At least two students need to hand in a ${arenaName(arena)} program.` : '';
+  renderMatches();
+}
+function renderMatches() {
+  const c = C();
   $('#matches').innerHTML = c.matches.length ? c.matches.slice(0, 30).map(m => `<div class="lbrow" style="grid-template-columns:1fr auto"><span><b>${esc(m.a)}</b> vs <b>${esc(m.b)}</b> · ${esc(arenaName(m.arena))}<br><span class="note">${esc(m.text)}</span></span><span class="note">${ago(m.at)}</span></div>`).join('') : '<p class="empty">No battles yet.</p>';
 }
 $('#batArena').addEventListener('change', renderBattles);
@@ -281,13 +299,13 @@ $('#batGo').addEventListener('click', () => {
 /* ---------- settings & classes ---------- */
 function renderSettings() {
   const c = C();
-  if (!$('#t-settings').contains(document.activeElement)) { $('#setName').value = c.name; $('#setPin').value = c.pin || ''; $('#setShow').checked = !!c.settings.showCode; }
+  if (!$('#t-settings').contains(document.activeElement)) { $('#setRobot').innerHTML = Object.entries(T.st.robotTypes).map(([k, v]) => `<option value="${k}">${esc(v.label)} — ${esc(v.arenas.map(arenaName).join(', '))}</option>`).join(''); $('#setRobot').value = c.robot || 'all'; $('#setName').value = c.name; $('#setPin').value = c.pin || ''; $('#setShow').checked = !!c.settings.showCode; }
   $('#classList').innerHTML = T.st.classes.map(k => `<div class="lbrow" style="grid-template-columns:1fr auto"><span><b>${esc(k.name)}</b> <span class="note">${k.students} students · made ${new Date(k.created).toLocaleDateString()}</span>${k.id === c.id ? ' <span class="chip p">open now</span>' : ''}</span><span class="row">${k.id !== c.id ? `<button class="btn small" data-open="${esc(k.id)}">Open this class</button><button class="btn small danger" data-delclass="${esc(k.id)}">Delete</button>` : ''}</span></div>`).join('');
   const lan = T.st.lan[Math.min(T.lan, T.st.lan.length - 1)];
   $('#teacherLink').textContent = (lan ? lan.url : `http://localhost:${T.st.port}/`) + 'teacher?key=' + T.st.teacherKey;
   $('#dataFile').textContent = `Class data is saved on this laptop in ${T.st.dataFile} · DOWEE ${T.st.version}`;
 }
-$('#saveSettings').addEventListener('click', async () => { try { await api('POST', '/api/teacher/class', { name: $('#setName').value.trim(), pin: $('#setPin').value.trim(), settings: { ...C().settings, showCode: $('#setShow').checked } }); toast('Saved'); } catch (err) { toast(err.message); } });
+$('#saveSettings').addEventListener('click', async () => { try { await api('POST', '/api/teacher/class', { name: $('#setName').value.trim(), robot: $('#setRobot').value, pin: $('#setPin').value.trim(), settings: { ...C().settings, showCode: $('#setShow').checked } }); toast('Saved'); } catch (err) { toast(err.message); } });
 $('#classList').addEventListener('click', async e => {
   const b = e.target.closest('button'); if (!b) return;
   try {
@@ -298,10 +316,11 @@ $('#classList').addEventListener('click', async e => {
 $('#classSel').addEventListener('change', async e => { try { await api('POST', '/api/teacher/classes/activate', { id: e.target.value }); toast('Class opened'); } catch (err) { toast(err.message); } });
 $('#newClassBtn').addEventListener('click', () => {
   openModal(`<h3>New class</h3><form id="ncForm"><label class="fld">Name<input type="text" id="ncName" maxlength="60" required placeholder="e.g. Grade 7 – Section B"></label>
-    <label class="fld" style="flex-direction:row;align-items:center;gap:8px;color:var(--ink);margin-top:8px"><input type="checkbox" id="ncCopy" checked> Copy the lesson plan from "${esc(C().name)}"</label>
+    <span class="fld" style="margin-top:10px">Robot for this class (students only see these playgrounds; you see all of them)</span>${robotPicker('ncRobot', 'line')}
+    <label class="fld" style="flex-direction:row;align-items:center;gap:8px;color:var(--ink);margin-top:10px"><input type="checkbox" id="ncCopy"> Copy the lesson plan from "${esc(C().name)}" instead of a ready-made plan for this robot</label>
     <div class="row" style="margin-top:10px"><button class="btn primary" type="submit">Create and open</button><button class="btn" type="button" data-close>Cancel</button></div></form>`);
   $('#ncName').focus();
-  $('#ncForm').addEventListener('submit', async e => { e.preventDefault(); try { await api('POST', '/api/teacher/classes/new', { name: $('#ncName').value.trim(), copyFrom: $('#ncCopy').checked ? C().id : null }); toast('Class created'); closeModal(); } catch (err) { toast(err.message); } });
+  $('#ncForm').addEventListener('submit', async e => { e.preventDefault(); try { await api('POST', '/api/teacher/classes/new', { name: $('#ncName').value.trim(), robot: ($('input[name=ncRobot]:checked') || {}).value || 'line', copyFrom: $('#ncCopy').checked ? C().id : null }); toast('Class created'); closeModal(); } catch (err) { toast(err.message); } });
 });
 
 /* ---------- render ---------- */

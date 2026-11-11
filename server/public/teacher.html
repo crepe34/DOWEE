@@ -63,6 +63,14 @@ th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: v
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #c9c6d8; margin-right: 6px; }
 .dot.on { background: var(--green); }
 .chip { font-size: 11.5px; font-weight: 800; padding: 1px 8px; border-radius: 20px; background: var(--sunk); white-space: nowrap; display: inline-block; }
+.chip.type { background: var(--yellow); color: var(--navy); margin-top: 6px; font-size: 12.5px; }
+.chip.warn { background: #fde4e1; color: var(--danger); }
+.robot-pick { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 4px; }
+.robot-pick label { border: 1.5px solid var(--line); border-radius: 12px; padding: 8px 10px; cursor: pointer; background: #fff; font-weight: 800; display: flex; flex-direction: column; gap: 2px; }
+.robot-pick label small { color: var(--muted); font-weight: 700; }
+.robot-pick input { position: absolute; opacity: 0; pointer-events: none; }
+.robot-pick label:has(input:checked) { border-color: var(--pink); background: #fff5f8; box-shadow: 0 0 0 2px #fde2ec; }
+.robot-pick label:focus-within { outline: 2px solid var(--pink); outline-offset: 2px; }
 .chip.run { background: #e6f3d6; } .chip.err { background: #fde4e1; color: var(--danger); } .chip.blk { background: #fff2bf; } .chip.p { background: #fde2ec; }
 .hands { background: var(--yellow); border-radius: 12px; padding: 8px 12px; margin-bottom: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-weight: 800; }
 .hands .btn { background: #fff8d8; }
@@ -116,6 +124,7 @@ pre.code { font: 12px/1.5 var(--font-mono); background: #fffdf8; border: 1px sol
   <aside class="card join" aria-label="How students join">
     <span class="lbl" style="margin-top:0">Students join</span>
     <h2 id="className">…</h2>
+    <span class="chip type" id="classType"></span>
     <div class="qr" id="qr" aria-label="QR code to join the class"></div>
     <div class="url" id="joinUrl">…</div>
     <select id="lanSel" aria-label="Network" hidden style="width:100%;margin-top:6px"></select>
@@ -163,7 +172,7 @@ pre.code { font: 12px/1.5 var(--font-mono); background: #fffdf8; border: 1px sol
       <h3>Class battle</h3>
       <p class="note" style="margin-top:0">Pick two students who handed in a program. The battle opens in a new simulator window: put it on the projector. The result is saved to the class leaderboard.</p>
       <div class="form" style="max-width:720px">
-        <label class="fld">Arena<select id="batArena"><option value="sumo">Sumo</option><option value="soccer">Robot soccer</option></select></label>
+        <label class="fld">Arena<select id="batArena"></select></label>
         <label class="fld">Dowee A (yellow)<select id="batA"></select></label>
         <label class="fld">Dowee B (purple)<select id="batB"></select></label>
       </div>
@@ -176,6 +185,7 @@ pre.code { font: 12px/1.5 var(--font-mono); background: #fffdf8; border: 1px sol
       <h3>This class</h3>
       <div class="form" style="max-width:760px">
         <label class="fld">Class name<input type="text" id="setName" maxlength="60"></label>
+        <label class="fld">Robot for this class<select id="setRobot"></select></label>
         <label class="fld">Class PIN (optional)<input type="text" id="setPin" maxlength="12" placeholder="Leave empty for no PIN"></label>
         <label class="fld" style="flex-direction:row;align-items:center;gap:8px;color:var(--ink)"><input type="checkbox" id="setShow"> Students can open classmates' handed-in code</label>
       </div>
@@ -197,6 +207,7 @@ pre.code { font: 12px/1.5 var(--font-mono); background: #fffdf8; border: 1px sol
   <div>
     <p style="font-weight:800;font-size:clamp(16px,1.6vw,26px);margin:0 0 1vw">Scan to join, or open:</p>
     <h1 id="jsName"></h1>
+    <p id="jsType" style="font-weight:800;font-size:clamp(18px,2vw,32px);margin:-1vw 0 2vw"></p>
     <div class="big" id="jsUrl"></div>
     <p id="jsPin" style="font-weight:800;font-size:clamp(18px,2vw,32px)"></p>
     <div class="names" id="jsNames"></div>
