@@ -59,12 +59,12 @@ Class data is saved on the laptop in `data/dowee-classroom.json`. Use `npm start
 
 ## Run it alone
 
-Open `robobench.html` in a browser. It is one self-contained file that works offline, for one student, without classroom features. Blocks mode then loads Blockly from the jsDelivr CDN.
+Open `app/index.html` in a browser (keep `app/styles.css` next to it). It works offline, for one student, without classroom features. Blocks mode then loads Blockly from the jsDelivr CDN.
 
 ## Develop
 
 ```bash
-npm run build                 # rebuilds robobench.html and server/public/meta.json from src/
+npm run build                 # rebuilds app/ (index.html + styles.css) and server/public/meta.json from src/
 node tools/test.js line       # runs headless simulations (line, sumo, maze, race, soccer, lab, straight)
 node tools/sweep.js real '[[0.08,1.5,150]]'   # tries PID settings (Kp, Kd, speed) across robot units
 ```
@@ -83,7 +83,8 @@ Set `LV=ideal|real|tough` before `node tools/test.js` to choose the realism leve
 | `src/goals.js` | Goal types teachers can attach to activities |
 | `src/ui.js` | Interface: editor, drawing, panels, blocks mode, artifact class features |
 | `src/host.js` | Classroom mode: joining, activities, progress, hand-raising, handouts |
-| `src/page-head.html`, `src/page-body.html` | Styles and page markup |
+| `src/styles.css` | All the simulator's styles |
+| `src/page-head.html`, `src/page-body.html` | Page head and markup (no styling) |
 | `server/server.js` | Classroom server for the teacher's laptop (Node.js, no dependencies) |
-| `server/public/teacher.html`, `teacher.js` | Teacher dashboard |
+| `server/public/teacher.html`, `teacher.css`, `teacher.js` | Teacher dashboard: markup, styles, behaviour |
 | `server/public/vendor/` | Bundled Blockly and QR code libraries (see THIRD_PARTY_NOTICES.md) |

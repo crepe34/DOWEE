@@ -4,7 +4,7 @@ DOWEE is a virtual robotics lab for teaching kids aged 9–20. Students program 
 
 ## Commands
 
-- `npm run build`: rebuilds `robobench.html` and `server/public/meta.json` from `src/`. Run it after every change in `src/`.
+- `npm run build`: rebuilds the simulator into `app/` (`index.html` + `styles.css`) and `server/public/meta.json` from `src/`. Run it after every change in `src/`. Never edit `app/` by hand.
 - `npm start`: starts the classroom server (`--port`, `--data <folder>`, `--no-open`). The teacher dashboard is at `http://localhost:8080/teacher`.
 - `npm test`: headless simulator checks. `node tools/test.js <line|sumo|maze|race|soccer|lab|straight>` with `LV=ideal|real|tough`.
 - `node tools/sweep.js real '[[Kp,Kd,speed]]'`: tries PID settings across robot units.
@@ -18,7 +18,8 @@ DOWEE is a virtual robotics lab for teaching kids aged 9–20. Students program 
 - `src/ui.js`: the simulator interface. `tools/build.js` inserts `src/host.js` (classroom mode for students) at the `/*@HOST@*/` marker.
 - `server/server.js`: classroom server (Node.js, no dependencies). It uses JSON storage in `data/` and live updates over Server-Sent Events. A request counts as the teacher if it comes from localhost or carries the `dowee_teacher` cookie. Students are identified by a token.
 - `server/public/`: the teacher dashboard (`teacher.html`, `teacher.js`) and the bundled Blockly and QR libraries.
-- `robobench.html` works in three ways: from the classroom server, as a claude.ai artifact (class features use the artifact `db`), or as a plain offline file.
+- Styling lives only in CSS files: `src/styles.css` (simulator) and `server/public/teacher.css` (dashboard). Don't put `<style>` blocks or `style="…"` attributes in the HTML markup; use classes. (Small inline styles inside JavaScript templates are tolerated.)
+- `app/index.html` works in three ways: from the classroom server, as a claude.ai artifact (class features use the artifact `db`), or as a plain offline file.
 
 ## Conventions
 

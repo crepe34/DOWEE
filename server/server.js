@@ -18,7 +18,8 @@ const { exec } = require('child_process');
 const VERSION = '1.0.0';
 const ROOT = path.resolve(__dirname, '..');
 const PUBLIC = path.join(__dirname, 'public');
-const APP_FILE = path.join(ROOT, 'robobench.html');
+const APP_DIR = path.join(ROOT, 'app');
+const APP_FILE = path.join(APP_DIR, 'index.html');
 const argv = process.argv.slice(2);
 const arg = name => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
 const DATA_DIR = process.env.DOWEE_DATA || arg('--data') || path.join(ROOT, 'data');
@@ -225,6 +226,7 @@ async function handle(req, res) {
 
   // pages
   if (M === 'GET' && (p === '/' || p === '/index.html')) return serveFile(res, APP_FILE);
+  if (M === 'GET' && p === '/styles.css') return serveFile(res, path.join(APP_DIR, 'styles.css'));
   if (M === 'GET' && p === '/teacher') {
     if (url.searchParams.get('key') === db.teacherKey) {
       res.writeHead(302, { Location: '/teacher', 'Set-Cookie': `dowee_teacher=${encodeURIComponent(db.teacherKey)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000` });
@@ -233,7 +235,7 @@ async function handle(req, res) {
     if (!isTeacher(req)) return send(res, 403, '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Teacher only</title><body style="font-family:system-ui;padding:40px;max-width:520px;margin:auto;line-height:1.5"><h2>This page is for the teacher</h2><p>Open the dashboard on the laptop running DOWEE. To use another device, open the teacher link shown in the dashboard\'s <b>Settings</b>.</p><p><a href="/">Go to the simulator</a></p>', 'text/html; charset=utf-8');
     return serveStatic(res, 'teacher.html');
   }
-  if (M === 'GET' && (p.startsWith('/vendor/') || p === '/teacher.js' || p === '/meta.json')) {
+  if (M === 'GET' && (p.startsWith('/vendor/') || p === '/teacher.js' || p === '/teacher.css' || p === '/meta.json')) {
     if (p === '/teacher.js' && !isTeacher(req)) return fail(res, 403, 'Teacher only');
     return serveStatic(res, p.slice(1));
   }

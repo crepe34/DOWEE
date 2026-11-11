@@ -4,108 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DOWEE Teacher</title>
-<style>
-/* Layout: the teacher's control desk. A join card (QR + link) stays on the left; the class,
-   lesson plan, results and battles sit in tabs on the right. Same low-poly playground palette
-   as the student simulator. */
-:root {
-  --teal: #5ab8b0; --teal-deep: #3c9c95; --sky: #a3dcea; --cloud: #fffaf1;
-  --yellow: #f8cf3f; --orange: #f39a3b; --pink: #e9467e; --purple: #8c5bc4; --blue: #3f74c9; --green: #86bf4f; --navy: #2e2a4f;
-  --panel: var(--cloud); --panel-2: #f2f9f8; --sunk: #e4f2ef; --ink: var(--navy); --muted: #6a6690; --line: #dbe7e3;
-  --ok: #4a9e3a; --danger: #d63a3a;
-  --font-display: 'Baloo 2', 'Trebuchet MS', system-ui, sans-serif;
-  --font-body: 'Nunito', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
-  color-scheme: light;
-}
-* { box-sizing: border-box; }
-[hidden] { display: none !important; }
-html, body { margin: 0; min-height: 100%; }
-body { background: var(--teal); color: var(--ink); font: 14px/1.45 var(--font-body); }
-button, input, select, textarea { font: inherit; color: inherit; }
-:focus-visible { outline: 2px solid var(--pink); outline-offset: 2px; }
-.top { display: flex; align-items: center; gap: 14px; padding: 12px max(16px, env(safe-area-inset-left, 0px)); flex-wrap: wrap; }
-.brand { display: flex; align-items: center; gap: 10px; margin-right: auto; color: var(--cloud); }
-.brand b { font-family: var(--font-display); font-size: 26px; font-weight: 800; text-shadow: 0 2px 0 var(--teal-deep); line-height: 1; display: block; }
-.brand span { font-size: 12.5px; font-weight: 700; }
-.conn { color: var(--cloud); font-weight: 800; font-size: 12.5px; display: flex; align-items: center; gap: 6px; }
-.conn i { width: 9px; height: 9px; border-radius: 50%; background: var(--green); display: inline-block; }
-.conn.bad i { background: var(--danger); }
-.btn { border: 1px solid var(--line); background: #fff; padding: 6px 12px; border-radius: 9px; cursor: pointer; font-weight: 800; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; color: var(--ink); white-space: nowrap; }
-.btn:hover { background: var(--panel-2); }
-.btn.primary { background: var(--pink); color: #fff; border-color: transparent; box-shadow: 0 2px 0 #b52a5c; }
-.btn.yellow { background: var(--yellow); border-color: #d9ae1c; }
-.btn.small { padding: 3px 8px; font-size: 12px; }
-.btn.danger { color: var(--danger); }
-.btn:disabled { opacity: .5; cursor: default; }
-select, input[type=text], input[type=number], textarea { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: #fff; }
-.wrap { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 12px; padding: 0 max(16px, env(safe-area-inset-right, 0px)) 16px max(16px, env(safe-area-inset-left, 0px)); align-items: start; }
-.card { background: var(--panel); border-radius: 16px; box-shadow: 0 4px 0 var(--teal-deep); padding: 14px; min-width: 0; }
-.join h2 { font-family: var(--font-display); font-size: 22px; margin: 0; line-height: 1.15; }
-.qr { background: #fff; border-radius: 12px; padding: 10px; margin: 10px 0; aspect-ratio: 1; display: grid; place-items: center; }
-.qr svg { width: 100%; height: 100%; }
-.url { font: 700 15px var(--font-mono); word-break: break-all; background: var(--sunk); border-radius: 8px; padding: 6px 8px; user-select: all; }
-.stat { display: flex; justify-content: space-between; font-weight: 800; margin-top: 8px; }
-.stat b { font-family: var(--font-display); font-size: 22px; }
-.lbl { font-size: 11.5px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 10px 0 4px; display: block; }
-.note { color: var(--muted); font-size: 12.5px; }
-.tabs { display: flex; gap: 4px; background: rgba(255,255,255,.22); padding: 4px; border-radius: 14px; margin-bottom: 10px; flex-wrap: wrap; }
-.tabs button { border: 0; background: transparent; padding: 7px 14px; border-radius: 10px; font-weight: 800; cursor: pointer; color: var(--cloud); }
-.tabs button[aria-selected="true"] { background: var(--yellow); color: var(--navy); box-shadow: 0 2px 0 #c99d16; }
-.tabs .count { background: var(--pink); color: #fff; border-radius: 10px; padding: 0 6px; font-size: 11px; margin-left: 4px; }
-h3 { font-family: var(--font-display); font-size: 19px; margin: 0 0 8px; }
-.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.spacer { flex: 1; }
-table { width: 100%; border-collapse: collapse; }
-th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
-th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
-.tablewrap { overflow-x: auto; }
-.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #c9c6d8; margin-right: 6px; }
-.dot.on { background: var(--green); }
-.chip { font-size: 11.5px; font-weight: 800; padding: 1px 8px; border-radius: 20px; background: var(--sunk); white-space: nowrap; display: inline-block; }
-.chip.type { background: var(--yellow); color: var(--navy); margin-top: 6px; font-size: 12.5px; }
-.chip.warn { background: #fde4e1; color: var(--danger); }
-.robot-pick { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 4px; }
-.robot-pick label { border: 1.5px solid var(--line); border-radius: 12px; padding: 8px 10px; cursor: pointer; background: #fff; font-weight: 800; display: flex; flex-direction: column; gap: 2px; }
-.robot-pick label small { color: var(--muted); font-weight: 700; }
-.robot-pick input { position: absolute; opacity: 0; pointer-events: none; }
-.robot-pick label:has(input:checked) { border-color: var(--pink); background: #fff5f8; box-shadow: 0 0 0 2px #fde2ec; }
-.robot-pick label:focus-within { outline: 2px solid var(--pink); outline-offset: 2px; }
-.chip.run { background: #e6f3d6; } .chip.err { background: #fde4e1; color: var(--danger); } .chip.blk { background: #fff2bf; } .chip.p { background: #fde2ec; }
-.hands { background: var(--yellow); border-radius: 12px; padding: 8px 12px; margin-bottom: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-weight: 800; }
-.hands .btn { background: #fff8d8; }
-.prog { display: inline-flex; gap: 3px; }
-.prog i { width: 12px; height: 12px; border-radius: 3px; background: var(--sunk); display: inline-block; }
-.prog i.d { background: var(--green); } .prog i.t { background: #ffe39a; }
-.act { display: grid; grid-template-columns: 30px 1fr auto; gap: 10px; align-items: center; padding: 10px; border: 1.5px solid var(--line); border-radius: 12px; margin-bottom: 8px; background: #fff; }
-.act.locked { border-color: var(--pink); background: #fff5f8; }
-.act .n { width: 28px; height: 28px; border-radius: 50%; background: var(--sunk); display: grid; place-items: center; font-weight: 800; }
-.act b { font-size: 14.5px; }
-.form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
-.fld { display: flex; flex-direction: column; gap: 3px; font-size: 12px; font-weight: 800; color: var(--muted); }
-.fld input, .fld select, .fld textarea { color: var(--ink); font-weight: 600; font-size: 13px; }
-.fld.wide { grid-column: 1 / -1; }
-textarea.code { font: 12.5px/1.5 var(--font-mono); min-height: 160px; width: 100%; font-variant-ligatures: none; }
-pre.code { font: 12px/1.5 var(--font-mono); background: #fffdf8; border: 1px solid var(--line); border-radius: 10px; padding: 10px; max-height: 55vh; overflow: auto; margin: 0; font-variant-ligatures: none; }
-.grid td.c { text-align: center; }
-.ok { color: var(--ok); font-weight: 800; }
-.modal { position: fixed; inset: 0; background: rgba(46,42,79,.55); display: grid; place-items: center; z-index: 20; padding: 16px; }
-.modal .card { width: min(760px, 100%); max-height: 92vh; overflow: auto; }
-.joinscreen { position: fixed; inset: 0; background: var(--teal); z-index: 30; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4vw; align-items: center; padding: 5vw; color: var(--cloud); }
-.joinscreen .qr { max-width: 42vw; max-height: 80vh; margin: 0; }
-.joinscreen h1 { font-family: var(--font-display); font-size: clamp(32px, 5vw, 80px); line-height: 1; margin: 0 0 2vw; text-shadow: 0 4px 0 var(--teal-deep); }
-.joinscreen .big { font: 800 clamp(18px, 2.4vw, 40px) var(--font-mono); background: rgba(255,255,255,.2); border-radius: 14px; padding: 1vw 1.4vw; display: inline-block; word-break: break-all; }
-.joinscreen .names { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2vw; }
-.joinscreen .names span { background: var(--cloud); color: var(--navy); border-radius: 20px; padding: 4px 14px; font-weight: 800; font-size: clamp(14px, 1.4vw, 22px); }
-.joinscreen .close { position: absolute; top: 16px; right: 16px; }
-.toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: var(--navy); color: var(--cloud); padding: 8px 16px; border-radius: 10px; font-weight: 800; z-index: 40; }
-.empty { color: var(--muted); padding: 10px 0; }
-.board { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
-.board .card { box-shadow: none; border: 1px solid var(--line); }
-.lbrow { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
-.lbrow .t { font-family: var(--font-mono); }
-@media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } .joinscreen { grid-template-columns: 1fr; text-align: center; } .joinscreen .qr { max-width: 70vw; margin: auto; } }
-</style>
+<link rel="stylesheet" href="/teacher.css">
 </head>
 <body>
 <header class="top">
@@ -122,12 +21,12 @@ pre.code { font: 12px/1.5 var(--font-mono); background: #fffdf8; border: 1px sol
 
 <main class="wrap">
   <aside class="card join" aria-label="How students join">
-    <span class="lbl" style="margin-top:0">Students join</span>
+    <span class="lbl mt-0">Students join</span>
     <h2 id="className">…</h2>
     <span class="chip type" id="classType"></span>
     <div class="qr" id="qr" aria-label="QR code to join the class"></div>
     <div class="url" id="joinUrl">…</div>
-    <select id="lanSel" aria-label="Network" hidden style="width:100%;margin-top:6px"></select>
+    <select class="net-select" id="lanSel" aria-label="Network" hidden></select>
     <p class="note" id="lanNote">Students' devices must be on the same Wi-Fi as this laptop.</p>
     <div class="stat"><span>Online now</span><b id="onlineCount">0</b></div>
     <div class="stat"><span>In this class</span><b id="totalCount">0</b></div>
@@ -144,8 +43,8 @@ pre.code { font: 12px/1.5 var(--font-mono); background: #fffdf8; border: 1px sol
     </nav>
 
     <div class="card" id="t-live">
-      <form class="row" id="annForm" style="margin-bottom:10px">
-        <input type="text" id="annText" maxlength="500" placeholder="Post a message to the whole class, e.g. 'Try to lap the Snake under 15 s!'" style="flex:1;min-width:200px">
+      <form class="row mb-10" id="annForm">
+        <input class="ann-input" type="text" id="annText" maxlength="500" placeholder="Post a message to the whole class, e.g. 'Try to lap the Snake under 15 s!'">
         <button class="btn primary" type="submit">Post to class</button>
         <button class="btn" type="button" id="annClear">Clear</button>
         <button class="btn" type="button" data-send="all">Send code to everyone</button>
@@ -156,47 +55,47 @@ pre.code { font: 12px/1.5 var(--font-mono); background: #fffdf8; border: 1px sol
     </div>
 
     <div class="card" id="t-plan" hidden>
-      <div class="row" style="margin-bottom:10px"><h3 style="margin:0">Lesson plan</h3><span class="spacer"></span><button class="btn primary" id="addAct">Add activity</button></div>
-      <p class="note" style="margin-top:0">Students see these activities first in their Lessons tab, in this order. When they reach an activity's goal it is ticked off here automatically. <b>Lock</b> keeps every student on one activity.</p>
+      <div class="row mb-10"><h3 class="m-0">Lesson plan</h3><span class="spacer"></span><button class="btn primary" id="addAct">Add activity</button></div>
+      <p class="note mt-0">Students see these activities first in their Lessons tab, in this order. When they reach an activity's goal it is ticked off here automatically. <b>Lock</b> keeps every student on one activity.</p>
       <div id="acts"></div>
     </div>
 
     <div class="card" id="t-results" hidden>
-      <div class="row" style="margin-bottom:8px"><h3 style="margin:0">Results</h3><span class="spacer"></span><a class="btn" href="/api/teacher/export.csv">Download as spreadsheet (CSV)</a></div>
+      <div class="row mb-8"><h3 class="m-0">Results</h3><span class="spacer"></span><a class="btn" href="/api/teacher/export.csv">Download as spreadsheet (CSV)</a></div>
       <div class="tablewrap"><table class="grid" id="grid"></table></div>
-      <h3 style="margin-top:16px">Leaderboards</h3>
+      <h3 class="mt-16">Leaderboards</h3>
       <div class="board" id="boards"></div>
     </div>
 
     <div class="card" id="t-battles" hidden>
       <h3>Class battle</h3>
-      <p class="note" style="margin-top:0">Pick two students who handed in a program. The battle opens in a new simulator window: put it on the projector. The result is saved to the class leaderboard.</p>
-      <div class="form" style="max-width:720px">
+      <p class="note mt-0">Pick two students who handed in a program. The battle opens in a new simulator window: put it on the projector. The result is saved to the class leaderboard.</p>
+      <div class="form form-mid">
         <label class="fld">Arena<select id="batArena"></select></label>
         <label class="fld">Dowee A (yellow)<select id="batA"></select></label>
         <label class="fld">Dowee B (purple)<select id="batB"></select></label>
       </div>
-      <div class="row" style="margin-top:10px"><button class="btn primary" id="batGo">Start the battle</button><span class="note" id="batNote"></span></div>
-      <h3 style="margin-top:18px">Past battles</h3>
+      <div class="row mt-10"><button class="btn primary" id="batGo">Start the battle</button><span class="note" id="batNote"></span></div>
+      <h3 class="mt-18">Past battles</h3>
       <div id="matches"></div>
     </div>
 
     <div class="card" id="t-settings" hidden>
       <h3>This class</h3>
-      <div class="form" style="max-width:760px">
+      <div class="form form-wide">
         <label class="fld">Class name<input type="text" id="setName" maxlength="60"></label>
         <label class="fld">Robot for this class<select id="setRobot"></select></label>
         <label class="fld">Class PIN (optional)<input type="text" id="setPin" maxlength="12" placeholder="Leave empty for no PIN"></label>
-        <label class="fld" style="flex-direction:row;align-items:center;gap:8px;color:var(--ink)"><input type="checkbox" id="setShow"> Students can open classmates' handed-in code</label>
+        <label class="fld fld-check"><input type="checkbox" id="setShow"> Students can open classmates' handed-in code</label>
       </div>
-      <div class="row" style="margin-top:10px"><button class="btn primary" id="saveSettings">Save</button></div>
-      <h3 style="margin-top:20px">All classes</h3>
-      <p class="note" style="margin-top:0">Each class (for example each section or period) has its own students, lesson plan and results. Only the selected class can be joined.</p>
+      <div class="row mt-10"><button class="btn primary" id="saveSettings">Save</button></div>
+      <h3 class="mt-20">All classes</h3>
+      <p class="note mt-0">Each class (for example each section or period) has its own students, lesson plan and results. Only the selected class can be joined.</p>
       <div id="classList"></div>
-      <h3 style="margin-top:20px">Use the dashboard on another device</h3>
-      <p class="note" style="margin-top:0">Open this private link on your phone or tablet (same Wi-Fi). Don't share it with students: it gives full teacher control.</p>
-      <div class="url" id="teacherLink" style="font-size:12px">…</div>
-      <p class="note" id="dataFile" style="margin-top:14px"></p>
+      <h3 class="mt-20">Use the dashboard on another device</h3>
+      <p class="note mt-0">Open this private link on your phone or tablet (same Wi-Fi). Don't share it with students: it gives full teacher control.</p>
+      <div class="url url-small" id="teacherLink">…</div>
+      <p class="note mt-14" id="dataFile"></p>
     </div>
   </section>
 </main>
@@ -205,11 +104,11 @@ pre.code { font: 12px/1.5 var(--font-mono); background: #fffdf8; border: 1px sol
 <div class="joinscreen" id="joinScreen" hidden>
   <div class="qr" id="qrBig"></div>
   <div>
-    <p style="font-weight:800;font-size:clamp(16px,1.6vw,26px);margin:0 0 1vw">Scan to join, or open:</p>
+    <p class="js-lead">Scan to join, or open:</p>
     <h1 id="jsName"></h1>
-    <p id="jsType" style="font-weight:800;font-size:clamp(18px,2vw,32px);margin:-1vw 0 2vw"></p>
+    <p class="js-type" id="jsType"></p>
     <div class="big" id="jsUrl"></div>
-    <p id="jsPin" style="font-weight:800;font-size:clamp(18px,2vw,32px)"></p>
+    <p class="js-pin" id="jsPin"></p>
     <div class="names" id="jsNames"></div>
   </div>
   <button class="btn close" id="jsClose">Close</button>
