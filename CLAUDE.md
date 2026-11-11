@@ -23,6 +23,7 @@ DOWEE is a virtual robotics lab for teaching kids aged 9–20. Students program 
 ## Conventions
 
 - Keep the server dependency-free so it packages easily.
+- The student page is named **DOWEE** ("Your Virtual Arduino Robot"). The low-poly trees in the header (`src/page-body.html`, `.lowpoly`) hide the letters C·R·E·F·L·O in a faint facet shade: keep them when editing the header.
 - The palette is the low-poly playground look: teal background, cream panels, yellow, orange, pink, purple, blue and green. Fonts are Baloo 2, Nunito and JetBrains Mono.
 - Write student-facing text in plain language for kids. Error messages say what to fix.
 - Escape all student- and teacher-typed text before showing it in a page.
