@@ -48,7 +48,15 @@ function renderJoin() {
   $('#pinStat').hidden = !c.pin; $('#pinShow').textContent = c.pin;
   $('#classSel').innerHTML = T.st.classes.map(k => `<option value="${esc(k.id)}" ${k.id === c.id ? 'selected' : ''}>${esc(k.name)} · ${esc(k.robotLabel)} (${k.students})</option>`).join('');
   if (!$('#joinScreen').hidden) renderJoinScreen();
+  // Once students are in, the big QR card folds into a small pill in the header, so the class gets the room.
+  const compact = c.students.length > 0 && !T.showJoin;
+  $('.wrap').classList.toggle('compact', compact);
+  $('#joinPill').hidden = !compact;
+  $('#joinPillUrl').textContent = url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  $('#joinHide').hidden = !c.students.length;
 }
+$('#joinPill').addEventListener('click', () => { T.showJoin = true; renderJoin(); });
+$('#joinHide').addEventListener('click', () => { T.showJoin = false; renderJoin(); });
 $('#lanSel').addEventListener('change', e => { T.lan = +e.target.value; renderJoin(); });
 function renderJoinScreen() {
   const c = C(), url = joinUrl();
@@ -77,12 +85,24 @@ function statusOf(s) {
   if (st.mode === 'blocks') chips.push('<span class="chip blk">blocks</span>');
   return { doing, chips: chips.join(' ') };
 }
-function progressBar(s) {
-  return `<span class="prog" title="${C().activities.map(a => a.title + ': ' + (s.progress[a.id] && s.progress[a.id].done ? 'done' : s.progress[a.id] ? 'tried' : 'not started')).join('\n')}">${C().activities.map(a => `<i class="${s.progress[a.id] && s.progress[a.id].done ? 'd' : s.progress[a.id] ? 't' : ''}"></i>`).join('')}</span>`;
+const PARTS = ['Predict', 'Run', 'Investigate', 'Modify', 'Make'];
+// Where a student is inside one activity, from the Predict/Run/Investigate/Modify/Make reports.
+function stageOf(s, a) {
+  const p = s.progress[a.id], e = (s.primm || {})[a.id];
+  if (p && p.done) return 'done';
+  if (!e) return p ? 'tried' : 'not started';
+  return `${e.next || PARTS[Math.min(e.done, 4)]} (${e.done} of ${e.total} parts)`;
 }
+const predictText = e => (e && e.pr !== null && e.pr !== undefined ? (e.pr ? 'prediction right' : 'prediction wrong') : '');
+function progressBar(s) {
+  return `<span class="prog">${C().activities.map((a, i) => { const p = s.progress[a.id], e = (s.primm || {})[a.id]; return `<i class="${p && p.done ? 'd' : p || e ? 't' : ''}" title="${esc(`${i + 1}. ${a.title}: ${stageOf(s, a)}${predictText(e) ? ', ' + predictText(e) : ''}`)}">${i + 1}</i>`; }).join('')}</span>`;
+}
+function predictions(s) { const p = Object.values(s.primm || {}).filter(e => e.pr !== null && e.pr !== undefined); return { right: p.filter(e => e.pr).length, n: p.length }; }
+const sameName = (s, all) => all.filter(x => x.id !== s.id && x.name.trim().toLowerCase() === s.name.trim().toLowerCase());
 const starsOf = s => Object.values(s.stars || {}).reduce((a, b) => a + b, 0);
 const hintsOf = s => Object.values(s.hints || {}).reduce((a, b) => a + b, 0);
-const extras = s => `${starsOf(s) ? ` · <span title="Mission stars">★ ${starsOf(s)}</span>` : ''}${hintsOf(s) ? ` · <span title="Hints used">💡 ${hintsOf(s)}</span>` : ''}`;
+const extras = s => { const pr = predictions(s); return `${starsOf(s) ? ` · <span title="Mission stars">★ ${starsOf(s)}</span>` : ''}${hintsOf(s) ? ` · <span title="Hints used">💡 ${hintsOf(s)}</span>` : ''}${pr.n ? ` · <span title="Predictions that were right">🔮 ${pr.right}/${pr.n}</span>` : ''}`; };
+T.open = new Set();
 function renderLive() {
   const c = C(), stu = [...c.students].sort((a, b) => (b.online - a.online) || a.name.localeCompare(b.name));
   if (document.activeElement !== $('#annText')) $('#annText').value = c.announcement || '';
@@ -92,12 +112,17 @@ function renderLive() {
   $('#handCount').hidden = !hands.length; $('#handCount').textContent = hands.length;
   $('#rosterEmpty').hidden = stu.length > 0;
   $('#roster tbody').innerHTML = stu.map(s => {
-    const { doing, chips } = statusOf(s), subs = Object.entries(s.subs);
-    return `<tr><td><span class="dot ${s.online ? 'on' : ''}"></span><b>${esc(s.name)}</b>${s.team ? `<br><span class="note">${esc(s.team)}</span>` : ''}${s.hand ? ' <span class="chip p">hand up</span>' : ''}</td>
-      <td>${esc(doing)}<br><span class="note">${s.online ? 'active ' + ago(s.status && s.status.at || s.lastSeen) : 'last seen ' + ago(s.lastSeen)}</span></td>
-      <td>${chips}</td><td>${progressBar(s)}<br><span class="note">${c.activities.filter(a => s.progress[a.id] && s.progress[a.id].done).length}/${c.activities.length}${extras(s)}</span></td>
+    const { doing, chips } = statusOf(s), subs = Object.entries(s.subs), st = s.status || {};
+    const act = c.activities.find(a => a.id === st.activity), twins = sameName(s, c.students), open = T.open.has(s.id);
+    const done = c.activities.filter(a => s.progress[a.id] && s.progress[a.id].done).length;
+    const merge = twins.map(t => `<button class="mi" data-merge="${esc(s.id)}" data-into="${esc(t.id)}">Merge into the other ${esc(t.name)} (${t.online ? 'online' : 'last seen ' + ago(t.lastSeen)})</button>`).join('');
+    return `<tr class="${open ? 'open' : ''}"><td><button class="who" data-open="${esc(s.id)}" aria-expanded="${open}" title="Show this student's lessons"><span class="dot ${s.online ? 'on' : ''}"></span><b>${esc(s.name)}</b><span class="caret">${open ? '▾' : '▸'}</span></button>${s.team ? `<br><span class="note">${esc(s.team)}</span>` : ''}${s.hand ? ' <span class="chip p">hand up</span>' : ''}${twins.length ? ' <span class="chip warn" title="Two students have this name. Use ⋯ to merge them if it is the same person.">same name</span>' : ''}</td>
+      <td>${esc(doing)}${act ? `<br><span class="note">${esc(stageOf(s, act))}</span>` : `<br><span class="note">${s.online ? 'active ' + ago(st.at || s.lastSeen) : 'last seen ' + ago(s.lastSeen)}</span>`}</td>
+      <td>${chips}</td><td>${progressBar(s)}<br><span class="note">${done} of ${c.activities.length} done${extras(s)}</span></td>
       <td>${subs.length ? subs.map(([a, v]) => `<button class="btn small" data-code="${esc(s.id)}" data-arena="${esc(a)}" title="Handed in ${ago(v.at)}">${esc(arenaName(a))}</button>`).join(' ') : '<span class="note">nothing yet</span>'}</td>
-      <td><div class="row" style="justify-content:flex-end"><button class="btn small" data-msg="${esc(s.id)}">Message</button><button class="btn small" data-send="${esc(s.id)}">Send code</button><button class="btn small danger" data-remove="${esc(s.id)}">Remove</button></div></td></tr>`;
+      <td class="r"><details class="menu"><summary class="btn small" aria-label="More for ${esc(s.name)}">⋯</summary><div class="menu-list">
+        <button class="mi" data-msg="${esc(s.id)}">Message</button><button class="mi" data-send="${esc(s.id)}">Send code</button>${merge}<button class="mi danger" data-remove="${esc(s.id)}">Remove from class</button></div></details></td></tr>
+      ${open ? `<tr class="detail"><td colspan="6"><div class="stu-acts">${c.activities.map((a, i) => { const e = (s.primm || {})[a.id], p = s.progress[a.id]; return `<div class="${p && p.done ? 'd' : p || e ? 't' : ''}"><span class="n">${i + 1}</span><span><b>${esc(a.title)}</b><br><span class="note">${esc(stageOf(s, a))}${predictText(e) ? ' · ' + predictText(e) : ''}${p && p.result ? ' · ' + esc(p.result) : ''}</span></span></div>`; }).join('') || '<span class="note">No activities in the lesson plan yet.</span>'}</div></td></tr>` : ''}`;
   }).join('');
 }
 $('#annForm').addEventListener('submit', async e => { e.preventDefault(); try { await api('POST', '/api/teacher/class', { announcement: $('#annText').value.trim() }); toast('Posted to the class'); $('#annText').blur(); } catch (err) { toast(err.message); } });
@@ -109,12 +134,19 @@ document.addEventListener('click', async e => {
     else if (b.dataset.code) showCode(b.dataset.code, b.dataset.arena);
     else if (b.dataset.msg) messageModal(b.dataset.msg);
     else if (b.dataset.send) handoutModal(b.dataset.send);
+    else if (b.dataset.open) { const id = b.dataset.open; if (T.open.has(id)) T.open.delete(id); else T.open.add(id); renderLive(); }
+    else if (b.dataset.merge) {
+      if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Click again to merge (it can\'t be undone)'; return; }
+      await api('POST', '/api/teacher/student/merge', { from: b.dataset.merge, into: b.dataset.into }); toast('Merged into one student');
+    }
     else if (b.dataset.remove) {
       if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Click again'; return; }
       await api('POST', '/api/teacher/student/remove', { id: b.dataset.remove }); toast('Student removed');
     }
   } catch (err) { toast(err.message); }
 });
+
+document.addEventListener('click', e => { $$('details.menu[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; }); });
 
 /* ---------- modals ---------- */
 function openModal(html) { $('#modalBody').innerHTML = html; $('#modal').hidden = false; }
@@ -164,13 +196,14 @@ function goalText(a) {
 function renderPlan() {
   const c = C(), acts = c.activities;
   const done = id => c.students.filter(s => s.progress[id] && s.progress[id].done).length;
-  $('#acts').innerHTML = acts.length ? acts.map((a, i) => `<div class="act ${c.lock === a.id ? 'locked' : ''}">
-      <span class="n">${i + 1}</span>
+  $('#acts').innerHTML = acts.length ? `<ol class="plan-path">${acts.map((a, i) => `<li class="act ${c.lock === a.id ? 'locked' : ''}" draggable="true" data-i="${i}">
+      <span class="grip" aria-hidden="true" title="Drag to move">⠿</span><span class="n">${i + 1}</span>
       <div><b>${esc(a.title)}</b>${c.lock === a.id ? ' <span class="chip p">locked: everyone is here</span>' : ''}${classArenas().includes(a.arena) ? '' : ` <span class="chip warn">students can't open this: ${esc(arenaName(a.arena))} isn't in a ${esc(lowerLabel(c.robotLabel))} class</span>`}<br><span class="note">${esc(arenaName(a.arena))}${a.variant && T.meta.arenas[a.arena] && T.meta.arenas[a.arena].variants[a.variant] ? ' · ' + esc(T.meta.arenas[a.arena].variants[a.variant]) : ''}${a.realism ? ' · ' + ({ ideal: 'Ideal robot', real: 'Realistic world', tough: 'Competition day' })[a.realism] : ''} · Goal: ${esc(goalText(a))}</span><br><span class="note"><b class="ok">${done(a.id)}</b> of ${c.students.length} students done</span></div>
       <div class="row"><button class="btn small" data-up="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Move up">↑</button><button class="btn small" data-down="${i}" ${i === acts.length - 1 ? 'disabled' : ''} aria-label="Move down">↓</button>
         <button class="btn small ${c.lock === a.id ? 'yellow' : ''}" data-lock="${esc(a.id)}">${c.lock === a.id ? 'Unlock' : 'Lock class here'}</button>
-        <button class="btn small" data-edit="${i}">Edit</button><button class="btn small danger" data-del="${i}">Delete</button></div></div>`).join('')
-    : '<p class="empty">No activities yet. Add one from the built-in lessons, or make your own.</p>';
+        <button class="btn small" data-edit="${i}">Edit</button><button class="btn small danger" data-del="${i}">Delete</button></div></li>`).join('')}</ol>`
+    : '<p class="empty">No activities yet. Add lessons from the path below, or make your own.</p>';
+  renderQuickAdd();
   renderSamples();
 }
 function renderSamples() {
@@ -188,6 +221,30 @@ $('#samples').addEventListener('click', async e => {
   const key = b.dataset.unlock, un = new Set(C().settings.unlocked || []), on = !un.has(key);
   if (on) un.add(key); else un.delete(key);
   try { await api('POST', '/api/teacher/class', { settings: { unlocked: [...un] } }); toast(on ? 'Unlocked: students see it in their example menu' : 'Locked again'); } catch (err) { toast(err.message); }
+});
+// The students' Lessons page, level by level: one click adds a built-in lesson to the plan.
+function renderQuickAdd() {
+  const c = C(), inPlan = new Set(c.activities.map(a => a.builtin).filter(Boolean)), byId = new Map(T.meta.lessons.map(l => [l.id, l]));
+  const levels = (T.meta.path || []).map(p => ({ ...p, lessons: p.ids.map(id => byId.get(id)).filter(l => l && classArenas().includes(l.arena)) })).filter(p => p.lessons.length);
+  $('#quickAdd').innerHTML = levels.map((p, i) => `<details class="qa-level" ${i < 2 || p.lessons.some(l => inPlan.has(l.id)) ? 'open' : ''}><summary><b>${esc(p.name)}</b> <span class="note">${esc(p.about || '')}</span></summary><div class="qa-grid">${p.lessons.map(l => `<button class="qa ${inPlan.has(l.id) ? 'in' : ''}" data-add="${esc(l.id)}" ${inPlan.has(l.id) ? 'disabled' : ''}><b>${esc(l.title)}</b><span class="note">${esc(arenaName(l.arena))} · ${inPlan.has(l.id) ? 'in the plan ✓' : '+ add'}</span></button>`).join('')}</div></details>`).join('');
+}
+$('#quickAdd').addEventListener('click', e => {
+  const b = e.target.closest('[data-add]'); if (!b) return;
+  const l = T.meta.lessons.find(x => x.id === b.dataset.add); if (!l) return;
+  const acts = JSON.parse(JSON.stringify(C().activities));
+  acts.push({ id: Math.random().toString(16).slice(2, 10), title: l.title, builtin: l.id, arena: l.arena, variant: l.variant || '', realism: '', intro: '', steps: [], starter: { kind: 'lesson' }, goal: { type: 'builtin' } });
+  savePlan(acts, `Added: ${l.title}`);
+});
+// Drag an activity to a new place in the plan (the ↑ ↓ buttons do the same with the keyboard).
+let dragI = null;
+$('#acts').addEventListener('dragstart', e => { const li = e.target.closest('li.act'); if (!li) return; dragI = +li.dataset.i; li.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', String(dragI)); } catch (err) { /* optional */ } });
+$('#acts').addEventListener('dragend', () => { dragI = null; $$('#acts li.act').forEach(x => x.classList.remove('dragging', 'over')); });
+$('#acts').addEventListener('dragover', e => { const li = e.target.closest('li.act'); if (dragI === null || !li) return; e.preventDefault(); $$('#acts li.act').forEach(x => x.classList.toggle('over', x === li)); });
+$('#acts').addEventListener('drop', e => {
+  const li = e.target.closest('li.act'); if (dragI === null || !li) return; e.preventDefault();
+  const to = +li.dataset.i, from = dragI; dragI = null; if (to === from) return;
+  const acts = JSON.parse(JSON.stringify(C().activities)); const [m] = acts.splice(from, 1); acts.splice(to, 0, m);
+  savePlan(acts, 'Plan order saved');
 });
 async function savePlan(acts, msg) { try { await api('POST', '/api/teacher/class', { activities: acts }); if (msg) toast(msg); } catch (err) { toast(err.message); } }
 $('#acts').addEventListener('click', async e => {
@@ -281,8 +338,8 @@ function editActivity(index) {
 /* ---------- results ---------- */
 function renderResults() {
   const c = C(), acts = c.activities, stu = [...c.students].sort((a, b) => a.name.localeCompare(b.name));
-  $('#grid').innerHTML = stu.length && acts.length ? `<thead><tr><th>Student</th>${acts.map((a, i) => `<th title="${esc(a.title)}">${i + 1}. ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</th>`).join('')}<th>Done</th><th title="Mission stars earned">★</th><th title="Hints used">💡</th></tr></thead><tbody>${stu.map(s => `<tr><td><b>${esc(s.name)}</b>${s.team ? ` <span class="note">${esc(s.team)}</span>` : ''}</td>${acts.map(a => { const p = s.progress[a.id]; return `<td class="c">${p && p.done ? `<span class="ok">✓</span>${p.result ? `<br><span class="note">${esc(p.result)}</span>` : ''}` : p ? `<span class="note">tried ${p.attempts || ''}</span>` : ''}</td>`; }).join('')}<td class="c"><b>${acts.filter(a => s.progress[a.id] && s.progress[a.id].done).length}/${acts.length}</b></td><td class="c">${starsOf(s)}</td><td class="c">${hintsOf(s)}</td></tr>`).join('')}</tbody>
-    <tfoot><tr><th>Class</th>${acts.map(a => `<th class="c">${Math.round(100 * stu.filter(s => s.progress[a.id] && s.progress[a.id].done).length / Math.max(1, stu.length))}%</th>`).join('')}<th></th><th></th><th></th></tr></tfoot>` : '<tr><td class="empty">Results appear here when students start the activities.</td></tr>';
+  $('#grid').innerHTML = stu.length && acts.length ? `<thead><tr><th>Student</th>${acts.map((a, i) => `<th title="${esc(a.title)}">${i + 1}. ${esc(a.title.length > 18 ? a.title.slice(0, 17) + '…' : a.title)}</th>`).join('')}<th>Done</th><th title="Mission stars earned">★</th><th title="Hints used">💡</th><th title="Predictions that were right">🔮</th></tr></thead><tbody>${stu.map(s => `<tr><td><b>${esc(s.name)}</b>${s.team ? ` <span class="note">${esc(s.team)}</span>` : ''}</td>${acts.map(a => { const p = s.progress[a.id], e = (s.primm || {})[a.id]; return `<td class="c">${p && p.done ? `<span class="ok">✓</span>${p.result ? `<br><span class="note">${esc(p.result)}</span>` : ''}` : e ? `<span class="note" title="${esc(stageOf(s, a))}">${e.done}/${e.total} parts</span>` : p ? `<span class="note">tried ${p.attempts || ''}</span>` : ''}</td>`; }).join('')}<td class="c"><b>${acts.filter(a => s.progress[a.id] && s.progress[a.id].done).length}/${acts.length}</b></td><td class="c">${starsOf(s)}</td><td class="c">${hintsOf(s)}</td><td class="c">${(p => (p.n ? `${p.right}/${p.n}` : ''))(predictions(s))}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><th>Class</th>${acts.map(a => `<th class="c">${Math.round(100 * stu.filter(s => s.progress[a.id] && s.progress[a.id].done).length / Math.max(1, stu.length))}%</th>`).join('')}<th></th><th></th><th></th><th></th></tr></tfoot>` : '<tr><td class="empty">Results appear here when students start the activities.</td></tr>';
   const lb = c.leaderboard, boxes = [];
   for (const [arena, keys] of Object.entries(lb)) for (const [key, rows] of Object.entries(keys)) {
     const ar = T.meta.arenas[arena], label = key === 'wins' ? 'Battle wins' : key === 'lap' ? 'Best lap' : (ar && ar.variants[key]) || key;

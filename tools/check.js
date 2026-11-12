@@ -173,6 +173,75 @@ console.log('\nAdvanced PID lessons');
   check('guided step 4 needs the anti-windup limit', () => { const r = lineRun(step[4](step[3](step[2](step[1](G))), false), 'oval', 30); want(!r.hit[3], 'ticked without the limit'); return r.laps || 'no lap: windup'; });
 }
 
+console.log('\nPRIMM lessons (Predict, Run, Investigate, Modify, Make)');
+{
+  const valid = q => q && Array.isArray(q.options) && q.options.length >= 2 && Number.isInteger(q.answer) && q.answer >= 0 && q.answer < q.options.length && q.q && q.why;
+  const inPath = new Set(M.LESSON_PATH.flatMap(p => p.ids));
+  check('every built-in lesson has a Predict question and is on the Lessons page', () => {
+    const miss = M.LESSONS.filter(l => !l.predict).map(l => l.id), off = M.LESSONS.filter(l => !inPath.has(l.id)).map(l => l.id);
+    want(!miss.length, `no Predict: ${miss.join(', ')}`); want(!off.length, `not in LESSON_PATH: ${off.join(', ')}`);
+    return `${M.LESSONS.length} lessons`;
+  });
+  for (const l of M.LESSONS) for (const [tag, P] of [['', l], [' (TODO version)', l.todo && l.todo.predict ? { ...l, ...l.todo } : null]]) if (P && P.predict) check(`${l.id}${tag}: questions have a valid answer`, () => {
+    want(valid(P.predict), 'Predict question is incomplete');
+    (P.investigate || []).forEach((q, i) => want(valid(q), `Investigate question ${i + 1} is incomplete`));
+    (P.modify || []).forEach((m, i) => want(m.text && typeof m.check === 'function', `Modify ${i + 1} is incomplete`));
+  });
+  // A reference change for every Modify step: [code, opts]. The starter must not tick it; the change must.
+  const E = EXAMPLES, L = id => M.LESSONS.find(l => l.id === id);
+  const startOf = l => l.code || (l.example && E[l.arena][l.example].code);
+  const sub = (code, ...pairs) => { for (let i = 0; i < pairs.length; i += 2) { if (!code.includes(pairs[i])) throw new Error(`text not found: ${pairs[i].slice(0, 40)}`); code = code.split(pairs[i]).join(pairs[i + 1]); } return code; };
+  const pidFixed = id => PID_FIX[id].reduce((c, [a, b]) => sub(c, a, b), L(id).code);
+  const keys = (...ks) => (W, i) => { for (const [t, k] of ks) if (i === t) W.deliver(W.robots[0].board, k); };
+  const EDGE_FIX = sub(L('edge').code, '  // TODO: if left OR right is below 400, the robot is on the white edge!', '  if (left < 400 || right < 400) { drive(-150, -150); delay(300); drive(150, -150); delay(450); }\n  // was the TODO');
+  const ws = M.PIDI_FULL.replace(/\{\{(\d+)\}\}/g, (_, n) => M.PID_BLANKS[n - 1].a[0]);
+  const MOD = {
+    blocks: { start: E.lab.meter.code, refs: [[sub(E.lab.meter.code, 'int driveTime = 1500;', 'int driveTime = 500;')], [sub(E.lab.meter.code, 'int speed = 180;', 'int speed = -180;')]] },
+    blink: { refs: [[sub(E.lab.blink.code, 'delay(500);', 'delay(250);')], [sub(E.lab.blink.code, 'delay(500);', 'delay(40);')]] },
+    drive: { refs: [[sub(E.lab.meter.code, 'int driveTime = 1500;', 'int driveTime = 750;')], [sub(E.lab.meter.code, 'int speed = 180;', 'int speed = -180;')]] },
+    turn: { refs: [[sub(E.lab.turn.code, 'drive(turnSpeed, -turnSpeed);', 'drive(-turnSpeed, turnSpeed);')], [sub(E.lab.turn.code, 'int turnTime = 400;', 'int turnTime = 1300;')]] },
+    see: { refs: [[sub(E.line.print.code, 'delay(50);', 'delay(500);')]] },
+    follow: { refs: [[sub(E.line.bang.code, 'int speed = 150;', 'int speed = 170;')]], todo: [[E.line.bang.code], [sub(E.line.bang.code, 'int speed = 150;', 'int speed = 170;')]] },
+    pid1: { refs: [[pidFixed('pid1')]] }, pid2: { refs: [[pidFixed('pid2')]] }, pid3: { refs: [[pidFixed('pid3')]] },
+    pid: { refs: [[sub(E.line.pid.code, 'int baseSpeed = 150;', 'int baseSpeed = 180;')]], todo: [[E.line.pid.code], [sub(E.line.pid.code, 'int baseSpeed = 150;', 'int baseSpeed = 180;')]] },
+    rc: { opts: { onStep: keys([500, 'F'], [4000, 'F']) }, ms: 20000, refs: [[sub(E.race.rc.code, 'int speed = 220;', 'int speed = 150;')]],
+      todo: [[E.race.rc.code, { onStep: keys([4000, 'B']) }], [E.race.rc.code, { onStep: keys([4000, 'L'], [7000, 'R']) }]] },
+    sonar: { ms: 20000, refs: [[sub(E.maze.avoid.code, 'int safeDistance = 25;', 'int safeDistance = 40;')]], todo: [[E.maze.avoid.code], [E.maze.avoid.code]] },
+    edge: { ms: 12000, refs: [[EDGE_FIX]] },
+    fight: { refs: [[E.sumo.basic.code, { variant: 'statue', opp: 'statue' }]], todo: [[E.sumo.basic.code]] },
+    soccer: { refs: [[E.race.rc.code, { onStep: keys([500, 'F'], [2500, 'S']) }]], opts: {} },
+    apid1: { start: ws, refs: [[sub(ws, 'float Ki = 0.0002;', 'float Ki = 0.002;')]] },
+    apid2: { start: ws, refs: [[sub(ws, 'float Ki = 0.0002;', 'float Ki = 0.002;')]] },
+  };
+  const modRun = (l, code, o, ms) => {
+    const variant = o.variant || l.variant || Object.keys(M.ARENAS[l.arena].variants)[0];
+    const W = M.buildWorld(l.arena, variant, { realism: 'ideal', unitA: 1, runSeed: 7 }, M.makeCfg('dowee'), M.makeCfg('dowee'), o.opp || (l.arena === 'sumo' ? variant : 'none'));
+    const r = W.robots[0]; r.board.onSerial = s => { r.board.serialLines += (s.match(/\n/g) || []).length; };
+    r.board.load(M.compileArduino(code, r.board), 0);
+    return W;
+  };
+  const ticks = (l, mods, code, o = {}, ms = 30000) => {
+    const W = modRun(l, code, o, ms), memo = mods.map(() => ({})), hit = mods.map(() => false);
+    for (let i = 0; i < ms; i++) {
+      W.step(); if (o.onStep) o.onStep(W, i);
+      if (i % 200 === 0) mods.forEach((m, k) => { if (!hit[k]) { try { hit[k] = !!m.check(W, memo[k]); } catch (e) { /* not yet */ } } });
+      if (hit.every(Boolean)) break;
+    }
+    return hit;
+  };
+  for (const l of M.LESSONS) for (const [tag, mods, refs, start] of [['', l.modify, MOD[l.id] && MOD[l.id].refs, (MOD[l.id] && MOD[l.id].start) || startOf(l)], [' (TODO version)', l.todo && l.todo.modify, MOD[l.id] && MOD[l.id].todo, l.todo && l.todo.code]]) {
+    if (!mods || !mods.length) continue;
+    const spec = MOD[l.id] || {}, ms = spec.ms || 60000;
+    check(`${l.id}${tag}: the starter ticks no Modify step, each reference change ticks its own`, () => {
+      want(refs && refs.length === mods.length, `tools/check.js needs ${mods.length} reference change(s)`);
+      const startHit = ticks(l, mods, start, { ...(spec.opts || {}) }, Math.min(ms, 20000));
+      want(!startHit.some(Boolean), `the starter already ticks: ${mods.filter((m, k) => startHit[k]).map(m => m.text.replace(/<[^>]+>/g, '')).join(' / ')}`);
+      refs.forEach(([code, o], k) => { const hit = ticks(l, mods, code, { ...(spec.opts || {}), ...(o || {}) }, ms); want(hit[k], `reference change ${k + 1} does not tick "${mods[k].text.replace(/<[^>]+>/g, '')}"`); });
+      return `${mods.length} step(s)`;
+    });
+  }
+}
+
 console.log('\nRepeatability');
 check('Ideal robot: same code, same result', () => {
   const a = run('line', 'snake', EXAMPLES.line.pid.code, 30000, { seed: 11 }), b = run('line', 'snake', EXAMPLES.line.pid.code, 30000, { seed: 999 });

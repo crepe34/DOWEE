@@ -142,30 +142,33 @@ function banner(title, sub, ms = 2600) {
 const DOWEE_ICON = '<svg viewBox="0 0 48 48" aria-hidden="true"><polygon points="8,14 40,14 44,22 40,38 8,38 4,22" fill="#f8cf3f"/><polygon points="40,14 44,22 24,14" fill="#f39a3b"/><polygon points="4,22 8,38 24,38" fill="#f39a3b"/><rect x="11" y="20" width="26" height="12" rx="6" fill="#2e2a4f"/><circle cx="18" cy="26" r="3.2" fill="#a3dcea"/><circle cx="30" cy="26" r="3.2" fill="#a3dcea"/></svg>';
 const allowed = id => !S.allowedArenas || S.allowedArenas.includes(id);
 function buildArenaTabs() {
-  const meet = S.view === 'meet';
-  $('#arenaTabs').innerHTML = `<button role="tab" class="meet-tab" data-a="meet" aria-selected="${meet}">${DOWEE_ICON}Meet Dowee</button><span class="sep" aria-hidden="true"></span>`
-    + Object.entries(ARENAS).filter(([k]) => allowed(k)).map(([k, a]) => `<button role="tab" data-a="${k}" aria-selected="${!meet && k === S.arena}">${a.name}</button>`).join('');
+  const v = S.view;
+  $('#arenaTabs').innerHTML = `<button role="tab" class="meet-tab" data-a="meet" aria-selected="${v === 'meet'}">${DOWEE_ICON}Meet Dowee</button><button role="tab" class="meet-tab path-tab" data-a="lessons" aria-selected="${v === 'lessons'}"><span aria-hidden="true">★</span>Lessons</button><span class="sep" aria-hidden="true"></span>`
+    + Object.entries(ARENAS).filter(([k]) => allowed(k)).map(([k, a]) => `<button role="tab" data-a="${k}" aria-selected="${v === 'arena' && k === S.arena}">${a.name}</button>`).join('');
 }
 $('#arenaTabs').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.a === 'meet') { showMeet(); return; }
+  if (b.dataset.a === 'lessons') { showLessons(); return; }
   if (b.dataset.a !== S.arena) setArena(b.dataset.a);
   showWork();
 });
-// Two main views: the Meet Dowee page, and the workspace (code + arena + instruments).
-function showMeet() {
-  if (S.running && !S.paused) { S.paused = true; S.pausedByMeet = true; setState(); }
-  S.view = 'meet'; store.set('view', 'meet');
-  $('.work').hidden = true; $('#meetPage').hidden = false;
-  buildArenaTabs(); buildRobotPanel();
+// Three main views: the Meet Dowee page, the Lessons page (learning path), and the workspace (code + arena + instruments).
+function pauseForPage() { if (S.running && !S.paused) { S.paused = true; S.pausedByMeet = true; setState(); } }
+function showPage(v) {
+  S.view = v; store.set('view', v);
+  $('.work').hidden = v !== 'arena'; $('#meetPage').hidden = v !== 'meet'; $('#pathPage').hidden = v !== 'lessons';
+  $('#mSwitch').hidden = v !== 'arena';
+  buildArenaTabs();
 }
+function showMeet() { pauseForPage(); showPage('meet'); buildRobotPanel(); }
+function showLessons() { pauseForPage(); showPage('lessons'); buildPath(); $('#pathPage').scrollTop = 0; }
 function showWork() {
   const was = S.view;
-  S.view = 'arena'; store.set('view', 'arena');
-  $('.work').hidden = false; $('#meetPage').hidden = true;
+  showPage('arena');
   if (S.pausedByMeet) { S.pausedByMeet = false; S.paused = false; S.last = performance.now(); setState(); }
-  buildArenaTabs();
-  if (was === 'meet') { fit(); draw(); if (typeof BK !== 'undefined' && BK.ws && !$('#blkWrap').hidden) Blockly.svgResize(BK.ws); }
+  layoutWork(); maybeTour();
+  if (was !== 'arena') { fit(); draw(); if (typeof BK !== 'undefined' && BK.ws && !$('#blkWrap').hidden) Blockly.svgResize(BK.ws); }
 }
 function needsB() { const v = S.variant[S.arena]; return v === 'code' || v === 'p2'; }
 function setArena(id, keepCode) {
@@ -186,6 +189,7 @@ function setArena(id, keepCode) {
   if (!keepCode) loadEditor();
   S.bestTrail = null; S.bestLap = Infinity;
   clearMsgs(); resetWorld(); buildRobotPanel(); buildWiring(); buildTune();
+  if (window.__clReady) buildLessons();
   if (typeof renderClass === 'function' && window.__clReady) renderClass();
   return true;
 }
@@ -318,7 +322,7 @@ function setState() {
   $('#btnPause').disabled = !S.running; $('#btnPause').textContent = S.paused ? 'Resume' : 'Pause';
   if (typeof sendStatus === 'function' && window.__clReady) setTimeout(() => sendStatus(false), 0);
 }
-$('#btnRun').addEventListener('click', run);
+$('#btnRun').addEventListener('click', () => { if (primmGate()) run(); });
 $('#btnPause').addEventListener('click', () => { if (!S.running) return; S.paused = !S.paused; S.last = performance.now(); if (S.paused) { stopTone('A'); stopTone('B'); } setState(); });
 $('#btnReset').addEventListener('click', () => { stop(); resetWorld(); $('#banner').hidden = true; });
 $('#btnCheck').addEventListener('click', verify);
@@ -353,7 +357,7 @@ function frame(now) {
     }
     pollGamepads();
     handleEvents();
-    if (now - (S.lastCheck || 0) > 200) { S.lastCheck = now; if (S.lesson) { checkLesson(); checkGuide(); } checkMissions(); }
+    if (now - (S.lastCheck || 0) > 200) { S.lastCheck = now; if (S.lesson) { checkLesson(); checkGuide(); checkPrimm(); } checkMissions(); }
   }
   S.last = now;
   draw();
@@ -1017,26 +1021,171 @@ function buildWiring() {
     </ul>`;
 }
 
-/* ---------------- lessons ---------------- */
-function buildLessons() {
+/* ---------------- lessons: the Lessons page (learning path) and the lesson pane ---------------- */
+function lessonLists() {
   const acts = (typeof hostActivities === 'function' ? hostActivities().map(activityToLesson) : []).filter(l => allowed(l.arena));
-  const lessons = LESSONS.filter(l => allowed(l.arena));
-  const all = [...acts, ...lessons];
-  const L = (S.lessonView && all.find(l => l.id === S.lessonView)) || (S.lesson && all.find(l => l.id === S.lesson)) || all[0];
-  const isDone = l => (l.actId ? activityDone(l) : S.lessonDone[l.id]);
-  const steps = usesTodo(L) ? (L.base || L).todo.steps : L.steps;
-  const item = (l, i) => `<button data-id="${l.id}" aria-current="${l === L}" class="${isDone(l) ? 'done' : ''}"><span class="num">${isDone(l) ? '✓' : i + 1}</span><b>${esc(l.title)}</b><small>${esc(l.actId ? (ARENAS[l.arena] ? ARENAS[l.arena].name : '') : l.level)}</small></button>`;
-  $('#lessonBox').innerHTML = `${missionsHtml()}<div class="lesson-list">${acts.length ? `<p class="lbl" style="margin:0 0 2px">From your teacher</p>${acts.map(item).join('')}<p class="lbl" style="margin:10px 0 2px">All lessons</p>` : ''}${lessons.map(item).join('')}</div>
-  <div class="lesson-body"><h3>${esc(L.title)}</h3><p>${L.intro}</p><ol>${steps.map(s => `<li>${s}</li>`).join('')}</ol>
-  ${hintsHtml(L.id, lessonHints(L))}
-  ${(L.base || L).worksheet ? worksheetHtml(L) : ''}${(L.base || L).guide ? guideHtml(L) : ''}
-  <div class="goal ${isDone(L) && S.lesson === L.id ? 'done' : ''}" id="goalBox"><span>Goal: ${esc(L.goal)}${isDone(L) ? ' — done!' : ''}</span><button class="btn primary" id="lessonStart">${S.lesson === L.id ? 'Restart lesson' : 'Start this lesson'}</button></div></div>`;
-  $$('#lessonBox .lesson-list button').forEach(b => b.addEventListener('click', () => { S.lessonView = b.dataset.id; const l = all.find(x => x.id === b.dataset.id); showLesson(l); }));
-  $('#lessonStart').addEventListener('click', () => startLesson(L));
-  $$('#lessonBox [data-hint]').forEach(b => b.addEventListener('click', () => revealHint(b.dataset.hint)));
-  bindWorksheet(L); bindGuide(L);
-  $$('#lessonBox [data-askhand]').forEach(b => b.addEventListener('click', () => { const h = $('#handBtn'); if (h && !h.classList.contains('up')) h.click(); else toast('Your hand is up. Your teacher is coming!'); }));
+  return { acts, lessons: LESSONS.filter(l => allowed(l.arena)) };
 }
+const isDoneL = l => (l.actId ? activityDone(l) : !!S.lessonDone[l.id]);
+// Levels of the path, in order. Lessons that are in no level go into "More".
+function pathLevels() {
+  const { lessons } = lessonLists(), byId = new Map(lessons.map(l => [l.id, l])), used = new Set();
+  const lv = LESSON_PATH.map(p => { const ls = p.ids.map(id => byId.get(id)).filter(Boolean); ls.forEach(l => used.add(l.id)); return { ...p, lessons: ls }; });
+  const rest = lessons.filter(l => !used.has(l.id));
+  if (rest.length) lv.push({ name: 'More', extra: true, lessons: rest });
+  return lv.filter(p => p.lessons.length || (p.missions || []).some(a => allowed(a) && TEMPLATES[a]));
+}
+function nextLesson() {
+  const { acts } = lessonLists(), a = acts.find(l => !isDoneL(l)); if (a) return a;
+  for (const p of pathLevels()) if (!p.extra) { const l = p.lessons.find(x => !isDoneL(x)); if (l) return l; }
+  return null;
+}
+function lessonCard(l, n, next) {
+  const done = isDoneL(l), pr = primmProgress(l);
+  return `<button class="lcard ${done ? 'done' : ''} ${l.id === S.lesson ? 'cur' : ''}" data-lesson="${esc(l.id)}">
+    <span class="num">${done ? '✓' : n}</span><span class="lt"><b>${esc(l.title)}</b><small>${esc(ARENAS[l.arena] ? ARENAS[l.arena].name : '')}${l.blocks ? ' · Blocks' : ''}</small></span>
+    ${pr ? `<span class="pdots" aria-label="${pr.done} of ${pr.total} parts done">${Array.from({ length: pr.total }, (_, i) => `<i class="${i < pr.done ? 'on' : ''}"></i>`).join('')}</span>` : ''}
+    ${next ? '<span class="badge-next">Next</span>' : ''}</button>`;
+}
+function missionStrip(a) {
+  const t = TEMPLATES[a]; if (!t || !allowed(a)) return '';
+  const got = starsGot(a);
+  return `<button class="mstrip" data-arena="${a}"><span class="stars">${t.missions.map((m, i) => `<span class="${got.includes(i) ? 'on' : ''}">★</span>`).join('')}</span><span><b>Missions: ${esc(t.name)}</b><small>${t.missions.map(m => esc(m.text)).join(' · ')}</small></span></button>`;
+}
+function buildPath() {
+  if ($('#pathPage').hidden) return;
+  const { acts } = lessonLists(), next = nextLesson(), lv = pathLevels();
+  const all = lv.flatMap(p => p.lessons), doneN = all.filter(isDoneL).length;
+  let n = 0;
+  const level = (p, i) => {
+    const d = p.lessons.filter(isDoneL).length;
+    return `<section class="plevel ${p.extra ? 'extra' : ''}"><header><span class="lvnum">${p.extra ? '+' : i + 1}</span><div><h2>${esc(p.name)}</h2>${p.about ? `<p>${p.about}</p>` : ''}</div><span class="lvdone">${d} of ${p.lessons.length} done</span></header>
+      <div class="lgrid">${p.lessons.map(l => lessonCard(l, ++n, next && l.id === next.id)).join('')}${(p.missions || []).map(missionStrip).join('')}</div></section>`;
+  };
+  let i = 0;
+  $('#pathBox').innerHTML = `<div class="path-wrap"><div class="path-head"><div><h1>Lessons</h1><p class="lede">Each lesson goes <b>Predict → Run → Investigate → Modify → Make</b>: guess first, then try it, look closer, change it, and finally build it yourself.</p></div>
+    <div class="path-sum"><b>${doneN}</b> of ${all.length} lessons done${next ? `<button class="btn primary" data-lesson="${esc(next.id)}">Next: ${esc(next.title)} →</button>` : ''}</div></div>
+    ${acts.length ? `<section class="plevel teacher"><header><span class="lvnum">★</span><div><h2>From your teacher</h2><p>Your teacher's lesson plan for this class.</p></div><span class="lvdone">${acts.filter(isDoneL).length} of ${acts.length} done</span></header><div class="lgrid">${acts.map((l, k) => lessonCard(l, k + 1, next && l.id === next.id)).join('')}</div></section>` : ''}
+    ${lv.map(p => level(p, p.extra ? 0 : i++)).join('')}</div>`;
+  $$('#pathBox [data-lesson]').forEach(b => b.addEventListener('click', () => { const l = findLesson(b.dataset.lesson); if (l) startLesson(l); }));
+  $$('#pathBox [data-arena]').forEach(b => b.addEventListener('click', () => { leaveLesson(true); if (setArena(b.dataset.arena) !== false) showWork(); }));
+}
+function leaveLesson(quiet) {
+  if (!S.lesson) return;
+  S.lesson = null; S.lessonRobot = null; store.set('lesson', null);
+  if (!quiet) { stop(); resetWorld(); }
+  buildLessons();
+}
+// The lesson pane, left of the code. With no lesson it shows this playground's missions.
+function buildLessons() {
+  buildPath();
+  const L = S.lesson ? findLesson(S.lesson) : null;
+  const box = $('#lessonBox');
+  if (!L) {
+    box.innerHTML = `<div class="lp-head"><div><span class="lbl">No lesson</span><h3>${esc(ARENAS[S.arena].name)}</h3></div><button class="btn small icon" data-pane="min" title="Hide this panel" aria-label="Hide this panel">◂</button></div>
+      <div class="lp-body">${missionsHtml() || '<p class="note">Write your own program, or pick a lesson.</p>'}</div>
+      <div class="lp-foot"><button class="btn primary" data-go="path">Pick a lesson</button></div>`;
+  } else {
+    const steps = usesTodo(L) ? (L.base || L).todo.steps : L.steps;
+    const nx = nextAfter(L);
+    box.innerHTML = `<div class="lp-head"><div><span class="lbl">${esc(L.level || 'Lesson')}</span><h3>${esc(L.title)}</h3></div><button class="btn small icon" data-pane="min" title="Hide the lesson" aria-label="Hide the lesson">◂</button></div>
+      <div class="lp-body lesson-body">${L.arena !== S.arena ? `<p class="why away">This lesson happens in <b>${esc(ARENAS[L.arena].name)}</b>. <button class="btn small" data-go="back">Go back there</button></p>` : ''}<p>${L.intro}</p>${primmHtml(L, steps)}
+      ${hintsHtml(L.id, lessonHints(L))}
+      ${(L.base || L).worksheet ? worksheetHtml(L) : ''}${(L.base || L).guide ? guideHtml(L) : ''}
+      <div class="goal ${isDoneL(L) ? 'done' : ''}" id="goalBox"><span><b>${primmOf(L) ? `<span class="pmk">${isDoneL(L) ? '✓' : primmStages(L).length}</span> Make · ` : ''}Goal:</b> ${esc(L.goal)}${isDoneL(L) ? ' — done!' : ''}</span></div></div>
+      <div class="lp-foot"><button class="btn" data-go="path">◂ All lessons</button><button class="btn" data-go="restart" title="Start this lesson again from its first code">Restart</button><span class="spacer"></span>${nx ? `<button class="btn ${isDoneL(L) ? 'primary' : ''}" data-go="next">Next lesson →</button>` : ''}<button class="btn small" data-go="leave" title="Close this lesson">✕</button></div>`;
+    bindWorksheet(L); bindGuide(L); bindPrimm(L);
+  }
+  $$('#lessonBox [data-hint]').forEach(b => { if (!b.__h) { b.__h = 1; b.addEventListener('click', () => revealHint(b.dataset.hint)); } });
+  $$('#lessonBox [data-askhand]').forEach(b => b.addEventListener('click', () => { const h = $('#handBtn'); if (h && !h.classList.contains('up')) h.click(); else toast('Your hand is up. Your teacher is coming!'); }));
+  $$('#lessonBox [data-pane]').forEach(b => b.addEventListener('click', () => setPaneOpen(false)));
+  $$('#lessonBox [data-go]').forEach(b => b.addEventListener('click', () => {
+    const g = b.dataset.go;
+    if (g === 'path') showLessons();
+    else if (g === 'restart') { if (L) startLesson(L, true); }
+    else if (g === 'leave') leaveLesson();
+    else if (g === 'next') { const nx = L && nextAfter(L); if (nx) startLesson(nx); }
+    else if (g === 'back') { if (L && setArena(L.arena, false) !== false) showWork(); }
+  }));
+  layoutWork();
+}
+function nextAfter(L) {
+  const { acts } = lessonLists();
+  const list = L.actId ? acts : pathLevels().flatMap(p => p.lessons);
+  const i = list.findIndex(l => l.id === L.id);
+  return i >= 0 ? list[i + 1] || null : null;
+}
+// Lesson pane layout: a column on wide screens, a drawer on tablets, a view of its own on phones.
+S.paneOpen = store.get('paneOpen', true); S.drawer = false;
+const isPhone = () => matchMedia('(max-width: 760px)').matches;
+const isMid = () => !isPhone() && matchMedia('(max-width: 1100px)').matches;
+function openLessonPane() { if (isPhone()) setMView('lesson'); else setPaneOpen(true); }
+function setPaneOpen(on) {
+  if (isPhone()) { if (!on && S.mview === 'lesson') setMView('code'); return; }
+  if (isMid()) S.drawer = on; else { S.paneOpen = on; store.set('paneOpen', on); }
+  layoutWork();
+}
+function layoutWork() {
+  const w = $('#work'); if (!w) return;
+  w.classList.toggle('pane-min', !S.paneOpen);
+  w.classList.toggle('drawer-open', !!S.drawer);
+  w.classList.toggle('in-lesson', !!S.lesson);
+  $('#lessonTab').textContent = S.lesson ? 'Lesson ▸' : 'Missions ▸';
+  const lb = $('#mSwitch [data-m="lesson"]'); lb.hidden = false; lb.textContent = S.lesson ? 'Lesson' : 'Missions';
+  w.dataset.m = S.mview || 'arena';
+  $$('#mSwitch button').forEach(b => b.setAttribute('aria-pressed', b.dataset.m === w.dataset.m));
+}
+$('#lessonTab').addEventListener('click', () => setPaneOpen(true));
+function setMView(m) { S.mview = m; layoutWork(); window.scrollTo(0, 0); }
+$('#mSwitch').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setMView(b.dataset.m); });
+$('#btnMRun').addEventListener('click', () => { setMView('arena'); $('#btnRun').click(); });
+
+/* ---------------- first-time guide: a few coach marks, replayed with the ? button ---------------- */
+const TOUR = [
+  { sel: '#lessonPane', m: 'lesson', title: 'Your lesson', text: 'Work through it from top to bottom: <b>guess</b> what will happen, run it, answer a question, change the code, then reach the goal. Hide it with ◂ when you need more room.' },
+  { sel: '.code-pane', m: 'code', title: 'This is your code', text: 'Dowee does exactly what is written here, line by line. Type Arduino C, or switch to <b>Blocks</b> to snap blocks together.' },
+  { sel: '#btnRun', m: 'arena', title: 'Upload &amp; run', text: 'Sends your code to Dowee and starts it in the arena. Red messages under the code tell you what to fix.' },
+  { sel: '.dock-head', m: 'arena', title: 'See what Dowee sees', text: '<b>Serial</b> shows what your program prints. <b>Robot</b> shows the sensors, pins and wiring. <b>Tune</b> lets you change numbers while it drives.' },
+  { sel: '#arenaTabs [data-a="lessons"]', title: 'Lessons', text: 'Step-by-step lessons with missions and stars. Start with <b>Your first blocks program</b>!' },
+];
+let tourI = -1;
+function startTour() { if (S.view !== 'arena') showWork(); tourI = 0; $('#tour').hidden = false; showTourStep(); }
+function endTour() { tourI = -1; $('#tour').hidden = true; store.set('seenTour', true); }
+function showTourStep() {
+  const t = TOUR[tourI]; if (!t) { endTour(); return; }
+  if (t.m && isPhone()) setMView(t.m);
+  const el = $(t.sel); if (!el || !el.offsetParent) { tourI++; showTourStep(); return; }
+  el.scrollIntoView({ block: 'nearest' });
+  const r = el.getBoundingClientRect(), pad = 6, ring = $('#tourRing'), card = $('#tourCard');
+  Object.assign(ring.style, { left: r.left - pad + 'px', top: r.top - pad + 'px', width: r.width + pad * 2 + 'px', height: Math.min(r.height, innerHeight - 20) + pad * 2 + 'px' });
+  card.innerHTML = `<h3>${t.title}</h3><p>${t.text}</p><div class="row"><span class="lbl">${tourI + 1} of ${TOUR.length}</span><button class="btn" data-t="skip">Skip</button><button class="btn primary" data-t="next">${tourI + 1 < TOUR.length ? 'Next' : 'Let\'s go!'}</button></div>`;
+  const cw = card.offsetWidth, ch = card.offsetHeight;
+  let top = r.bottom + 14; if (top + ch > innerHeight - 10) top = Math.max(10, r.top - ch - 14);
+  if (r.height > innerHeight * 0.6) top = innerHeight - ch - (isPhone() ? 96 : 40);
+  let left = Math.min(Math.max(10, r.left), innerWidth - cw - 10);
+  if (r.width > innerWidth * 0.3 && r.height > innerHeight * 0.6) left = Math.min(r.right - cw - 20, innerWidth - cw - 10);
+  Object.assign(card.style, { top: top + 'px', left: Math.max(10, left) + 'px' });
+  card.querySelector('[data-t="next"]').focus();
+}
+$('#tourCard').addEventListener('click', e => { const b = e.target.closest('[data-t]'); if (!b) return; if (b.dataset.t === 'skip') endTour(); else { tourI++; showTourStep(); } });
+document.addEventListener('keydown', e => { if (tourI >= 0 && e.key === 'Escape') endTour(); });
+addEventListener('resize', () => { if (tourI >= 0) showTourStep(); });
+$('#btnHelp').addEventListener('click', startTour);
+function maybeTour() { if (store.get('seenTour', false) || tourI >= 0) return; setTimeout(() => { if (S.view === 'arena' && $('#joinModal').hidden && !store.get('seenTour', false) && tourI < 0) startTour(); }, 700); }
+
+/* ---------------- small drop-down menus (⋯ and View) ---------------- */
+document.addEventListener('click', e => {
+  $$('details.menu[open]').forEach(d => { if (!d.contains(e.target) || (e.target.closest('.mi') && !e.target.closest('label.mi'))) d.open = false; });
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $$('details.menu[open]').forEach(d => { d.open = false; d.querySelector('summary').focus(); }); });
+function updateViewChip() {
+  const bits = [];
+  if (S.realism !== 'ideal') bits.push($('#realSel').selectedOptions[0].textContent);
+  if (+$('#speedSel').value !== 1) bits.push($('#speedSel').selectedOptions[0].textContent);
+  $('#viewChip').hidden = !bits.length; $('#viewChip').textContent = bits.join(' · ');
+}
+['#realSel', '#speedSel'].forEach(id => $(id).addEventListener('change', updateViewChip));
+
 // Built-in lessons start from a TODO version for classroom students (unless the teacher picked a starter).
 function usesTodo(L) { const b = L.base || L, st = L.starter; return samplesLocked() && !!b.todo && (!st || st.kind === 'lesson'); }
 function lessonHints(L) { const b = L.base || L; return b.hints || (usesTodo(L) ? b.todo.hints : null) || null; }
@@ -1120,7 +1269,105 @@ function checkGuide() {
   });
   if (!changed) return;
   store.set(progKey(guideKey(L)), done);
-  if (!$('#p-lessons').hidden) buildLessons();
+  buildLessons();
+}
+
+/* ---------------- PRIMM: Predict, Run, Investigate, Modify, Make ---------------- */
+// Lessons with a `predict` field run in five stages. The student guesses before the first run
+// (any answer is fine), answers "what does this do?" questions, makes small changes that are
+// checked live, and then reaches the goal. Teacher activities with their own steps skip this.
+function primmOf(L) {
+  if (!L) return null;
+  const b = L.base || L;
+  if (!b.predict) return null;
+  if (L.actId && L.steps !== b.steps) return null;
+  if (usesTodo(L) && b.todo && b.todo.predict) return { predict: b.todo.predict, investigate: b.todo.investigate || b.investigate, modify: b.todo.modify || b.modify };
+  return b;
+}
+const primmKey = L => L.actId || L.id;
+function primmAll() { return store.get(progKey('primm'), {}); }
+function primmState(L) { return primmAll()[primmKey(L)] || { p: null, ran: false, inv: {}, invFirst: {}, mod: [] }; }
+function primmSave(L, st) { const all = primmAll(); all[primmKey(L)] = st; store.set(progKey('primm'), all); }
+function primmReset(L) { if (!primmOf(L)) return; const all = primmAll(); delete all[primmKey(L)]; store.set(progKey('primm'), all); }
+// The stages this lesson has, in order: Predict, Run, (Investigate), (Modify), Make.
+function primmStages(L) {
+  const P = primmOf(L); if (!P) return null;
+  const st = primmState(L), inv = P.investigate || [], mod = P.modify || [];
+  const out = [{ k: 'p', name: 'Predict', done: st.p != null }, { k: 'r', name: 'Run', done: st.p != null && st.ran }];
+  if (inv.length) out.push({ k: 'i', name: 'Investigate', done: inv.every((q, i) => st.inv[i] === q.answer) });
+  if (mod.length) out.push({ k: 'm', name: 'Modify', done: mod.every((m, i) => st.mod.includes(i)) });
+  out.push({ k: 'k', name: 'Make', done: isDoneL(L) });
+  return out;
+}
+function primmProgress(L) { const s = primmStages(L); return s ? { done: s.filter(x => x.done).length, total: s.length } : null; }
+function primmReport(L) {
+  const s = primmStages(L); if (!s || typeof hostPrimm !== 'function') return;
+  const st = primmState(L), P = primmOf(L);
+  hostPrimm(primmKey(L), s.filter(x => x.done).length, s.length, (s.find(x => !x.done) || { name: 'Done' }).name, st.p == null ? null : st.p === P.predict.answer);
+}
+function choiceList(name, q, picked, reveal) {
+  return `<div class="choices" role="radiogroup">${q.options.map((o, i) => {
+    const cls = [picked === i ? 'picked' : '', reveal && i === q.answer ? 'right' : '', reveal && picked === i && i !== q.answer ? 'wrong' : ''].join(' ');
+    return `<button class="choice ${cls}" role="radio" aria-checked="${picked === i}" data-${name}="${i}">${o}</button>`;
+  }).join('')}</div>`;
+}
+function primmHtml(L, steps) {
+  const P = primmOf(L);
+  if (!P) return `<ol>${steps.map(s => `<li>${s}</li>`).join('')}</ol>`;
+  const st = primmState(L), stages = primmStages(L), cur = stages.findIndex(x => !x.done);
+  const inv = P.investigate || [], mod = P.modify || [];
+  const stage = k => { const i = stages.findIndex(x => x.k === k), g = stages[i]; return (body, extra) => `<section class="pst ${g.done ? 'done' : ''} ${i === cur ? 'cur' : ''}"><h4><span class="pmk">${g.done ? '✓' : i + 1}</span>${g.name}${extra || ''}</h4>${body}</section>`; };
+  const pr = P.predict;
+  let predict = `<p class="pq">${pr.q}</p>`;
+  if (st.p == null) predict += choiceList('pick', pr, null, false) + '<p class="note">Just guess! There is no wrong answer here. Pick one to unlock <b>Upload &amp; run</b>.</p>';
+  else if (!st.ran) predict += choiceList('pick', pr, st.p, false) + '<p class="note">Now press <b>Upload &amp; run</b> and watch. Were you right?</p>';
+  else predict += choiceList('pick', pr, st.p, true) + `<p class="why ${st.p === pr.answer ? 'yes' : ''}"><b>${st.p === pr.answer ? 'You guessed right!' : 'Not what you guessed, and that is how we learn!'}</b> ${pr.why}</p>`;
+  const run = `<ol>${steps.map(s => `<li>${s}</li>`).join('')}</ol>`;
+  const invest = inv.map((q, i) => {
+    const a = st.inv[i], ok = a === q.answer;
+    return `<div class="iq"><p class="pq">${q.q}</p>${choiceList(`inv-${i}`, q, a == null ? null : a, ok)}${a == null ? '' : ok ? `<p class="why yes"><b>Yes!</b> ${q.why}</p>` : '<p class="why">Not quite. Look at the code again and try another answer.</p>'}</div>`;
+  }).join('');
+  const modify = `<ul class="mods">${mod.map((m, i) => `<li class="${st.mod.includes(i) ? 'done' : ''}"><span class="mk">${st.mod.includes(i) ? '✓' : '○'}</span><span>${m.text}</span></li>`).join('')}</ul><p class="note">Each one ticks itself when Dowee does it. Run your changed code!</p>`;
+  return `<div class="primm">${stage('p')(predict)}${stage('r')(run)}${inv.length ? stage('i')(invest) : ''}${mod.length ? stage('m')(modify) : ''}</div>`;
+}
+function bindPrimm(L) {
+  const P = primmOf(L); if (!P) return;
+  $$('#lessonBox [data-pick]').forEach(b => b.addEventListener('click', () => {
+    const st = primmState(L); if (st.ran) return;
+    st.p = +b.dataset.pick; primmSave(L, st); primmReport(L); buildLessons();
+  }));
+  (P.investigate || []).forEach((q, i) => $$(`#lessonBox [data-inv-${i}]`).forEach(b => b.addEventListener('click', () => {
+    const st = primmState(L); if (st.inv[i] === q.answer) return;
+    const a = +b.getAttribute(`data-inv-${i}`);
+    st.inv[i] = a; if (st.invFirst[i] == null) st.invFirst[i] = a === q.answer;
+    primmSave(L, st); primmReport(L); buildLessons();
+  })));
+}
+// Upload & run waits for a prediction in a PRIMM lesson.
+function primmGate() {
+  const L = S.lesson && findLesson(S.lesson);
+  if (!L || L.arena !== S.arena || S.classMatch || !primmOf(L) || primmState(L).p != null) return true;
+  toast('Answer the Predict question first: just guess!');
+  openLessonPane();
+  const q = $('#lessonBox .choices'); if (q) { q.classList.remove('nudge'); void q.offsetWidth; q.classList.add('nudge'); }
+  return false;
+}
+function checkPrimm() {
+  const L = findLesson(S.lesson); if (!L || L.arena !== S.arena || !S.W) return;
+  const P = primmOf(L); if (!P) return;
+  const st = primmState(L); let changed = false;
+  if (st.p != null && !st.ran && S.W.time > (P.predict.after || 3000)) { st.ran = true; changed = true; }
+  const mod = P.modify || [];
+  if (st.ran && mod.length) {
+    const memo = S.W.primmMemo || (S.W.primmMemo = mod.map(() => ({})));
+    mod.forEach((m, i) => {
+      if (st.mod.includes(i)) return;
+      let ok = false; try { ok = m.check(S.W, memo[i]); } catch (e) { ok = false; }
+      if (ok) { st.mod.push(i); changed = true; banner('Change made!', m.done || m.text.replace(/<[^>]+>/g, ''), 3000); }
+    });
+  }
+  if (!changed) return;
+  primmSave(L, st); primmReport(L); buildLessons();
 }
 
 /* ---------------- missions (stars) and hints ---------------- */
@@ -1157,15 +1404,17 @@ function checkMissions() {
   if (!changed) return;
   all[a] = got; store.set(progKey('stars'), all);
   if (typeof hostStars === 'function') hostStars(a, got.length);
-  if (!$('#p-lessons').hidden) buildLessons();
+  buildLessons();
 }
-function showLesson(L) { S.lessonView = L.id; buildLessons(); }
-function startLesson(L) {
-  S.lessonRobot = null;
+function startLesson(L, restart) {
   if (!allowed(L.arena)) { toast(S.lockedArena ? 'Your teacher has locked the class to one activity' : `This class doesn't use ${ARENAS[L.arena].name}`); return; }
-  S.lesson = L.id; S.lessonView = L.id;
+  // Opening the lesson you are already in keeps your code; Restart puts its first code back.
+  if (S.lesson === L.id && !restart && S.arena === L.arena) { showWork(); openLessonPane(); return; }
+  S.lessonRobot = null;
+  S.lesson = L.id; store.set('lesson', L.actId ? null : L.id);
+  if (restart) primmReset(L);
   if (L.variant && ARENAS[L.arena].variants[L.variant]) { S.variant[L.arena] = L.variant; store.set('variant', S.variant); }
-  if (L.realism) { S.realism = L.realism; store.set('realism', S.realism); $('#realSel').value = S.realism; }
+  if (L.realism) { S.realism = L.realism; store.set('realism', S.realism); $('#realSel').value = S.realism; updateViewChip(); }
   setArena(L.arena, true);
   S.robot = 'A'; updateRobotTabs();
   // classroom activities can bring their own starter program
@@ -1178,7 +1427,7 @@ function startLesson(L) {
   else if (usesTodo(L)) { putCode(L.arena, 'A', base.todo.code); loadEditor(); }
   else if (base.code || base.example) { putCode(L.arena, 'A', base.code || EXAMPLES[L.arena][base.example].code); loadEditor(); }
   else loadEditor();
-  buildLessons(); showWork();
+  buildLessons(); showWork(); openLessonPane();
   toast(`Lesson: ${L.title}`);
 }
 function checkLesson() {
@@ -1188,23 +1437,30 @@ function checkLesson() {
     S.lessonDoneNow = L.id; S.lessonDone[L.id] = true; store.set('lessonsDone', S.lessonDone);
     banner('Goal complete!', L.goal, 4000); addTip(`Lesson goal complete: ${L.goal}.`, 0, true);
     if (L.actId) hostLessonDone(L);
+    primmReport(L);
     buildLessons();
   }
   if (!ok && S.lessonDoneNow === L.id && S.W.time < 500) S.lessonDoneNow = null;
 }
 
-/* ---------------- dock tabs ---------------- */
-$('#dockTabs').addEventListener('click', e => {
-  const b = e.target.closest('button'); if (!b) return;
-  $$('#dockTabs button').forEach(x => x.setAttribute('aria-selected', x === b));
-  $$('.dock-body .panel').forEach(p => (p.hidden = p.id !== 'p-' + b.dataset.p));
-  store.set('dock', b.dataset.p);
-  if (b.dataset.p === 'plot') drawPlot();
-  if (b.dataset.p === 'tune') buildTune();
-  if (b.dataset.p === 'lessons') buildLessons();
-  if (b.dataset.p === 'class') renderClass(true);
-  if (b.dataset.p === 'sensors') updateSensors();
-});
+/* ---------------- dock tabs: Serial (monitor, plotter), Robot (sensors & pins, wiring), Tune, Class ---------------- */
+const DOCK = { serial: [['serial', 'Monitor'], ['plot', 'Plotter']], robot: [['sensors', 'Sensors & pins'], ['wiring', 'Wiring']], tune: [['tune', 'Tune']], class: [['class', 'Class']] };
+const dockGroup = p => Object.keys(DOCK).find(g => DOCK[g].some(([k]) => k === p));
+S.dockLast = {};
+function showPanel(p) {
+  if (!dockGroup(p)) p = 'serial';
+  const g = dockGroup(p); S.dockLast[g] = p;
+  $$('#dockTabs button').forEach(x => x.setAttribute('aria-selected', x.dataset.g === g));
+  $('#dockSub').innerHTML = DOCK[g].length > 1 ? DOCK[g].map(([k, n]) => `<button data-p="${k}" aria-pressed="${k === p}">${n}</button>`).join('') : '';
+  $$('.dock-body .panel').forEach(x => (x.hidden = x.id !== 'p-' + p));
+  store.set('dock', p);
+  if (p === 'plot') drawPlot();
+  if (p === 'tune') buildTune();
+  if (p === 'class') renderClass(true);
+  if (p === 'sensors') updateSensors();
+}
+$('#dockTabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) showPanel(S.dockLast[b.dataset.g] || DOCK[b.dataset.g][0][0]); });
+$('#dockSub').addEventListener('click', e => { const b = e.target.closest('button'); if (b) showPanel(b.dataset.p); });
 
 /* ---------------- remote control ---------------- */
 const KEYMAP_A = { KeyW: 'up', KeyS: 'down', KeyA: 'left', KeyD: 'right', Space: 'stop' };
@@ -1781,15 +2037,15 @@ function startBattle(aId, bId) {
 
 /*@HOST@*/
 /* ---------------- boot ---------------- */
-const dock = store.get('dock', 'serial');
-const startTab = $(`#dockTabs [data-p="${dock}"]`) || $('#dockTabs button');
 setArena(S.arena);
-startTab.click();
+showPanel(store.get('dock', 'serial'));
+{ const keep = store.get('lesson', null), L = keep && findLesson(keep); if (L && allowed(L.arena) && L.arena === S.arena) S.lesson = L.id; }
+updateViewChip();
 serialSys('Welcome! Pick an arena above, then press "Upload & run". Your code is saved in this browser.');
 buildLessons();
 window.__clReady = true;
 window.__blkReady = true; fillExamples(); applyMode();
-if (store.get('view', 'meet') === 'meet') showMeet(); else showWork();
+{ const v = store.get('view', 'meet'); if (v === 'meet') showMeet(); else if (v === 'lessons') showLessons(); else showWork(); }
 initHost().then(on => { if (!on) initClass(); else { buildLessons(); renderClass(); } });
 requestAnimationFrame(t => { S.last = t; requestAnimationFrame(frame); });
 })();

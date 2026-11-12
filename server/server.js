@@ -124,7 +124,7 @@ function studentFrom(req, url) {
   const t = req.headers['x-dowee-token'] || url.searchParams.get('token');
   if (!t) return null;
   const c = cls();
-  return Object.values(c.students).find(s => s.token === t) || null;
+  return Object.values(c.students).find(s => s.token === t || (s.alias || []).includes(t)) || null;
 }
 
 /* ---------------- live updates (Server-Sent Events) ---------------- */
@@ -179,7 +179,7 @@ function teacherState() {
       ...c, ...robotInfo(c),
       students: Object.values(c.students).map(s => ({
         id: s.id, name: s.name, team: s.team, joined: s.joined, lastSeen: s.lastSeen, online: on.has(s.id) || now() - (s.lastSeen || 0) < 30000,
-        status: s.status || {}, hand: s.hand || null, progress: s.progress || {}, bests: s.bests || {}, stars: s.stars || {}, hints: s.hints || {},
+        status: s.status || {}, hand: s.hand || null, progress: s.progress || {}, bests: s.bests || {}, stars: s.stars || {}, hints: s.hints || {}, primm: s.primm || {},
         subs: Object.fromEntries(Object.entries(s.subs || {}).map(([k, v]) => [k, { at: v.at, mode: v.mode, activity: v.activity, size: (v.code || '').length }])),
       })),
       leaderboard: leaderboards(c),
@@ -206,6 +206,24 @@ function cleanActivity(a) {
 
 /* ---------------- HTTP plumbing ---------------- */
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.txt': 'text/plain; charset=utf-8' };
+function predictions(s) { const p = Object.values(s.primm || {}).filter(e => e.pr !== null && e.pr !== undefined); return p.length ? `${p.filter(e => e.pr).length} of ${p.length}` : ''; }
+function mergeStudent(into, from) {
+  // the merged device keeps working: its token now points at the kept record
+  into.alias = [...new Set([...(into.alias || []), from.token, ...(from.alias || [])])].slice(-8);
+  if (!into.team && from.team) into.team = from.team;
+  into.joined = Math.min(into.joined || now(), from.joined || now());
+  for (const [id, f] of Object.entries(from.progress || {})) {
+    const t = (into.progress[id] = into.progress[id] || { done: false, attempts: 0 });
+    t.attempts = (t.attempts || 0) + (f.attempts || 0);
+    if (f.done && !t.done) { t.done = true; t.at = f.at; t.result = f.result; }
+  }
+  for (const [a, keys] of Object.entries(from.bests || {})) { const b = (into.bests[a] = into.bests[a] || {}); for (const [k, v] of Object.entries(keys)) if (b[k] === undefined || v < b[k]) b[k] = v; }
+  into.stars = into.stars || {}; for (const [a, n] of Object.entries(from.stars || {})) into.stars[a] = Math.max(into.stars[a] || 0, n);
+  into.hints = into.hints || {}; for (const [k, n] of Object.entries(from.hints || {})) into.hints[k] = Math.min(99, (into.hints[k] || 0) + n);
+  into.primm = into.primm || {};
+  for (const [k, e] of Object.entries(from.primm || {})) { const t = into.primm[k]; if (!t) into.primm[k] = e; else { t.done = Math.max(t.done, e.done); if (t.pr === null) t.pr = e.pr; } }
+  into.subs = into.subs || {}; for (const [a, v] of Object.entries(from.subs || {})) if (!into.subs[a] || v.at > into.subs[a].at) into.subs[a] = v;
+}
 function send(res, code, body, type = 'application/json; charset=utf-8', extra = {}) {
   res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...extra });
   res.end(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body));
@@ -284,13 +302,13 @@ async function handle(req, res) {
     if (!name) return fail(res, 400, 'Please type your name.');
     if (c.pin && str(body.pin, 12).trim() !== c.pin) return fail(res, 403, 'That class PIN is not right. Ask your teacher.');
     if (Object.keys(c.students).length >= LIM.students) return fail(res, 403, 'This class is full.');
-    const s = { id: newId(), token: newToken(), name, team, joined: now(), lastSeen: now(), status: {}, progress: {}, bests: {}, stars: {}, hints: {}, subs: {}, hand: null };
+    const s = { id: newId(), token: newToken(), name, team, joined: now(), lastSeen: now(), status: {}, progress: {}, bests: {}, stars: {}, hints: {}, primm: {}, subs: {}, hand: null };
     c.students[s.id] = s; save(); broadcast();
     return send(res, 200, { token: s.token, student: { id: s.id, name, team } });
   }
 
   // student
-  if (p.startsWith('/api/') && ['/api/leave', '/api/status', '/api/hand', '/api/submit', '/api/best', '/api/progress', '/api/profile', '/api/stars', '/api/hint'].includes(p)) {
+  if (p.startsWith('/api/') && ['/api/leave', '/api/status', '/api/hand', '/api/submit', '/api/best', '/api/progress', '/api/profile', '/api/stars', '/api/hint', '/api/primm'].includes(p)) {
     if (!me) return fail(res, 401, 'Join the class first.');
     me.lastSeen = now();
     if (p === '/api/leave') { delete c.students[me.id]; save(); broadcast(); return send(res, 200, { ok: true }); }
@@ -330,6 +348,16 @@ async function handle(req, res) {
       const key = str(body.key, 40); if (!key) return fail(res, 400, 'Bad hint.');
       const h = (me.hints = me.hints || {}); h[key] = Math.min(99, (h[key] || 0) + 1);
       save(); broadcast(); return send(res, 200, { ok: true });
+    }
+    if (p === '/api/primm') {
+      // How far a student got in a lesson's Predict / Run / Investigate / Modify / Make parts,
+      // and whether their first prediction was right.
+      const key = str(body.lesson, 40); if (!key) return fail(res, 400, 'Bad lesson.');
+      const pm = (me.primm = me.primm || {}), e = (pm[key] = pm[key] || { done: 0, total: 0, pr: null });
+      e.done = Math.max(e.done, Math.round(num(body.done, 0, 9, 0))); e.total = Math.round(num(body.total, 0, 9, e.total));
+      if (e.pr === null && typeof body.predictRight === 'boolean') e.pr = body.predictRight;
+      if (e.done === Math.round(num(body.done, 0, 9, 0))) e.next = str(body.next, 16);
+      e.at = now(); save(); broadcast(); return send(res, 200, { ok: true });
     }
     if (p === '/api/progress') {
       const id = str(body.activity, 16);
@@ -371,6 +399,13 @@ async function handle(req, res) {
       delete db.classes[body.id]; if (db.activeClass === body.id) db.activeClass = Object.keys(db.classes)[0];
       save(); broadcast(); return send(res, 200, { ok: true });
     }
+    if (M === 'POST' && p === '/api/teacher/student/merge') {
+      // The same student joined twice (new device, cleared browser): keep one record with everything from both.
+      const from = c.students[body.from], into = c.students[body.into];
+      if (!from || !into || from === into) return fail(res, 400, 'Pick two different students.');
+      if (from.name.trim().toLowerCase() !== into.name.trim().toLowerCase()) return fail(res, 400, 'Only students with the same name can be merged.');
+      mergeStudent(into, from); delete c.students[body.from]; save(); broadcast(); return send(res, 200, { ok: true });
+    }
     if (M === 'POST' && p === '/api/teacher/student/remove') { if (c.students[body.id]) { delete c.students[body.id]; save(); broadcast(); } return send(res, 200, { ok: true }); }
     if (M === 'POST' && p === '/api/teacher/student/hand') { const s = c.students[body.id]; if (s) { s.hand = null; save(); broadcast(); } return send(res, 200, { ok: true }); }
     if (M === 'POST' && p === '/api/teacher/student/reset') { const s = c.students[body.id]; if (s) { if (body.activity) delete s.progress[body.activity]; else s.progress = {}; save(); broadcast(); } return send(res, 200, { ok: true }); }
@@ -387,10 +422,10 @@ async function handle(req, res) {
       c.matches.unshift(m); c.matches = c.matches.slice(0, LIM.matches); save(); broadcast(); return send(res, 200, { ok: true });
     }
     if (M === 'GET' && p === '/api/teacher/export.csv') {
-      const acts = c.activities, rows = [['Name', 'Team', ...acts.map(a => a.title), 'Activities done', 'Mission stars', 'Hints used', 'Joined']];
+      const acts = c.activities, rows = [['Name', 'Team', ...acts.map(a => a.title), 'Activities done', 'Mission stars', 'Hints used', 'Predictions right', 'Lesson parts done', 'Joined']];
       for (const s of Object.values(c.students)) {
         const pr = s.progress || {};
-        rows.push([s.name, s.team, ...acts.map(a => (pr[a.id] && pr[a.id].done ? 'done' + (pr[a.id].result ? ' (' + pr[a.id].result + ')' : '') : (pr[a.id] ? 'tried' : ''))), acts.filter(a => pr[a.id] && pr[a.id].done).length, Object.values(s.stars || {}).reduce((x, y) => x + y, 0), Object.values(s.hints || {}).reduce((x, y) => x + y, 0), new Date(s.joined).toLocaleString()]);
+        rows.push([s.name, s.team, ...acts.map(a => (pr[a.id] && pr[a.id].done ? 'done' + (pr[a.id].result ? ' (' + pr[a.id].result + ')' : '') : (pr[a.id] ? 'tried' : ''))), acts.filter(a => pr[a.id] && pr[a.id].done).length, Object.values(s.stars || {}).reduce((x, y) => x + y, 0), Object.values(s.hints || {}).reduce((x, y) => x + y, 0), predictions(s), Object.values(s.primm || {}).reduce((x, e) => x + (e.done || 0), 0), new Date(s.joined).toLocaleString()]);
       }
       return send(res, 200, '﻿' + rows.map(r => r.map(csvCell).join(',')).join('\r\n'), 'text/csv; charset=utf-8', { 'Content-Disposition': `attachment; filename="${c.name.replace(/[^\w -]/g, '').trim() || 'class'} results.csv"` });
     }

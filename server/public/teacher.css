@@ -119,3 +119,48 @@ pre.code { font: 12px/1.5 var(--font-mono); background: #fffdf8; border: 1px sol
 .url-small { font-size: 12px; }
 .ann-input { flex: 1; min-width: 200px; }
 .fld-check { flex-direction: row; align-items: center; gap: 8px; color: var(--ink); }
+
+/* Join card folds into a header pill once students are in */
+.wrap.compact { grid-template-columns: minmax(0, 1fr); }
+.wrap.compact > .join { display: none; }
+.join-pill { background: rgba(255,255,255,.92); }
+.join-pill .lbl-in { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.join-pill .mono { font-family: var(--font-mono); font-size: 12.5px; }
+
+/* Roster */
+.prog i { width: auto; min-width: 18px; height: 18px; padding: 0 4px; font-style: normal; font-size: 10.5px; font-weight: 800; line-height: 18px; text-align: center; color: var(--muted); }
+.prog i.d { color: #fff; } .prog i.t { color: var(--ink); }
+.who { border: 0; background: none; padding: 0; cursor: pointer; display: inline-flex; align-items: center; font-size: 14px; color: var(--ink); text-align: left; }
+.who .caret { color: var(--muted); margin-left: 6px; font-size: 11px; }
+td.r { text-align: right; width: 1%; }
+tr.open > td { border-bottom-color: transparent; }
+tr.detail > td { background: var(--panel-2); padding: 8px 10px 12px; }
+.stu-acts { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; }
+.stu-acts > div { display: grid; grid-template-columns: 24px 1fr; gap: 8px; align-items: start; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; }
+.stu-acts .n { width: 22px; height: 22px; border-radius: 50%; background: var(--sunk); display: grid; place-items: center; font-weight: 800; font-size: 11.5px; }
+.stu-acts .d .n { background: var(--green); color: #fff; }
+.stu-acts .t .n { background: #ffe39a; }
+
+/* ⋯ menus */
+details.menu { position: relative; display: inline-block; }
+details.menu > summary { list-style: none; cursor: pointer; }
+details.menu > summary::-webkit-details-marker { display: none; }
+.menu-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; min-width: 220px; background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(46,42,79,.18); padding: 6px; display: flex; flex-direction: column; gap: 2px; text-align: left; }
+.menu-list .mi { border: 0; background: none; text-align: left; padding: 7px 10px; border-radius: 8px; font-weight: 700; cursor: pointer; white-space: normal; }
+.menu-list .mi:hover { background: var(--panel-2); }
+.menu-list .mi.danger { color: var(--danger); }
+
+/* Lesson plan as a path */
+.plan-path { list-style: none; margin: 0; padding: 0 0 0 4px; position: relative; }
+.plan-path::before { content: ''; position: absolute; left: 41px; top: 18px; bottom: 18px; width: 3px; background: var(--sunk); border-radius: 2px; }
+.plan-path .act { grid-template-columns: 16px 30px 1fr auto; position: relative; }
+.plan-path .act .n { background: var(--purple); color: #fff; position: relative; z-index: 1; }
+.grip { cursor: grab; color: var(--muted); font-size: 16px; user-select: none; }
+.act.dragging { opacity: .5; }
+.act.over { border-color: var(--purple); box-shadow: 0 -3px 0 var(--purple); }
+.qa-level { border: 1.5px solid var(--line); border-radius: 12px; padding: 8px 12px; margin-bottom: 8px; background: #fff; }
+.qa-level summary { cursor: pointer; }
+.qa-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px; margin-top: 8px; }
+.qa { text-align: left; border: 1.5px dashed var(--line); background: var(--panel); border-radius: 10px; padding: 7px 10px; cursor: pointer; display: flex; flex-direction: column; gap: 1px; }
+.qa:hover:not(:disabled) { border-color: var(--pink); border-style: solid; }
+.qa.in { border-style: solid; background: #e6f3d6; cursor: default; }

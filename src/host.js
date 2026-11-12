@@ -90,7 +90,7 @@ function onHostState() {
   if (st.me) HOST.me = { ...HOST.me, ...st.me };
   renderHostChip();
   applyLock();
-  if (!$('#p-lessons').hidden) buildLessons();
+  buildLessons();
   renderClass();
   if (st.announcement && st.announcement !== S.lastAnnouncement) { S.lastAnnouncement = st.announcement; banner('From your teacher', st.announcement, 5000); }
 }
@@ -126,6 +126,7 @@ function hostAttempt() {
   if (HOST.on && HOST.role === 'student' && L && L.actId) hostApi('POST', '/api/progress', { activity: L.actId, attempt: true }).catch(() => {});
 }
 function hostStars(arena, n) { if (HOST.on && HOST.role === 'student') hostApi('POST', '/api/stars', { arena, n }).catch(() => {}); }
+function hostPrimm(lesson, done, total, next, predictRight) { if (HOST.on && HOST.role === 'student') hostApi('POST', '/api/primm', { lesson, done, total, next, predictRight }).catch(() => {}); }
 function hostHint(key) { if (HOST.on && HOST.role === 'student') hostApi('POST', '/api/hint', { key }).catch(() => {}); }
 function hostBest(arena, key, value) { if (HOST.on && HOST.role === 'student') hostApi('POST', '/api/best', { arena, key, value }).catch(() => {}); }
 

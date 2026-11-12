@@ -16,7 +16,14 @@ DOWEE is a virtual robotics lab for teaching kids aged 9–20. Students program 
 - `src/core-arenas.js`: arenas and their rules.
 - `src/examples.js`, `src/lessons.js`, `src/goals.js`: example programs, built-in lessons, and the goal types teachers can attach to activities.
 - `src/templates.js`: the student templates per playground (`guided` with TODO steps, `blank` with only the wiring), their missions (3 stars, using `GOAL_TYPES`) and the hint ladder. `src/challenges.js`: fix-the-bug programs, added to `LESSONS` with level "Fix the bug". Their fixes live only in `tools/check.js`.
+- `src/primm.js` (after `advanced-pid.js` in the build): PRIMM content for every lesson (`predict`, `investigate`, `modify`, plus `todo` variants for classroom TODO starters; fix-the-bug lessons get Predict and Investigate) and `LESSON_PATH`, the levels of the Lessons page. Modify checks are `check(W, memo)`, polled about every 200 ms; helpers are in `PQ`. Every Modify step needs a reference change in `MOD` in `tools/check.js`.
 - `src/ui.js`: the simulator interface. `tools/build.js` inserts `src/host.js` (classroom mode for students) at the `/*@HOST@*/` marker.
+  - Views: `showMeet()`, `showLessons()` (the path page, `buildPath()`), `showWork()`.
+  - The lesson pane (`#lessonPane`, left of the code) is built by `buildLessons()`. With no lesson it shows the playground's missions. Layout is set by `layoutWork()`: a column on wide screens (`S.paneOpen`), a drawer at 761–1100 px (`S.drawer`), and its own view on phones (`S.mview`, the bottom `#mSwitch`).
+  - PRIMM engine: `primmOf`, `primmStages`, `primmHtml`, `checkPrimm`. `primmGate()` blocks Upload & run until the prediction is answered. Progress is saved under `progKey('primm')` and sent to the teacher with `hostPrimm` (`/api/primm`).
+  - Dock: `DOCK` groups and `showPanel(p)`. The panel ids (`p-serial`, `p-plot`, `p-sensors`, `p-wiring`, `p-tune`, `p-class`) are unchanged.
+  - Menus: `<details class="menu">` (code ⋯ and View).
+  - First-time tour: `TOUR`, `startTour()`, the `seenTour` flag and the ? button.
 - `server/server.js`: classroom server (Node.js, no dependencies). It uses JSON storage in `data/` and live updates over Server-Sent Events. A request counts as the teacher if it comes from localhost or carries the `dowee_teacher` cookie. Students are identified by a token.
 - `server/public/`: the teacher dashboard (`teacher.html`, `teacher.js`) and the bundled Blockly and QR libraries.
 - Styling lives only in CSS files: `src/styles.css` (simulator) and `server/public/teacher.css` (dashboard). Don't put `<style>` blocks or `style="…"` attributes in the HTML markup; use classes. (Small inline styles inside JavaScript templates are tolerated.)
@@ -52,6 +59,23 @@ Done:
   - apid3: a guided build with 5 live checkpoints (`PIDI_GUIDE`) that read the student's globals with `globalOf`. Step 4 lends a Dowee with a 30% weaker right motor (`S.lessonRobot`) to show when I helps.
   - Why the plain PID has no I: on a normal Dowee, I only adds wiggle, and without a limit it winds up and loses the line.
 - Ten fix-the-bug challenges. `npm test` checks that each broken program fails and its fix passes, that every template runs, and that every automatic mission can be reached.
+- UI tidy-up:
+  - Lessons is a main tab with a learning path (levels, "Next" badge, progress dots, mission strips).
+  - Lessons open in a side pane beside the code.
+  - The dock is grouped as Serial · Robot · Tune · Class.
+  - The code bar has a ⋯ menu, and the arena bar has a View menu (World, speed, trail, sensor view, sound, Draw track), with `#viewChip` showing non-default settings.
+  - Phones get a Code/Arena/Lesson switcher.
+  - A first-time tour.
+- PRIMM in every lesson. `npm test` checks:
+  - every answer index is valid;
+  - every lesson is in `LESSON_PATH`;
+  - the starter ticks no Modify step, and each reference change ticks its own.
+- Teacher dashboard:
+  - the join card folds into a header pill;
+  - the roster shows labelled progress chips and the current PRIMM part, with a click-to-expand row per student and a ⋯ menu;
+  - Merge (`/api/teacher/student/merge`, which keeps the merged device's token as an `alias`);
+  - the lesson plan is a draggable path, with "Add from the lessons path" (`meta.path`);
+  - Results and CSV have prediction and lesson-part columns.
 
 Next:
 1. **Standalone app:** wrap the server and dashboard with Electron for a normal installer. Open question for the user: which systems should it support (Windows, macOS, Linux)?

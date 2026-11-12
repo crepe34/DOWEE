@@ -13,6 +13,7 @@
     <div><b>DOWEE Teacher</b><span>Your virtual robotics lab</span></div>
   </div>
   <label class="conn" id="conn"><i></i><span>Connecting…</span></label>
+  <button class="btn join-pill" id="joinPill" hidden title="Show the QR code and link"><span class="lbl-in">Join</span><span class="mono" id="joinPillUrl"></span><span aria-hidden="true">▦ QR</span></button>
   <select id="classSel" aria-label="Class"></select>
   <button class="btn" id="newClassBtn">New class</button>
   <a class="btn" href="/" target="_blank" rel="noopener">Open simulator</a>
@@ -21,7 +22,7 @@
 
 <main class="wrap">
   <aside class="card join" aria-label="How students join">
-    <span class="lbl mt-0">Students join</span>
+    <div class="row"><span class="lbl mt-0">Students join</span><span class="spacer"></span><button class="btn small" id="joinHide" hidden title="Fold this card into the header">Hide ✕</button></div>
     <h2 id="className">…</h2>
     <span class="chip type" id="classType"></span>
     <div class="qr" id="qr" aria-label="QR code to join the class"></div>
@@ -56,8 +57,11 @@
 
     <div class="card" id="t-plan" hidden>
       <div class="row mb-10"><h3 class="m-0">Lesson plan</h3><span class="spacer"></span><button class="btn primary" id="addAct">Add activity</button></div>
-      <p class="note mt-0">Students see these activities first in their Lessons tab, in this order. When they reach an activity's goal it is ticked off here automatically. <b>Lock</b> keeps every student on one activity.</p>
+      <p class="note mt-0">Students see these activities first on their Lessons page, in this order. Drag a card (or use ↑ ↓) to change the order. When they reach an activity's goal it is ticked off here automatically. <b>Lock</b> keeps every student on one activity.</p>
       <div id="acts"></div>
+      <h3 class="mt-20">Add from the lessons path</h3>
+      <p class="note mt-0">The same levels your students see on their Lessons page. Every built-in lesson goes Predict → Run → Investigate → Modify → Make, and each student's part is shown on the Live class tab.</p>
+      <div id="quickAdd"></div>
       <h3 class="mt-20">Sample programs</h3>
       <p class="note mt-0">Students write their own code from a template. They only get a finished sample when you <b>unlock</b> it for the class (it appears in their example menu) or <b>send</b> it.</p>
       <div id="samples"></div>

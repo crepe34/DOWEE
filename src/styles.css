@@ -41,7 +41,9 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .arena-tabs button:hover { background: rgba(255,255,255,.2); }
 .arena-tabs button[aria-selected="true"] { background: var(--yellow); color: var(--navy); box-shadow: 0 2px 0 #c99d16; }
 
-.work { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 41%) minmax(0, 1fr); gap: 10px; }
+.work { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(240px, 290px) minmax(300px, 36%) minmax(0, 1fr); gap: 10px; }
+.work.pane-min { grid-template-columns: 30px minmax(340px, 41%) minmax(0, 1fr); }
+.work:not(.pane-min) > .lesson-tab, .work.pane-min > .lesson-pane { display: none; }
 .pane { background: var(--panel); border: 0; box-shadow: 0 4px 0 var(--teal-deep); border-radius: var(--r); overflow: hidden; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .pane-head { display: flex; align-items: center; gap: 6px; padding: 8px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .seg { display: inline-flex; background: var(--sunk); padding: 3px; border-radius: 9px; gap: 2px; }
@@ -189,14 +191,6 @@ h3.sec:first-child { margin-top: 2px; }
 .wiring svg .dev { fill: var(--panel-2); stroke: var(--line); }
 .wiring ul { margin: 8px 0 0; padding-left: 20px; line-height: 1.6; max-width: 70ch; font-size: 13px; }
 
-.lessons { display: grid; grid-template-columns: minmax(200px, 270px) 1fr; gap: 12px; min-height: 100%; }
-.lesson-list { display: flex; flex-direction: column; gap: 4px; }
-.lesson-list button { text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 9px; padding: 7px 9px; cursor: pointer; display: grid; grid-template-columns: 26px 1fr; gap: 0 8px; align-items: center; }
-.lesson-list button[aria-current="true"] { border-color: var(--accent); background: var(--accent-soft); }
-.lesson-list .num { grid-row: span 2; width: 26px; height: 26px; border-radius: 50%; background: var(--sunk); display: grid; place-items: center; font-weight: 800; font-size: 12.5px; }
-.lesson-list .done .num { background: var(--ok); color: #fff; }
-.lesson-list b { font-size: 13px; }
-.lesson-list small { color: var(--muted); font-size: 11.5px; font-weight: 700; }
 .lesson-body h3 { font-family: var(--font-display); font-size: 21px; margin: 0 0 2px; font-weight: 800; text-wrap: balance; }
 .lesson-body p, .lesson-body li { line-height: 1.55; max-width: 66ch; }
 .lesson-body ol { padding-left: 20px; }
@@ -217,7 +211,6 @@ code.k { font-family: var(--font-mono); font-size: 12.5px; background: var(--sun
   .stage-pane .dock { height: 380px; }
   .code-pane .editor { min-height: 420px; }
   .blk { min-height: 460px; }
-  .lessons { grid-template-columns: 1fr; }
   .brand span { display: none; }
 }
 @media (max-width: 560px) {
@@ -358,3 +351,171 @@ details.adv summary { cursor: pointer; font-weight: 800; }
 .gcheck .tag { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-right: 4px; }
 .gcheck .okc { color: var(--ok); }
 .chip-weak { font-size: 12px; font-weight: 800; padding: 2px 9px; border-radius: 20px; background: var(--signal-soft); border: 1px solid var(--signal); }
+
+/* ---------- Header: Lessons tab and help ---------- */
+.arena-tabs .path-tab span { color: var(--orange); font-size: 15px; line-height: 1; }
+.arena-tabs .path-tab[aria-selected="true"] span { color: var(--pink); }
+.help-btn { width: 34px; height: 34px; border-radius: 50%; border: 0; background: rgba(255,255,255,.22); color: var(--cloud); font-weight: 800; font-size: 16px; cursor: pointer; flex: none; }
+.help-btn:hover { background: rgba(255,255,255,.35); }
+
+/* ---------- Small drop-down menus (⋯ in the code bar, View in the arena bar) ---------- */
+details.menu { position: relative; }
+details.menu > summary { list-style: none; cursor: pointer; user-select: none; }
+details.menu > summary::-webkit-details-marker { display: none; }
+details.menu[open] > summary { background: var(--sunk); }
+.menu-list { position: absolute; top: calc(100% + 4px); left: 0; z-index: 12; min-width: 230px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(46,42,79,.18); padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+details.menu:not(.right) .menu-list { left: auto; right: 0; }
+details.menu.right .menu-list { left: auto; right: 0; }
+.menu-list.wide { min-width: 250px; padding: 10px; gap: 8px; }
+.menu-list .mi { text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; }
+.menu-list .mi:hover { background: var(--panel-2); }
+.menu-list .fld { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 800; font-size: 12.5px; color: var(--muted); }
+.menu-list .fld .sel { max-width: 160px; }
+.menu-list .chk { font-size: 13px; }
+.view-chip { font-size: 11.5px; font-weight: 800; padding: 3px 8px; border-radius: 20px; background: var(--signal-soft); color: var(--ink); border: 1px solid var(--signal); white-space: nowrap; }
+.mrun { display: none; }
+
+/* ---------- Dock head: 4 tabs, plus a small switch for the two views inside Serial and Robot ---------- */
+.dock-head { display: flex; align-items: flex-end; gap: 8px; border-bottom: 1px solid var(--line); padding-right: 8px; flex: none; }
+.dock-head .dock-tabs { border-bottom: 0; flex: 1; min-width: 0; }
+.dock-sub { margin-bottom: 5px; }
+.dock-sub:empty { display: none; }
+.dock-sub button { font-size: 12px; padding: 3px 9px; }
+
+/* ---------- Lesson pane (left of the code) ---------- */
+.lesson-pane { min-height: 0; }
+.lesson-pane .lessons { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.lp-head { display: flex; align-items: flex-start; gap: 8px; padding: 10px 10px 8px 14px; border-bottom: 1px solid var(--line); }
+.lp-head > div { flex: 1; min-width: 0; }
+.lp-head h3 { font-family: var(--font-display); font-size: 19px; line-height: 1.15; margin: 2px 0 0; font-weight: 800; text-wrap: balance; }
+.lp-body { flex: 1; min-height: 0; overflow: auto; padding: 10px 14px 14px; }
+.lp-body > p:first-child { margin-top: 0; }
+.lp-foot { display: flex; gap: 6px; align-items: center; padding: 8px 10px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.btn.small { padding: 4px 9px; font-size: 12px; }
+.btn.icon { padding: 4px 8px; }
+.lesson-tab { border: 0; border-radius: var(--r); background: var(--yellow); color: var(--navy); font-weight: 800; font-size: 13px; cursor: pointer; writing-mode: vertical-rl; padding: 12px 0; box-shadow: 0 4px 0 #c99d16; }
+.lesson-pane .missions { margin: 0 0 10px; }
+.lesson-pane .missions .mlist { grid-template-columns: 1fr; }
+.lesson-pane .worksheet .ws-code { font-size: 11.5px; }
+
+/* PRIMM stages */
+.primm { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.pst { border: 1.5px solid var(--line); border-radius: 12px; padding: 8px 10px 10px; background: var(--panel); }
+.pst h4 { margin: 0 0 4px; display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.pmk { width: 22px; height: 22px; border-radius: 50%; background: var(--sunk); color: var(--ink); display: inline-grid; place-items: center; font-size: 12px; font-weight: 800; flex: none; letter-spacing: 0; }
+.pst.cur { border-color: var(--accent); box-shadow: 0 2px 0 var(--accent-soft); }
+.pst.cur .pmk { background: var(--accent); color: #fff; }
+.pst.done .pmk { background: var(--ok); color: #fff; }
+.pst.done:not(.cur) { background: var(--panel-2); }
+.pst ol { margin: 4px 0 0; padding-left: 20px; }
+.pst li { margin: 3px 0; }
+.pq { margin: 2px 0 6px; font-weight: 700; line-height: 1.45; }
+.choices { display: flex; flex-direction: column; gap: 4px; }
+.choice { text-align: left; border: 1.5px solid var(--line); background: var(--panel); border-radius: 9px; padding: 6px 10px; cursor: pointer; font-size: 13px; font-weight: 700; line-height: 1.35; }
+.choice:hover { border-color: var(--purple); }
+.choice.picked { border-color: var(--purple); background: #efe7fa; }
+.choice.right { border-color: var(--ok); background: #e5f4dc; }
+.choice.wrong { border-color: var(--orange); background: var(--signal-soft); }
+.choices.nudge { animation: nudge .5s; }
+@keyframes nudge { 20%, 60% { transform: translateX(-5px); } 40%, 80% { transform: translateX(5px); } }
+.why { margin: 6px 0 0; padding: 6px 9px; border-radius: 8px; background: var(--signal-soft); font-size: 13px; line-height: 1.45; }
+.why.yes { background: #e5f4dc; }
+.iq + .iq { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.mods { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.mods li { display: flex; gap: 8px; align-items: flex-start; line-height: 1.45; }
+.mods .mk { width: 20px; flex: none; font-weight: 800; color: var(--muted); text-align: center; }
+.mods li.done .mk { color: var(--ok); }
+.mods li.done > span:last-child { color: var(--muted); }
+.note { color: var(--muted); font-size: 12.5px; margin: 6px 0 0; }
+.goal .pmk { background: rgba(255,255,255,.7); margin-right: 4px; }
+.goal.done .pmk { background: #fff; color: var(--ok); }
+
+/* ---------- Lessons page (learning path) ---------- */
+.path-wrap { padding: 18px 20px 26px; max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+.path-head { display: flex; gap: 16px; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; }
+.path-head .lede { margin-bottom: 0; }
+.path-sum { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; font-weight: 700; color: var(--muted); }
+.path-sum b { font-family: var(--font-display); font-size: 26px; color: var(--ink); line-height: 1; }
+.plevel { border: 1.5px solid var(--line); border-radius: 16px; padding: 12px 14px 14px; background: var(--panel); }
+.plevel.teacher { border-color: var(--yellow); background: #fff7da; }
+.plevel.extra { background: var(--panel-2); }
+.plevel header { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.plevel header > div { flex: 1; min-width: 0; }
+.plevel h2 { font-family: var(--font-display); font-size: 21px; margin: 0; line-height: 1.1; }
+.plevel header p { margin: 1px 0 0; color: var(--muted); font-size: 13px; font-weight: 700; }
+.lvnum { width: 36px; height: 36px; border-radius: 11px; background: var(--purple); color: #fff; display: grid; place-items: center; font-family: var(--font-display); font-weight: 800; font-size: 19px; flex: none; }
+.plevel.extra .lvnum { background: var(--blue); }
+.plevel.teacher .lvnum { background: var(--orange); }
+.lvdone { font-size: 12px; font-weight: 800; color: var(--muted); white-space: nowrap; }
+.lgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+.lcard { position: relative; text-align: left; border: 1.5px solid var(--line); background: var(--panel); border-radius: 12px; padding: 10px 10px 10px 12px; cursor: pointer; display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 2px 10px; align-items: center; min-height: 64px; }
+.lcard:hover { border-color: var(--purple); }
+.lcard .num { grid-row: span 2; width: 30px; height: 30px; border-radius: 50%; background: var(--sunk); display: grid; place-items: center; font-weight: 800; }
+.lcard.done .num { background: var(--ok); color: #fff; }
+.lcard.cur { border-color: var(--accent); background: var(--accent-soft); }
+.lcard .lt b { display: block; font-size: 13.5px; line-height: 1.25; }
+.lcard .lt small { color: var(--muted); font-size: 11.5px; font-weight: 700; }
+.pdots { grid-column: 2; display: flex; gap: 3px; }
+.pdots i { width: 14px; height: 5px; border-radius: 3px; background: var(--sunk); }
+.pdots i.on { background: var(--ok); }
+.badge-next { position: absolute; top: -8px; right: 8px; background: var(--pink); color: #fff; font-size: 11px; font-weight: 800; padding: 1px 8px; border-radius: 20px; box-shadow: 0 2px 0 #b52a5c; }
+.mstrip { text-align: left; border: 1.5px dashed var(--yellow); background: #fffbea; border-radius: 12px; padding: 8px 12px; cursor: pointer; display: flex; gap: 10px; align-items: center; min-height: 64px; }
+.mstrip:hover { border-style: solid; }
+.mstrip .stars { font-size: 18px; color: #e5dfc8; letter-spacing: 1px; white-space: nowrap; }
+.mstrip .stars .on { color: var(--yellow); text-shadow: 0 1px 0 #c99d16; }
+.mstrip b { display: block; font-size: 13px; }
+.mstrip small { color: var(--muted); font-size: 11.5px; font-weight: 700; }
+
+/* ---------- Phone view switcher ---------- */
+.mswitch { display: none; }
+
+/* ---------- First-time guide ---------- */
+.tour { position: fixed; inset: 0; z-index: 40; }
+.tour-ring { position: fixed; border-radius: 14px; box-shadow: 0 0 0 4px var(--yellow), 0 0 0 9999px rgba(46,42,79,.55); transition: all .25s; pointer-events: none; }
+.tour-card { position: fixed; width: min(320px, calc(100vw - 24px)); background: var(--cloud); border-radius: 16px; padding: 14px 16px 12px; box-shadow: 0 8px 0 var(--teal-deep), 0 10px 40px rgba(0,0,0,.25); }
+.tour-card h3 { font-family: var(--font-display); font-size: 20px; margin: 0 0 4px; }
+.tour-card p { margin: 0 0 10px; line-height: 1.5; }
+.tour-card .row { justify-content: space-between; }
+.tour-card .lbl { margin-right: auto; }
+
+/* ---------- Narrower screens ---------- */
+@container stagebar (max-width: 640px) { #variantLbl { display: none; } .stage-bar .state-chip { display: none; } #variantSel { max-width: 150px; } }
+.stage-pane { container: stagebar / inline-size; }
+@media (max-width: 1100px) {
+  .work, .work.pane-min { grid-template-columns: minmax(300px, 41%) minmax(0, 1fr); }
+  .work > .lesson-pane { display: none; }
+  .work.drawer-open > .lesson-pane { display: flex; position: fixed; left: 12px; top: 12px; bottom: 12px; width: min(390px, calc(100vw - 24px)); z-index: 16; box-shadow: 0 6px 0 var(--teal-deep), 0 10px 40px rgba(0,0,0,.3); }
+  .work > .lesson-tab, .work:not(.pane-min) > .lesson-tab { display: block; position: fixed; left: 0; top: 45%; z-index: 14; border-radius: 0 12px 12px 0; padding: 14px 4px; }
+  .work.drawer-open > .lesson-tab { display: none; }
+}
+@media (max-width: 980px) {
+  .work, .work.pane-min { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .app { padding-bottom: calc(66px + env(safe-area-inset-bottom, 0px)); }
+  .top { gap: 8px; }
+  .arena-tabs { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; order: 5; width: 100%; scrollbar-width: none; }
+  .arena-tabs::-webkit-scrollbar { display: none; }
+  .arena-tabs button { white-space: nowrap; flex: none; }
+  .help-btn { margin-left: auto; }
+  .work > .lesson-tab, .work:not(.pane-min) > .lesson-tab { display: none; }
+  .work[data-m="code"] > .stage-pane, .work[data-m="code"] > .lesson-pane,
+  .work[data-m="arena"] > .code-pane, .work[data-m="arena"] > .lesson-pane,
+  .work[data-m="lesson"] > .code-pane, .work[data-m="lesson"] > .stage-pane { display: none; }
+  .work[data-m="lesson"] > .lesson-pane { display: flex; position: static; width: auto; box-shadow: 0 4px 0 var(--teal-deep); }
+  .work[data-m="lesson"] .lp-body { overflow: visible; }
+  .work[data-m="code"] .code-pane .editor { min-height: calc(100vh - 230px); }
+  .mrun { display: inline-flex; }
+  .mswitch { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 18; gap: 6px; padding: 8px max(10px, env(safe-area-inset-left, 0px)) calc(8px + env(safe-area-inset-bottom, 0px)); background: var(--navy); }
+  .mswitch button { flex: 1; border: 0; border-radius: 10px; padding: 10px 6px; font-weight: 800; font-size: 14px; background: rgba(255,255,255,.1); color: var(--cloud); cursor: pointer; }
+  .mswitch button[aria-pressed="true"] { background: var(--yellow); color: var(--navy); }
+  .toast { bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+  .path-wrap { padding: 14px 12px 20px; }
+  .path-sum { align-items: flex-start; }
+  .lgrid { grid-template-columns: minmax(0, 1fr); }
+}
+.pane-head #exampleSel { flex: 1 1 130px; min-width: 0; max-width: 240px; }
+.menu-list label.fld { flex-direction: row; margin: 0; }
+.lp-foot .btn { padding: 5px 10px; font-size: 12.5px; }
+#robotTabs:has(#tabB[hidden]) { display: none; }
+@container stagebar (max-width: 560px) { .stage-bar .btn { padding: 6px 8px; } .stage-bar .btn.primary { padding: 7px 11px; } #variantSel { max-width: 132px; } }
