@@ -197,7 +197,7 @@ const PID_LESSONS = [
     intro: 'With P alone Dowee overshoots: it turns towards the line, crosses it and has to turn back. The <b>D</b> part looks at how fast the error is changing and brakes the turn early, like easing off the steering wheel before you reach the middle of the lane.<br><br><b>What about I?</b> The I part adds up the error over time. It fixes a robot that always drives a little to one side. Line followers rarely need it, so most racers only use P and D.',
     steps: ['Run it first: with <code class="k">Kp = 0.08</code> and no D, Dowee wobbles off the line.', 'Fill in the <b>TODO</b>: add <code class="k">Kd * change</code> to <code class="k">turn</code>.', 'Run again with <b>Trail</b> on. Compare the wiggle with step 2.', 'In the <b>Tune</b> tab set <code class="k">Kd</code> to 0 and back to 1.5 while it drives. Feel the difference!'],
     hints: ['<code class="k">change</code> is big when the line moves away fast. That is when Dowee should brake its turn.', 'Write the P and D parts in one line: <code class="k">int turn = Kp * error + Kd * change;</code>', 'Keep <code class="k">lastError = error;</code> <b>after</b> you use <code class="k">change</code>, otherwise change is always 0.'],
-    goal: 'Lap the Oval in under 18 seconds', check: W => W.state.laps && W.state.laps.some(l => l.time < 18) },
+    goal: 'Lap the Oval in under 16 seconds', check: W => W.state.laps && W.state.laps.some(l => l.time < 16) },
 ];
 const pidAt = LESSONS.findIndex(l => l.id === 'pid');
 LESSONS.splice(pidAt, 0, ...PID_LESSONS);

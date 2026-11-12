@@ -228,7 +228,7 @@ function buildWorld(arenaId, variant, opts, cfgA, cfgB, oppMode) {
     const rb = W.add(new Robot(cfgB, 'Dowee B', '#8c5bc4'));
     const s1 = A.spawns[1]; rb.place(s1.x, s1.y, s1.th); rb.team = 'B';
     rb.q = makeQuirks(opts.unitB || 2, level, cfgB.sensors);
-    if (arenaId === 'sumo' && ['statue', 'wander', 'hunter', 'bulldozer'].includes(oppMode)) { rb.ai = makeSumoAI(oppMode); if (oppMode === 'bulldozer') rb.setCfg({ ...cfgB, stall: 3.6, grip: 1.05, mass: 0.85 }); if (oppMode === 'hunter') rb.setCfg({ ...cfgB, stall: 2.2 }); }
+    if (arenaId === 'sumo' && ['statue', 'wander', 'hunter', 'bulldozer'].includes(oppMode)) { rb.ai = makeSumoAI(oppMode); if (oppMode === 'bulldozer') rb.setCfg({ ...cfgB, stall: 3.6, grip: 1.05, mass: 0.85 }); if (oppMode === 'hunter') rb.setCfg({ ...cfgB, stall: 2.2, mass: 0.45 }); }   // a lighter, weaker robot: pushing is grip-limited, so weight decides
     if (arenaId === 'soccer' && ['easy', 'medium', 'hard'].includes(oppMode)) rb.ai = makeSoccerAI(oppMode);
     if (arenaId === 'race' && ['easy', 'medium', 'hard'].includes(oppMode)) rb.ai = makeRaceAI(oppMode);
   }

@@ -53,6 +53,14 @@ DOWEE is a virtual robotics lab for teaching kids aged 9–20. Students program 
 - Escape all student- and teacher-typed text before showing it in a page.
 - Real physics lives in `PHYS` (`src/core-sim.js`) and is always on. Quirks (`makeQuirks`, `makeEnv`) are deviations that are zero for the Ideal robot (the default), so ideal runs are repeatable (fixed seed). Never put a defect into `PHYS`.
 - After physics changes, run `npm test` (it fails if an example stops working) and `tools/sweep.js`.
+- Physics was checked against the datasheets (TT motor 1:48, L298N, HC-SR04, TCRT5000, 2 x 18650).
+  - Dowee weighs 0.5 kg, which makes pushing grip-limited: the sumo AIs get their strength from weight and grip, not only `stall`.
+  - The L298N drop grows with load (1.3 → 1.8 V).
+  - The battery lasts `PHYS.batteryHours` (2 h) at full power.
+  - Gearbox backlash is `PHYS.backlash`.
+  - The speed of sound follows `env.tempC`: 20 °C in the Ideal world.
+  - The sonar uses 13 rays.
+  - The ball rolls, so it has an effective mass of 5/3 × 80 g.
 
 ## Status
 

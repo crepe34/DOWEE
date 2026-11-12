@@ -6,7 +6,7 @@ A beginner robot online simulation app for learning and teaching beginner robot 
 
 ## Dowee, the class robot
 
-Arduino Uno, L298N motor driver, 2 × TT gear motors (65 mm wheels), 5-channel IR line array (TCRT5000) on A0–A4, HC-SR04 ultrasonic on pins 11/12, HC-05 Bluetooth on pins 0/1, 2 × 18650 cells. 18 × 16 cm, 650 g.
+Arduino Uno, L298N motor driver, 2 × TT gear motors (65 mm wheels), 5-channel IR line array (TCRT5000) on A0–A4, HC-SR04 ultrasonic on pins 11/12, HC-05 Bluetooth on pins 0/1, 2 × 18650 cells. 18 × 16 cm, about 500 g.
 
 The example programs also run on a real Dowee wired as shown in the Wiring tab.
 

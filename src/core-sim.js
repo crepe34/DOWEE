@@ -23,7 +23,11 @@ const PHYS = {
   reverse: 0.97,                           // TT gearboxes are a little weaker backwards
   casterMu: 0.05,                          // ball caster rolling drag
   sagV: 0.5,                               // battery volts lost at full motor load
-  driverDropV: 1.8,                        // the L298N loses about 1.8 V
+  driverDropV: 1.8,                        // the L298N loses about 1.8 V at full motor current (about 1 A, datasheet)…
+  driverDropIdleV: 1.3,                    // …and less when the motors draw little current
+  batteryHours: 2,                         // 2 x 18650 (about 2500 mAh) last about 2 h with both motors at full power
+  backlash: 0.0011,                        // TT gearbox play: about 2° at the wheel (1.1 mm of wheel travel) when it changes direction
+  soundAt: t => 331.3 + 0.606 * t,         // speed of sound (m/s) at t °C
   sonarCos: Math.cos(42 * Math.PI / 180),  // flat walls hit at more than 42° don't echo back
   irHeight: 0.005,                         // IR sensor height above the floor (m)
   irPitch: 0.00009,                        // m of sensor-height change per m/s² of acceleration (the robot rocks)
@@ -64,6 +68,7 @@ function makeEnv(level, seed, arenaId) {
     spike: 0.0015 * k,                                     // rare big glitches on an analog read
     sonarDrop: 0.02 * k,                                   // the odd missed echo
     btDelay: k ? [25, 45 * k] : [0, 0],                    // Bluetooth latency (ms)
+    tempC: k > 1 ? 28 + 5 * rng() : k ? 18 + 8 * rng() : 20,   // room temperature: sound travels faster when it is warm
     sun: null,
   };
   if (k > 1) { const sx = rng() < 0.5 ? 0 : 1; env.sun = { x0: sx, amount: 70 }; }   // sunlight from a window on one side
@@ -151,7 +156,8 @@ class Board {
     if (!this.trigArmed) { this.cost += to / 1000; this.hint('trig', `pulseIn(ECHO) was called without a trigger pulse. First do digitalWrite(TRIG, HIGH), delayMicroseconds(10), digitalWrite(TRIG, LOW).`); return 0; }
     this.trigArmed = false;
     const d = this.robot.sonar();
-    const dur = d === null ? 38000 : (d * 2 / 343) * 1e6;
+    const env = this.robot.world && this.robot.world.env, sound = PHYS.soundAt(env && env.tempC != null ? env.tempC : 20);
+    const dur = d === null ? 38000 : (d * 2 / sound) * 1e6;
     if (dur > to) { this.cost += to / 1000; return 0; }
     this.cost += 0.46 + dur / 1000;
     return Math.round(dur);
@@ -329,7 +335,7 @@ class Floor {
 const DEFAULT_PINS = { ena: 5, in1: 7, in2: 8, enb: 6, in3: 9, in4: 10, trig: 11, echo: 12, s0: 14 };
 // Dowee: the standard class robot. Arduino Uno + L298N + 2 TT gear motors (65 mm wheels)
 // + 5-channel IR line array (TCRT5000) + HC-SR04 + HC-05, on 2 x 18650 cells (7.4 V).
-const DOWEE = { label: 'Dowee (standard)', length: 0.18, width: 0.16, mass: 0.65, vmax: 0.75, stall: 2.6, deadband: 60, mismatch: 0, track: 0.135, axle: 0.02, grip: 0.85, wheelLoad: 0.8, sensors: 5, spacing: 0.015, sensorFwd: 0.085, sensorRadius: 0.005, noise: 0.6, irMode: 'high-on-black', sonar: true, sonarCone: 15, invertL: false, invertR: false };
+const DOWEE = { label: 'Dowee (standard)', length: 0.18, width: 0.16, mass: 0.5, vmax: 0.75, stall: 2.6, deadband: 60, mismatch: 0, track: 0.135, axle: 0.02, grip: 0.85, wheelLoad: 0.8, sensors: 5, spacing: 0.015, sensorFwd: 0.085, sensorRadius: 0.005, noise: 0.6, irMode: 'high-on-black', sonar: true, sonarCone: 15, invertL: false, invertR: false };
 const PRESETS = { dowee: DOWEE };
 function makeCfg(preset, overrides) { return { ...PRESETS[preset], pins: { ...DEFAULT_PINS }, ...(overrides || {}) }; }
 
@@ -345,7 +351,7 @@ class Robot {
     this.invM = 1 / cfg.mass; this.I = cfg.mass * (cfg.length ** 2 + cfg.width ** 2) / 12; this.invI = 1 / this.I;
   }
   place(x, y, th) {
-    Object.assign(this, { hJit: 0, mL: 0, mR: 0, yawD: 0, aLong: 0, vLongPrev: 0, x, y, th, vx: 0, vy: 0, w: 0, odo: 0, fallen: false, fallT: 0, dutyL: 0, dutyR: 0, wl: 0, wr: 0, trail: [], stillT: 0, start: { x, y, th }, headingAcc: 0, slip: false });
+    Object.assign(this, { bk: null, hJit: 0, mL: 0, mR: 0, yawD: 0, aLong: 0, vLongPrev: 0, x, y, th, vx: 0, vy: 0, w: 0, odo: 0, fallen: false, fallT: 0, dutyL: 0, dutyR: 0, wl: 0, wr: 0, trail: [], stillT: 0, start: { x, y, th }, headingAcc: 0, slip: false });
   }
   worldPoint(bx, by) { const c = Math.cos(this.th), s = Math.sin(this.th); return { x: this.x + bx * c - by * s, y: this.y + bx * s + by * c }; }
   sensorLocal(i) { const c = this.cfg, q = this.q || {}, yy = ((c.sensors - 1) / 2 - i) * c.spacing; return { x: c.sensorFwd - yy * (q.barTwist || 0), y: yy + (q.barY || 0) }; }
@@ -375,8 +381,9 @@ class Robot {
     if (!this.world) return null;
     const o = this.worldPoint(this.hl, 0), half = this.cfg.sonarCone * Math.PI / 180, env = this.world.env;
     let best = Infinity;
-    for (let k = 0; k < 7; k++) {
-      const a = this.th + (k / 6 - 0.5) * 2 * half;
+    // 13 rays across the beam: 2.5° apart, so at 1 m nothing wider than about 4 cm slips between them
+    for (let k = 0; k < 13; k++) {
+      const a = this.th + (k / 12 - 0.5) * 2 * half;
       const dx = Math.cos(a), dy = Math.sin(a), hit = this.world.raycast(o.x, o.y, dx, dy, this, true);
       // A flat surface hit at a slant reflects the sound away: no echo (real HC-SR04 behaviour).
       if (hit.n && Math.abs(dx * hit.n.x + dy * hit.n.y) < PHYS.sonarCos) continue;
@@ -406,12 +413,15 @@ class Robot {
     };
     // Battery: 8.2 V full, 6.6 V flat, dips under load; the L298N loses about 1.8 V.
     // 1.0 = a full battery with the motors at full power.
-    const V = 6.6 + 1.6 * this.battery - PHYS.sagV * (Math.abs(this.mL) + Math.abs(this.mR)) / 2;
-    const supply = clamp((V - PHYS.driverDropV) / (8.2 - PHYS.sagV - PHYS.driverDropV), 0.3, 1.15);
+    const load = (Math.abs(this.mL) + Math.abs(this.mR)) / 2;
+    const V = 6.6 + 1.6 * this.battery - PHYS.sagV * load;
+    // the L298N's transistors drop more voltage the more current flows
+    const drop = PHYS.driverDropIdleV + (PHYS.driverDropV - PHYS.driverDropIdleV) * load;
+    const supply = clamp((V - drop) / (8.2 - PHYS.sagV - PHYS.driverDropV), 0.3, 1.15);
     let el = eff(dl, q.dbL || 0, q.gainL || 1, q.revL || 1, this.wl || 0) * supply, er = eff(dr, q.dbR || 0, q.gainR || 1, q.revR || 1, this.wr || 0) * (1 - c.mismatch / 100) * supply;
     // Motors and gearboxes take a moment to spin up.
     { const tau = Math.max(0.02, PHYS.tau + (q.tau || 0)), a = Math.min(1, dt / tau); this.mL += (el - this.mL) * a; this.mR += (er - this.mR) * a; el = this.mL; er = this.mR; }
-    if (k && !this.ai) this.battery = Math.max(0, this.battery - (Math.abs(el) + Math.abs(er)) / 2 * dt / 2400);
+    if (k && !this.ai) this.battery = Math.max(0, this.battery - (Math.abs(el) + Math.abs(er)) / 2 * dt / (PHYS.batteryHours * 3600));
     if (!this.ai && el === 0 && er === 0 && (dl !== 0 || dr !== 0) && Math.hypot(this.vx, this.vy) < 0.01) {
       this.stillT += dt;
       if (this.stillT > 0.8) this.board.hint('deadband', `The motors get a speed of ${Math.round(Math.max(Math.abs(dl), Math.abs(dr)) * 255)}, but this robot needs at least ${c.deadband} to start moving (motor friction). Try a bigger number.`);
@@ -421,8 +431,15 @@ class Robot {
     const gripHere = env && env.k ? c.grip * (1 - env.gripVar * (0.5 + 0.5 * vnoise(this.x * 4, this.y * 4, env.seed + 5))) : c.grip;
     const N = c.mass * GRAV * c.wheelLoad / 2, Fmax = gripHere * N;
     let Fx = 0, Fy = 0, Tq = 0; this.slip = false;
+    const bk = this.bk || (this.bk = [{ dir: 0, gap: 0 }, { dir: 0, gap: 0 }]);
     for (let side = 0; side < 2; side++) {
-      const sgn = side === 0 ? 1 : -1, e = side === 0 ? el : er, brake = side === 0 ? bl : br;
+      const sgn = side === 0 ? 1 : -1, brake = side === 0 ? bl : br;
+      let e = side === 0 ? el : er;
+      // Gearbox play: when the motor reverses, its gears turn freely through the gap before the wheel is pushed again.
+      const B = bk[side], dir = Math.abs(e) > 1e-4 ? Math.sign(e) : 0;
+      if (dir && B.dir && dir !== B.dir) B.gap = PHYS.backlash;
+      if (dir) B.dir = dir;
+      if (B.gap > 0 && dir) { B.gap -= Math.abs(e) * c.vmax * dt; if (B.gap > 0) e = 0; }
       const rx = c.axle * cs - sgn * c.track / 2 * sn, ry = c.axle * sn + sgn * c.track / 2 * cs;
       const vcx = this.vx - this.w * ry, vcy = this.vy + this.w * rx;
       const vlong = vcx * cs + vcy * sn, vlat = -vcx * sn + vcy * cs;
@@ -544,7 +561,8 @@ function raySeg(ox, oy, dx, dy, x1, y1, x2, y2) {
 function rayBox(ox, oy, dx, dy, b) { const c = boxCorners(b); let best = Infinity; for (let i = 0; i < 4; i++) { const a = c[i], e = c[(i + 1) % 4]; best = Math.min(best, raySeg(ox, oy, dx, dy, a.x, a.y, e.x, e.y)); } return best; }
 
 class Ball {
-  constructor(x, y) { this.r = 0.037; this.invM = 1 / 0.08; this.invI = 0; this.w = 0; this.place(x, y); }
+  // 74 mm, 80 g. It rolls, so part of every push goes into spinning it: a hollow ball acts like 5/3 of its mass.
+  constructor(x, y) { this.r = 0.037; this.invM = 1 / (0.08 * 5 / 3); this.invI = 0; this.w = 0; this.place(x, y); }
   place(x, y) { this.x = x; this.y = y; this.vx = 0; this.vy = 0; }
   step(dt) {
     const v = Math.hypot(this.vx, this.vy);
