@@ -164,3 +164,9 @@ details.menu > summary::-webkit-details-marker { display: none; }
 .qa { text-align: left; border: 1.5px dashed var(--line); background: var(--panel); border-radius: 10px; padding: 7px 10px; cursor: pointer; display: flex; flex-direction: column; gap: 1px; }
 .qa:hover:not(:disabled) { border-color: var(--pink); border-style: solid; }
 .qa.in { border-style: solid; background: #e6f3d6; cursor: default; }
+
+/* Playgrounds students can open */
+.arena-pick { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
+.arena-pick label { display: inline-flex; align-items: center; gap: 6px; border: 1.5px solid var(--line); background: #fff; border-radius: 10px; padding: 5px 10px; font-weight: 800; color: var(--ink); cursor: pointer; font-size: 13px; }
+.arena-pick label:has(input:checked) { border-color: var(--pink); background: #fff5f8; }
+.arena-pick label.fixed { opacity: .7; cursor: default; }

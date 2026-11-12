@@ -16,7 +16,7 @@ const C = () => T.st.active;
 const arenaName = a => (T.meta && T.meta.arenas[a] ? T.meta.arenas[a].name : a);
 const lowerLabel = l => (/^RC/.test(l || '') ? l : (l || '').charAt(0).toLowerCase() + (l || '').slice(1));
 const classArenas = () => C().arenas || Object.keys(T.meta.arenas);
-const typeLabel = () => (C().robot && C().robot !== 'all' ? C().robotLabel + ' class' : 'All playgrounds (free play)');
+const typeLabel = () => (C().robot && C().robot !== 'all' ? C().robotLabel + (C().custom ? '' : ' class') : C().custom ? C().robotLabel : 'All playgrounds (free play)');
 function robotPicker(name, current) {
   return `<div class="robot-pick">${Object.entries(T.st.robotTypes).map(([k, v]) => `<label><input type="radio" name="${name}" value="${k}" ${k === current ? 'checked' : ''}>${esc(v.label)}<small>${v.arenas.map(arenaName).join(' + ')}</small></label>`).join('')}</div>`;
 }
@@ -198,7 +198,7 @@ function renderPlan() {
   const done = id => c.students.filter(s => s.progress[id] && s.progress[id].done).length;
   $('#acts').innerHTML = acts.length ? `<ol class="plan-path">${acts.map((a, i) => `<li class="act ${c.lock === a.id ? 'locked' : ''}" draggable="true" data-i="${i}">
       <span class="grip" aria-hidden="true" title="Drag to move">⠿</span><span class="n">${i + 1}</span>
-      <div><b>${esc(a.title)}</b>${c.lock === a.id ? ' <span class="chip p">locked: everyone is here</span>' : ''}${classArenas().includes(a.arena) ? '' : ` <span class="chip warn">students can't open this: ${esc(arenaName(a.arena))} isn't in a ${esc(lowerLabel(c.robotLabel))} class</span>`}<br><span class="note">${esc(arenaName(a.arena))}${a.variant && T.meta.arenas[a.arena] && T.meta.arenas[a.arena].variants[a.variant] ? ' · ' + esc(T.meta.arenas[a.arena].variants[a.variant]) : ''}${a.realism ? ' · ' + ({ ideal: 'Ideal robot', real: 'Realistic world', tough: 'Competition day' })[a.realism] : ''} · Goal: ${esc(goalText(a))}</span><br><span class="note"><b class="ok">${done(a.id)}</b> of ${c.students.length} students done</span></div>
+      <div><b>${esc(a.title)}</b>${c.lock === a.id ? ' <span class="chip p">locked: everyone is here</span>' : ''}${classArenas().includes(a.arena) ? '' : ` <span class="chip warn">students can't open this: ${esc(arenaName(a.arena))} isn't open for this class (Settings → Playgrounds)</span>`}<br><span class="note">${esc(arenaName(a.arena))}${a.variant && T.meta.arenas[a.arena] && T.meta.arenas[a.arena].variants[a.variant] ? ' · ' + esc(T.meta.arenas[a.arena].variants[a.variant]) : ''}${a.realism ? ' · ' + ({ ideal: 'Ideal robot', real: 'Realistic world', tough: 'Competition day' })[a.realism] : ''} · Goal: ${esc(goalText(a))}</span><br><span class="note"><b class="ok">${done(a.id)}</b> of ${c.students.length} students done</span></div>
       <div class="row"><button class="btn small" data-up="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Move up">↑</button><button class="btn small" data-down="${i}" ${i === acts.length - 1 ? 'disabled' : ''} aria-label="Move down">↓</button>
         <button class="btn small ${c.lock === a.id ? 'yellow' : ''}" data-lock="${esc(a.id)}">${c.lock === a.id ? 'Unlock' : 'Lock class here'}</button>
         <button class="btn small" data-edit="${i}">Edit</button><button class="btn small danger" data-del="${i}">Delete</button></div></li>`).join('')}</ol>`
@@ -213,11 +213,23 @@ function renderSamples() {
     rows.push(`<div class="lbrow" style="grid-template-columns:1fr auto"><span><b>${esc(v.name)}</b> <span class="note">${esc(arenaName(a))}</span>${on ? ' <span class="chip run">students can load it</span>' : ''}</span>
       <span class="row"><button class="btn small ${on ? 'yellow' : ''}" data-unlock="${esc(key)}">${on ? 'Lock again' : 'Unlock for class'}</button><button class="btn small" data-sendex="${esc(key)}">Send to everyone</button></span></div>`);
   }
+  // block samples: the starter of each playground is always there, the others can be unlocked
+  for (const a of classArenas()) for (const [k, v] of Object.entries((T.meta.blockExamples || {})[a] || {})) {
+    if (v.starter) continue;
+    const key = `blk:${a}/${k}`, on = un.has(key);
+    rows.push(`<div class="lbrow" style="grid-template-columns:1fr auto"><span><b>${esc(v.name)}</b> <span class="chip blk">blocks</span> <span class="note">${esc(arenaName(a))}</span>${on ? ' <span class="chip run">students can load it</span>' : ''}</span>
+      <span class="row"><button class="btn small ${on ? 'yellow' : ''}" data-unlock="${esc(key)}">${on ? 'Lock again' : 'Unlock for class'}</button><button class="btn small" data-sendblk="${esc(key)}">Send to everyone</button></span></div>`);
+  }
   $('#samples').innerHTML = rows.join('') || '<p class="empty">No samples for this class\'s playgrounds.</p>';
 }
 $('#samples').addEventListener('click', async e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.sendex) { const [a, k] = b.dataset.sendex.split('/'); handoutModal('all', a, k); return; }
+  if (b.dataset.sendblk) {
+    const [a, k] = b.dataset.sendblk.slice(4).split('/'), ex = T.meta.blockExamples[a][k];
+    try { await api('POST', '/api/teacher/handout', { target: 'all', arena: a, kind: 'blocks', xml: ex.xml, note: ex.name }); toast('Sent the blocks to everyone'); } catch (err) { toast(err.message); }
+    return;
+  }
   const key = b.dataset.unlock, un = new Set(C().settings.unlocked || []), on = !un.has(key);
   if (on) un.add(key); else un.delete(key);
   try { await api('POST', '/api/teacher/class', { settings: { unlocked: [...un] } }); toast(on ? 'Unlocked: students see it in their example menu' : 'Locked again'); } catch (err) { toast(err.message); }
@@ -354,7 +366,7 @@ function renderBattles() {
   const keepArena = $('#batArena').value;
   $('#batArena').innerHTML = battleArenas.map(x => `<option value="${x}">${esc(arenaName(x))}</option>`).join('');
   if (battleArenas.includes(keepArena)) $('#batArena').value = keepArena;
-  if (!battleArenas.length) { $('#batA').innerHTML = $('#batB').innerHTML = ''; $('#batGo').disabled = true; $('#batNote').textContent = `Battles are for sumo and soccer. This is a ${lowerLabel(C().robotLabel)} class, so there are no battles. Change the robot in Settings to use them.`; renderMatches(); return; }
+  if (!battleArenas.length) { $('#batA').innerHTML = $('#batB').innerHTML = ''; $('#batGo').disabled = true; $('#batNote').textContent = `Battles are for sumo and soccer. Sumo and soccer aren't open for this class. Tick them under Settings → Playgrounds to use battles.`; renderMatches(); return; }
   const c = C(), arena = $('#batArena').value;
   const ok = c.students.filter(s => s.subs[arena]);
   const opts = ok.map(s => `<option value="${esc(s.id)}">${esc(s.name)}${s.team ? ' · ' + esc(s.team) : ''}</option>`).join('');
@@ -379,13 +391,25 @@ $('#batGo').addEventListener('click', () => {
 /* ---------- settings & classes ---------- */
 function renderSettings() {
   const c = C();
-  if (!$('#t-settings').contains(document.activeElement)) { $('#setRobot').innerHTML = Object.entries(T.st.robotTypes).map(([k, v]) => `<option value="${k}">${esc(v.label)} — ${esc(v.arenas.map(arenaName).join(', '))}</option>`).join(''); $('#setRobot').value = c.robot || 'all'; $('#setName').value = c.name; $('#setPin').value = c.pin || ''; $('#setShow').checked = !!c.settings.showCode; $('#setLevel').value = c.settings.level || 'guided'; $('#setHints').checked = c.settings.hints !== false; }
+  if (!$('#t-settings').contains(document.activeElement)) { $('#setRobot').innerHTML = Object.entries(T.st.robotTypes).map(([k, v]) => `<option value="${k}">${esc(v.label)} — ${esc(v.arenas.map(arenaName).join(', '))}</option>`).join(''); $('#setRobot').value = c.robot || 'all'; renderArenaPick(c.arenas); $('#setToolbox').value = c.settings.toolbox || 'full'; $('#setName').value = c.name; $('#setPin').value = c.pin || ''; $('#setShow').checked = !!c.settings.showCode; $('#setLevel').value = c.settings.level || 'guided'; $('#setHints').checked = c.settings.hints !== false; }
   $('#classList').innerHTML = T.st.classes.map(k => `<div class="lbrow" style="grid-template-columns:1fr auto"><span><b>${esc(k.name)}</b> <span class="note">${k.students} students · made ${new Date(k.created).toLocaleDateString()}</span>${k.id === c.id ? ' <span class="chip p">open now</span>' : ''}</span><span class="row">${k.id !== c.id ? `<button class="btn small" data-open="${esc(k.id)}">Open this class</button><button class="btn small danger" data-delclass="${esc(k.id)}">Delete</button>` : ''}</span></div>`).join('');
   const lan = T.st.lan[Math.min(T.lan, T.st.lan.length - 1)];
   $('#teacherLink').textContent = (lan ? lan.url : `http://localhost:${T.st.port}/`) + 'teacher?key=' + T.st.teacherKey;
   $('#dataFile').textContent = `Class data is saved on this laptop in ${T.st.dataFile} · DOWEE ${T.st.version}`;
 }
-$('#saveSettings').addEventListener('click', async () => { try { await api('POST', '/api/teacher/class', { name: $('#setName').value.trim(), robot: $('#setRobot').value, pin: $('#setPin').value.trim(), settings: { ...C().settings, showCode: $('#setShow').checked, level: $('#setLevel').value, hints: $('#setHints').checked } }); toast('Saved'); } catch (err) { toast(err.message); } });
+// Playgrounds students can open: ticked boxes, saved with the other settings. The Test lab is always on.
+function renderArenaPick(list) { $('#setArenas').innerHTML = Object.entries(T.meta.arenas).map(([k, a]) => `<label class="${k === 'lab' ? 'fixed' : ''}"><input type="checkbox" value="${k}" ${list.includes(k) ? 'checked' : ''} ${k === 'lab' ? 'disabled' : ''}>${esc(a.name)}</label>`).join(''); }
+$('#setRobot').addEventListener('change', () => renderArenaPick(T.st.robotTypes[$('#setRobot').value].arenas));
+$('#setArenasReset').addEventListener('click', () => renderArenaPick(T.st.robotTypes[$('#setRobot').value].arenas));
+$('#saveSettings').addEventListener('click', async () => {
+  const before = classArenas(), picked = ['lab', ...$$('#setArenas input:checked').map(i => i.value)].filter((x, i, a) => a.indexOf(x) === i);
+  const robot = $('#setRobot').value, typeSet = T.st.robotTypes[robot].arenas, same = picked.length === typeSet.length && picked.every(a => typeSet.includes(a));
+  try {
+    await api('POST', '/api/teacher/class', { name: $('#setName').value.trim(), robot, arenas: same ? null : picked, pin: $('#setPin').value.trim(), settings: { ...C().settings, showCode: $('#setShow').checked, level: $('#setLevel').value, hints: $('#setHints').checked, toolbox: $('#setToolbox').value } });
+    const add = picked.filter(a => !before.includes(a)).map(arenaName), rem = before.filter(a => !picked.includes(a)).map(arenaName);
+    toast(add.length || rem.length ? `Saved. ${add.length ? 'Students can now open ' + add.join(', ') + '. ' : ''}${rem.length ? 'Closed: ' + rem.join(', ') + '.' : ''}` : 'Saved');
+  } catch (err) { toast(err.message); }
+});
 $('#classList').addEventListener('click', async e => {
   const b = e.target.closest('button'); if (!b) return;
   try {

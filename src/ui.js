@@ -124,7 +124,7 @@ msgs.addEventListener('click', e => { const m = e.target.closest('[data-line]');
 function addTip(msg, line, ok) { if (S.tips.some(t => t.msg === msg)) return; S.tips.push({ msg, line, ok }); renderMsgs(); }
 function setError(kind, e, robot) {
   S.error = { kind, msg: e.message, line: e.line, hint: e.hint, robot };
-  if (robot === S.robot || !robot) { errLine = e.line || 0; renderEditor(); if (e.line) gotoLine(e.line); }
+  if (robot === S.robot || !robot) { errLine = e.line || 0; renderEditor(); if (e.line) { gotoLine(e.line); blockForError(e.line, e.message); } }
   renderMsgs();
 }
 function clearMsgs() { S.error = null; S.tips = []; errLine = 0; renderEditor(); renderMsgs(); }
@@ -207,7 +207,9 @@ $('#variantSel').addEventListener('change', e => {
 $('#startSel').addEventListener('change', e => { S.start = e.target.value; store.set('start', S.start); stop(); resetWorld(); });
 function fillExamples() {
   if (typeof modeOf === 'function' && modeOf(S.arena, S.robot) === 'blocks') {
-    $('#exampleSel').innerHTML = '<option value="">Load starter blocks…</option>' + Object.entries(BLOCK_STARTERS).filter(([k]) => allowed(k)).map(([k, v]) => `<option value="blk:${k}">${esc(ARENAS[k].name)}: ${esc(v.name)}</option>`).join('');
+    const group = a => { const ks = blockExamplesFor(a); return ks.length ? `<optgroup label="${esc(ARENAS[a].name)}">${ks.map(k => `<option value="blk:${a}/${k}">${esc(BLOCK_EXAMPLES[a][k].name)}</option>`).join('')}</optgroup>` : ''; };
+    const order = [S.arena, ...Object.keys(BLOCK_EXAMPLES).filter(a => a !== S.arena)].filter(a => allowed(a) && BLOCK_EXAMPLES[a]);
+    $('#exampleSel').innerHTML = '<option value="">Load a blocks example…</option>' + order.map(group).join('');
     return;
   }
   const t = TEMPLATES[S.arena], bugs = LESSONS.filter(l => l.bug && l.arena === S.arena && allowed(l.arena));
@@ -224,7 +226,7 @@ function fillExamples() {
 $('#exampleSel').addEventListener('change', e => {
   const k = e.target.value; e.target.value = '';
   if (!k) return;
-  if (k.startsWith('blk:')) { loadBlockStarter(k.slice(4)); return; }
+  if (k.startsWith('blk:')) { const [a, ex] = k.slice(4).split('/'); if (a !== S.arena) toast(`This example is for ${ARENAS[a].name}: switch playgrounds to try it there.`); loadBlockExample(a, ex); return; }
   if (k.startsWith('bug:')) { const L = LESSONS.find(l => l.id === k.slice(4)); if (L) startLesson(L); fillExamples(); return; }
   if (k.startsWith('tpl:')) {
     ta.focus(); ta.select(); insertText(templateCode(S.arena, k.slice(4))); ta.scrollTop = 0; syncScroll();
@@ -312,7 +314,7 @@ function run() {
   $('#banner').hidden = true;
   setState();
 }
-function stop() { S.running = false; S.paused = false; for (const k of ['A', 'B']) stopTone(k); setState(); }
+function stop() { S.running = false; S.paused = false; for (const k of ['A', 'B']) stopTone(k); setState(); if (typeof glowRunningBlock === 'function') glowRunningBlock(); }
 function setState() {
   const chip = $('#stateChip');
   const crashed = S.W && S.W.robots.some(r => r.board.state === 'error');
@@ -361,7 +363,7 @@ function frame(now) {
   }
   S.last = now;
   draw();
-  if (now - (S.lastUi || 0) > 120) { S.lastUi = now; trackBattery(); updateHud(); updateSensors(); updateTuneLive(); if (!$('#p-plot').hidden) drawPlot(); }
+  if (now - (S.lastUi || 0) > 120) { S.lastUi = now; trackBattery(); updateHud(); updateSensors(); updateTuneLive(); glowRunningBlock(); if (!$('#p-plot').hidden) drawPlot(); }
   requestAnimationFrame(frame);
 }
 function handleEvents() {
@@ -1108,6 +1110,7 @@ function buildLessons() {
     else if (g === 'back') { if (L && setArena(L.arena, false) !== false) showWork(); }
   }));
   layoutWork();
+  if (typeof setToolboxLevel === 'function') setToolboxLevel();
 }
 function nextAfter(L) {
   const { acts } = lessonLists();
@@ -1423,7 +1426,7 @@ function startLesson(L, restart) {
   else if (st && st.kind === 'code' && st.code) { putCode(L.arena, 'A', st.code); loadEditor(); }
   else if (st && st.kind === 'blocks' && st.xml) { store.set(`mode:${L.arena}:A`, 'blocks'); store.set(`blocks:${L.arena}:A`, st.xml); loadEditor(); }
   else if (st && st.kind === 'example' && EXAMPLES[L.arena][st.example]) { putCode(L.arena, 'A', EXAMPLES[L.arena][st.example].code); loadEditor(); }
-  else if (base.blocks) { store.set(`mode:${L.arena}:A`, 'blocks'); store.set(`blocks:${L.arena}:A`, null); loadEditor(); }
+  else if (base.blocks) { store.set(`mode:${L.arena}:A`, 'blocks'); store.set(`blocks:${L.arena}:A`, null); store.set(`blockcode:${L.arena}:A`, null); loadEditor(); }
   else if (usesTodo(L)) { putCode(L.arena, 'A', base.todo.code); loadEditor(); }
   else if (base.code || base.example) { putCode(L.arena, 'A', base.code || EXAMPLES[L.arena][base.example].code); loadEditor(); }
   else loadEditor();
@@ -1558,260 +1561,7 @@ function tone(team, f, d) {
 }
 function stopTone(team) { if (osc[team]) { try { osc[team].stop(); } catch (e) { /* already stopped */ } osc[team] = null; } }
 
-/* ---------------- Blocks mode (Blockly) ----------------
-   Younger students snap blocks together; the blocks write real Arduino code for Dowee,
-   which is what actually runs (and what they can copy to a real robot).
-   Blockly is loaded from the CDN only the first time someone opens Blocks. */
-const BLK_URLS = ['https://cdn.jsdelivr.net/npm/blockly@10.4.3/blockly_compressed.js', 'https://cdn.jsdelivr.net/npm/blockly@10.4.3/blocks_compressed.js', 'https://cdn.jsdelivr.net/npm/blockly@10.4.3/msg/en.js'];
-const modeKey = (a, r) => `mode:${a}:${r}`;
-function modeOf(a, r) { return store.get(modeKey(a, r), 'code'); }
-function setMode(a, r, m) { store.set(modeKey(a, r), m); }
-const BK = { ws: null, loading: null, gen: null, suppress: false, arena: null, robot: null };
-
-function loadBlockly() {
-  if (window.Blockly && window.Blockly.Msg && window.Blockly.Msg.CONTROLS_IF_MSG_IF) return Promise.resolve();
-  if (BK.loading) return BK.loading;
-  const one = src => new Promise((ok, bad) => { const sc = document.createElement('script'); sc.src = src; sc.onload = ok; sc.onerror = () => bad(new Error('load')); document.head.appendChild(sc); });
-  const local = BLK_URLS.map(u => '/vendor/blockly/' + u.split('blockly@10.4.3/')[1]);
-  const chain = list => list.reduce((p, u) => p.then(() => one(u)), Promise.resolve());
-  BK.loading = (/^https?:$/.test(location.protocol) ? chain(local).catch(() => chain(BLK_URLS)) : chain(BLK_URLS)).catch(e => { BK.loading = null; throw e; });
-  return BK.loading;
-}
-
-const C = { start: '#e9467e', move: '#f39a3b', sense: '#4a9e3a', light: '#c9a21a', control: '#3f74c9', logic: '#5a86d6', math: '#8c5bc4', vars: '#0f8a87', text: '#86bf4f' };
-const SENSOR_OPTS = [['1 (far left)', 'A0'], ['2 (left)', 'A1'], ['3 (middle)', 'A2'], ['4 (right)', 'A3'], ['5 (far right)', 'A4']];
-function defineDoweeBlocks() {
-  if (Blockly.Blocks.dowee_start) return;
-  Blockly.defineBlocksWithJsonArray([
-    { type: 'dowee_start', message0: 'when Dowee starts %1 %2', args0: [{ type: 'input_dummy' }, { type: 'input_statement', name: 'DO' }], colour: C.start, tooltip: 'Runs once when the robot turns on (setup).', hat: 'cap' },
-    { type: 'dowee_forever', message0: 'forever %1 %2', args0: [{ type: 'input_dummy' }, { type: 'input_statement', name: 'DO' }], colour: C.start, tooltip: 'Repeats again and again (loop).' },
-    { type: 'dowee_move', message0: 'drive %1 at speed %2', args0: [{ type: 'field_dropdown', name: 'DIR', options: [['forward', 'F'], ['backward', 'B'], ['turning left', 'TL'], ['turning right', 'TR'], ['spin left', 'SL'], ['spin right', 'SR']] }, { type: 'input_value', name: 'SPEED', check: 'Number' }], inputsInline: true, previousStatement: null, nextStatement: null, colour: C.move, tooltip: 'Speed goes from 0 to 255. Dowee needs about 60 to start moving.' },
-    { type: 'dowee_motors', message0: 'set motors left %1 right %2', args0: [{ type: 'input_value', name: 'L', check: 'Number' }, { type: 'input_value', name: 'R', check: 'Number' }], inputsInline: true, previousStatement: null, nextStatement: null, colour: C.move, tooltip: '-255 (full backward) to 255 (full forward) for each wheel.' },
-    { type: 'dowee_stop', message0: 'stop', previousStatement: null, nextStatement: null, colour: C.move },
-    { type: 'dowee_wait', message0: 'wait %1 seconds', args0: [{ type: 'input_value', name: 'SEC', check: 'Number' }], inputsInline: true, previousStatement: null, nextStatement: null, colour: C.control, tooltip: 'Keep doing the same thing for a while.' },
-    { type: 'dowee_led', message0: 'turn LED %1', args0: [{ type: 'field_dropdown', name: 'ON', options: [['on', 'HIGH'], ['off', 'LOW']] }], previousStatement: null, nextStatement: null, colour: C.light },
-    { type: 'dowee_print', message0: 'show in Serial monitor %1', args0: [{ type: 'input_value', name: 'V' }], previousStatement: null, nextStatement: null, colour: C.light },
-    { type: 'dowee_sensor', message0: 'line sensor %1', args0: [{ type: 'field_dropdown', name: 'PIN', options: SENSOR_OPTS }], output: 'Number', colour: C.sense, tooltip: 'Black ≈ 950, white ≈ 100.' },
-    { type: 'dowee_black', message0: 'sensor %1 sees black', args0: [{ type: 'field_dropdown', name: 'PIN', options: SENSOR_OPTS }], output: 'Boolean', colour: C.sense },
-    { type: 'dowee_distance', message0: 'distance in cm', output: 'Number', colour: C.sense, tooltip: 'From the ultrasonic sensor. 999 means nothing is in front.' },
-    { type: 'dowee_bt_read', message0: 'read Bluetooth command', previousStatement: null, nextStatement: null, colour: C.sense, tooltip: 'Gets the newest letter from the remote control.' },
-    { type: 'dowee_bt_is', message0: 'Bluetooth command is %1', args0: [{ type: 'field_dropdown', name: 'CMD', options: [['F forward', 'F'], ['B back', 'B'], ['L left', 'L'], ['R right', 'R'], ['S stop', 'S'], ['G forward-left', 'G'], ['I forward-right', 'I'], ['H back-left', 'H'], ['J back-right', 'J']] }], output: 'Boolean', colour: C.sense },
-    { type: 'dowee_time', message0: 'seconds since start', output: 'Number', colour: C.sense },
-  ]);
-}
-
-const O = { ATOMIC: 0, UNARY: 2, MULT: 5, ADD: 6, REL: 8, EQ: 9, AND: 13, OR: 14, COND: 15, NONE: 99 };
-const C_RESERVED = new Set([...TYPE_WORDS, ...KEYWORDS, ...Object.keys(BUILTINS), ...Object.keys(CONSTS), 'drive', 'readDistanceCm', 'setup', 'loop', 'Serial', 'btCommand', 'ENA', 'ENB', 'IN1', 'IN2', 'IN3', 'IN4', 'TRIG', 'ECHO', 'i']);
-function varName(ws, id) {
-  const v = ws.getVariableById(id); let n = (v ? v.name : 'x').replace(/[^A-Za-z0-9_]/g, '_');
-  if (!/^[A-Za-z_]/.test(n)) n = 'v_' + n;
-  if (C_RESERVED.has(n)) n += '_';
-  return n;
-}
-function makeGenerator() {
-  const g = new (Blockly.CodeGenerator || Blockly.Generator)('Arduino');
-  g.INDENT = '  ';
-  g.scrub_ = (block, code, thisOnly) => { const next = block.nextConnection && block.nextConnection.targetBlock(); return code + (thisOnly ? '' : g.blockToCode(next)); };
-  g.used = new Set(); g.loopN = 0;
-  const v = (b, name, ord, def = '0') => g.valueToCode(b, name, ord) || def;
-  const st = (b, name) => g.statementToCode(b, name);
-  const F = g.forBlock;
-  F.dowee_start = () => ''; F.dowee_forever = () => '';
-  F.dowee_move = b => {
-    const s = v(b, 'SPEED', O.UNARY, '150'), d = b.getFieldValue('DIR');
-    const m = { F: [s, s], B: ['-' + s, '-' + s], TL: ['0', s], TR: [s, '0'], SL: ['-' + s, s], SR: [s, '-' + s] }[d];
-    return `drive(${m[0]}, ${m[1]});\n`;
-  };
-  F.dowee_motors = b => `drive(${v(b, 'L', O.NONE)}, ${v(b, 'R', O.NONE)});\n`;
-  F.dowee_stop = () => 'drive(0, 0);\n';
-  F.dowee_wait = b => { const sec = v(b, 'SEC', O.MULT, '1'); return /^\d+(\.\d+)?$/.test(sec) ? `delay(${Math.round(parseFloat(sec) * 1000)});\n` : `delay(${sec} * 1000);\n`; };
-  F.dowee_led = b => `digitalWrite(LED_BUILTIN, ${b.getFieldValue('ON')});\n`;
-  F.dowee_print = b => `Serial.println(${v(b, 'V', O.NONE, '""')});\n`;
-  F.dowee_sensor = b => [`analogRead(${b.getFieldValue('PIN')})`, O.ATOMIC];
-  F.dowee_black = b => [`analogRead(${b.getFieldValue('PIN')}) > 500`, O.REL];
-  F.dowee_distance = () => { g.used.add('distance'); return ['readDistanceCm()', O.ATOMIC]; };
-  F.dowee_bt_read = () => { g.used.add('bt'); return 'if (Serial.available() > 0) {\n  btCommand = Serial.read();\n}\n'; };
-  F.dowee_bt_is = b => { g.used.add('bt'); return [`btCommand == '${b.getFieldValue('CMD')}'`, O.EQ]; };
-  F.dowee_time = () => ['millis() / 1000.0', O.MULT];
-  F.controls_if = b => {
-    let n = 0, code = '';
-    while (b.getInput('IF' + n)) { code += (n ? ' else if (' : 'if (') + v(b, 'IF' + n, O.NONE, 'false') + ') {\n' + st(b, 'DO' + n) + '}'; n++; }
-    if (b.getInput('ELSE')) code += ' else {\n' + st(b, 'ELSE') + '}';
-    return code + '\n';
-  };
-  F.controls_repeat_ext = b => { const i = 'i' + (++g.loopN); return `for (int ${i} = 0; ${i} < ${v(b, 'TIMES', O.REL)}; ${i}++) {\n${st(b, 'DO')}}\n`; };
-  F.controls_whileUntil = b => { const c = v(b, 'BOOL', O.NONE, 'false'); return b.getFieldValue('MODE') === 'UNTIL' ? `while (!(${c})) {\n${st(b, 'DO')}}\n` : `while (${c}) {\n${st(b, 'DO')}}\n`; };
-  F.controls_flow_statements = b => (b.getFieldValue('FLOW') === 'BREAK' ? 'break;\n' : 'continue;\n');
-  F.logic_compare = b => { const op = { EQ: '==', NEQ: '!=', LT: '<', LTE: '<=', GT: '>', GTE: '>=' }[b.getFieldValue('OP')]; const ord = op === '==' || op === '!=' ? O.EQ : O.REL; return [`${v(b, 'A', ord)} ${op} ${v(b, 'B', ord)}`, ord]; };
-  F.logic_operation = b => { const and = b.getFieldValue('OP') === 'AND', ord = and ? O.AND : O.OR; return [`${v(b, 'A', ord, 'false')} ${and ? '&&' : '||'} ${v(b, 'B', ord, 'false')}`, ord]; };
-  F.logic_negate = b => [`!${v(b, 'BOOL', O.UNARY, 'false')}`, O.UNARY];
-  F.logic_boolean = b => [b.getFieldValue('BOOL') === 'TRUE' ? 'true' : 'false', O.ATOMIC];
-  F.math_number = b => { const n = Number(b.getFieldValue('NUM')); return [String(n), n < 0 ? O.UNARY : O.ATOMIC]; };
-  F.math_arithmetic = b => {
-    const op = b.getFieldValue('OP');
-    if (op === 'POWER') return [`pow(${v(b, 'A', O.NONE)}, ${v(b, 'B', O.NONE)})`, O.ATOMIC];
-    const [sym, ord] = { ADD: ['+', O.ADD], MINUS: ['-', O.ADD], MULTIPLY: ['*', O.MULT], DIVIDE: ['/', O.MULT] }[op];
-    return [`${v(b, 'A', ord)} ${sym} ${v(b, 'B', ord + 0.5)}`, ord];
-  };
-  F.math_random_int = b => [`random(${v(b, 'FROM', O.NONE)}, ${v(b, 'TO', O.ADD)} + 1)`, O.ATOMIC];
-  F.math_change = b => `${varName(b.workspace, b.getFieldValue('VAR'))} += ${v(b, 'DELTA', O.NONE, '1')};\n`;
-  F.variables_get = b => [varName(b.workspace, b.getFieldValue('VAR')), O.ATOMIC];
-  F.variables_set = b => `${varName(b.workspace, b.getFieldValue('VAR'))} = ${v(b, 'VALUE', O.NONE)};\n`;
-  F.text = b => [JSON.stringify(b.getFieldValue('TEXT') || ''), O.ATOMIC];
-  return g;
-}
-function blocksToArduino(ws) {
-  const g = BK.gen; g.init(ws); g.used = new Set(); g.loopN = 0;
-  const tops = ws.getTopBlocks(true);
-  const body = type => tops.filter(b => b.type === type && b.isEnabled()).map(b => g.statementToCode(b, 'DO')).join('');
-  const setupBody = body('dowee_start'), loopBody = body('dowee_forever');
-  const vars = ws.getAllVariables().map(x => varName(ws, x.getId()));
-  const dist = g.used.has('distance'), bt = g.used.has('bt');
-  const lines = [
-    '// Made with blocks in RoboBench. This is real Arduino code for Dowee:',
-    '// copy it into the Arduino IDE to run it on the real robot.',
-    MOTOR_SETUP,
-    dist ? 'const int TRIG = 11;\nconst int ECHO = 12;' : '',
-    bt ? "char btCommand = 'S';   // last letter from the Bluetooth remote" : '',
-    vars.length ? vars.map(n => `float ${n} = 0;`).join('\n') : '',
-    '',
-    DRIVE_FN,
-    dist ? `\nlong readDistanceCm() {\n  digitalWrite(TRIG, LOW);\n  delayMicroseconds(2);\n  digitalWrite(TRIG, HIGH);\n  delayMicroseconds(10);\n  digitalWrite(TRIG, LOW);\n  long duration = pulseIn(ECHO, HIGH, 30000);\n  if (duration == 0) return 999;\n  return duration * 0.034 / 2;\n}` : '',
-    '',
-    'void setup() {',
-    PINMODES,
-    '  pinMode(LED_BUILTIN, OUTPUT);',
-    dist ? '  pinMode(TRIG, OUTPUT);\n  pinMode(ECHO, INPUT);' : '',
-    '  Serial.begin(9600);',
-    setupBody.replace(/\s+$/, ''),
-    '}',
-    '',
-    'void loop() {',
-    loopBody.replace(/\s+$/, ''),
-    '}',
-    '',
-  ];
-  return lines.filter((l, i) => l !== '' || lines[i - 1] !== '').join('\n').replace(/\n{3,}/g, '\n\n');
-}
-
-const TOOLBOX = () => {
-  const num = n => ({ shadow: { type: 'math_number', fields: { NUM: n } } });
-  return { kind: 'categoryToolbox', contents: [
-    { kind: 'category', name: 'Start', colour: C.start, contents: [{ kind: 'block', type: 'dowee_start' }, { kind: 'block', type: 'dowee_forever' }] },
-    { kind: 'category', name: 'Move', colour: C.move, contents: [
-      { kind: 'block', type: 'dowee_move', inputs: { SPEED: num(150) } }, { kind: 'block', type: 'dowee_stop' },
-      { kind: 'block', type: 'dowee_motors', inputs: { L: num(150), R: num(150) } }, { kind: 'block', type: 'dowee_wait', inputs: { SEC: num(1) } }] },
-    { kind: 'category', name: 'Sensors', colour: C.sense, contents: [
-      { kind: 'block', type: 'dowee_black', fields: { PIN: 'A2' } }, { kind: 'block', type: 'dowee_sensor', fields: { PIN: 'A2' } }, { kind: 'block', type: 'dowee_distance' },
-      { kind: 'block', type: 'dowee_bt_read' }, { kind: 'block', type: 'dowee_bt_is' }, { kind: 'block', type: 'dowee_time' }] },
-    { kind: 'category', name: 'Light & messages', colour: C.light, contents: [
-      { kind: 'block', type: 'dowee_led' }, { kind: 'block', type: 'dowee_print', inputs: { V: { shadow: { type: 'text', fields: { TEXT: 'Hello!' } } } } }, { kind: 'block', type: 'text' }] },
-    { kind: 'category', name: 'Control', colour: C.control, contents: [
-      { kind: 'block', type: 'controls_if' }, { kind: 'block', type: 'controls_if', extraState: { hasElse: true } },
-      { kind: 'block', type: 'controls_repeat_ext', inputs: { TIMES: num(4) } }, { kind: 'block', type: 'controls_whileUntil' },
-      { kind: 'block', type: 'dowee_wait', inputs: { SEC: num(1) } }, { kind: 'block', type: 'controls_flow_statements' }] },
-    { kind: 'category', name: 'Logic', colour: C.logic, contents: [
-      { kind: 'block', type: 'logic_compare', inputs: { A: num(0), B: num(30) }, fields: { OP: 'LT' } }, { kind: 'block', type: 'logic_operation' }, { kind: 'block', type: 'logic_negate' }, { kind: 'block', type: 'logic_boolean' }] },
-    { kind: 'category', name: 'Math', colour: C.math, contents: [
-      { kind: 'block', type: 'math_number' }, { kind: 'block', type: 'math_arithmetic', inputs: { A: num(1), B: num(1) } }, { kind: 'block', type: 'math_random_int', inputs: { FROM: num(1), TO: num(10) } }] },
-    { kind: 'category', name: 'Variables', colour: C.vars, custom: 'VARIABLE' },
-  ] };
-};
-
-/* starter programs (Blockly XML) */
-const X = {
-  num: n => `<shadow type="math_number"><field name="NUM">${n}</field></shadow>`,
-  move: (d, s, next = '') => `<block type="dowee_move"><field name="DIR">${d}</field><value name="SPEED">${X.num(s)}</value>${next ? `<next>${next}</next>` : ''}</block>`,
-  wait: (s, next = '') => `<block type="dowee_wait"><value name="SEC">${X.num(s)}</value>${next ? `<next>${next}</next>` : ''}</block>`,
-  stop: (next = '') => `<block type="dowee_stop">${next ? `<next>${next}</next>` : ''}</block>`,
-  led: (on, next = '') => `<block type="dowee_led"><field name="ON">${on}</field>${next ? `<next>${next}</next>` : ''}</block>`,
-  black: pin => `<block type="dowee_black"><field name="PIN">${pin}</field></block>`,
-  not: inner => `<block type="logic_negate"><value name="BOOL">${inner}</value></block>`,
-  or: (a, b) => `<block type="logic_operation"><field name="OP">OR</field><value name="A">${a}</value><value name="B">${b}</value></block>`,
-  lt: (a, n) => `<block type="logic_compare"><field name="OP">LT</field><value name="A">${a}</value><value name="B">${X.num(n)}</value></block>`,
-  bt: c => `<block type="dowee_bt_is"><field name="CMD">${c}</field></block>`,
-  ifs: (pairs, els) => `<block type="controls_if"><mutation elseif="${pairs.length - 1}"${els ? ' else="1"' : ''}></mutation>${pairs.map(([c, d], i) => `<value name="IF${i}">${c}</value><statement name="DO${i}">${d}</statement>`).join('')}${els ? `<statement name="ELSE">${els}</statement>` : ''}</block>`,
-  prog: (start, forever) => `<xml xmlns="https://developers.google.com/blockly/xml"><block type="dowee_start" x="20" y="20">${start ? `<statement name="DO">${start}</statement>` : ''}</block><block type="dowee_forever" x="20" y="${start ? 200 : 110}">${forever ? `<statement name="DO">${forever}</statement>` : ''}</block></xml>`,
-};
-const RC_BLOCKS = () => X.prog('', `<block type="dowee_bt_read"><next>${X.ifs([[X.bt('F'), X.move('F', 220)], [X.bt('B'), X.move('B', 220)], [X.bt('L'), X.move('SL', 130)], [X.bt('R'), X.move('SR', 130)], [X.bt('G'), X.move('TL', 220)], [X.bt('I'), X.move('TR', 220)], [X.bt('S'), X.stop()]])}</next></block>`);
-const BLOCK_STARTERS = {
-  lab: { name: 'Drive 1 metre and stop', xml: () => X.prog(X.led('HIGH', X.move('F', 180, X.wait(1.5, X.stop(X.led('LOW'))))), '') },
-  line: { name: 'Follow the line with 2 sensors', xml: () => X.prog('', X.ifs([[X.black('A1'), X.move('TL', 150)], [X.black('A3'), X.move('TR', 150)]], X.move('F', 150))) },
-  race: { name: 'Bluetooth remote control', xml: RC_BLOCKS },
-  soccer: { name: 'Bluetooth remote control', xml: RC_BLOCKS },
-  sumo: { name: 'Sumo: stay in, find, push', xml: () => X.prog(X.wait(5), X.ifs([[X.or(X.not(X.black('A0')), X.not(X.black('A4'))), X.move('B', 220, X.wait(0.3, X.move('SR', 200, X.wait(0.25))))], [X.lt('<block type="dowee_distance"></block>', 60), X.move('F', 255)]], X.move('SL', 130))) },
-  maze: { name: 'Avoid obstacles', xml: () => X.prog('', X.ifs([[X.lt('<block type="dowee_distance"></block>', 25), X.move('B', 160, X.wait(0.2, X.move('SL', 170, X.wait(0.4))))]], X.move('F', 200))) },
-};
-const blkKey = (a, r) => `blocks:${a}:${r}`, blkCodeKey = (a, r) => `blockcode:${a}:${r}`;
-
-async function showBlocks() {
-  $('#editor').hidden = true; $('#blkWrap').hidden = false; $('#btnToCode').hidden = false;
-  const msg = $('#blkMsg');
-  try { msg.hidden = false; msg.textContent = 'Loading blocks…'; await loadBlockly(); msg.hidden = true; }
-  catch (e) { msg.hidden = false; msg.textContent = 'The blocks could not load. Check the internet connection, or switch back to Code.'; return; }
-  defineDoweeBlocks();
-  if (!BK.gen) BK.gen = makeGenerator();
-  if (!BK.ws) {
-    const theme = Blockly.Theme.defineTheme('dowee', {
-      base: Blockly.Themes.Classic,
-      blockStyles: { logic_blocks: { colourPrimary: C.logic }, loop_blocks: { colourPrimary: C.control }, math_blocks: { colourPrimary: C.math }, variable_blocks: { colourPrimary: C.vars }, text_blocks: { colourPrimary: C.text } },
-      componentStyles: { workspaceBackgroundColour: '#fffdf8', toolboxBackgroundColour: '#eef8f6', toolboxForegroundColour: '#2e2a4f', flyoutBackgroundColour: '#e2f3f0', flyoutOpacity: 0.96, scrollbarColour: '#c9d9d5', insertionMarkerColour: '#2e2a4f' },
-      fontStyle: { family: 'Nunito, system-ui, sans-serif', weight: '800', size: 12 },
-      startHats: true,
-    });
-    BK.ws = Blockly.inject($('#blocklyDiv'), { toolbox: TOOLBOX(), theme, sounds: false, trashcan: false, renderer: 'zelos', zoom: { controls: false, wheel: true, startScale: 0.8, maxScale: 2, minScale: 0.4 }, grid: { spacing: 24, length: 2, colour: '#e6efe9', snap: true }, move: { scrollbars: true, drag: true, wheel: false } });
-    BK.ws.addChangeListener(e => { if (BK.suppress || e.isUiEvent) return; saveBlocks(); });
-    new ResizeObserver(() => { if (BK.ws && !$('#blkWrap').hidden) Blockly.svgResize(BK.ws); }).observe($('#blocklyDiv'));
-  }
-  loadWorkspace(S.arena, S.robot);
-  Blockly.svgResize(BK.ws);
-}
-function loadWorkspace(a, r) {
-  BK.suppress = true;
-  BK.ws.clear();
-  const saved = store.get(blkKey(a, r), null);
-  const xml = saved || (BLOCK_STARTERS[a] || BLOCK_STARTERS.lab).xml();
-  try { Blockly.Xml.domToWorkspace(Blockly.utils.xml.textToDom(xml), BK.ws); } catch (e) { Blockly.Xml.domToWorkspace(Blockly.utils.xml.textToDom(BLOCK_STARTERS.lab.xml()), BK.ws); }
-  BK.arena = a; BK.robot = r; BK.suppress = false;
-  saveBlocks();
-  BK.ws.scrollCenter();
-}
-function saveBlocks() {
-  if (!BK.ws || BK.arena !== S.arena || BK.robot !== S.robot) return;
-  const xml = Blockly.Xml.domToText(Blockly.Xml.workspaceToDom(BK.ws));
-  const code = blocksToArduino(BK.ws);
-  store.set(blkKey(BK.arena, BK.robot), xml); store.set(blkCodeKey(BK.arena, BK.robot), code);
-  $('#blkCode').textContent = code;
-  if (S.tuneFromBlocks) buildTune();
-}
-function blocksCode(a, r) { return store.get(blkCodeKey(a, r), null); }
-function showCode() { $('#editor').hidden = false; $('#blkWrap').hidden = true; $('#btnToCode').hidden = true; renderEditor(); }
-function applyMode() {
-  const m = modeOf(S.arena, S.robot);
-  $$('#modeSeg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.m === m));
-  if (m === 'blocks') showBlocks(); else showCode();
-}
-$('#modeSeg').addEventListener('click', e => {
-  const b = e.target.closest('button'); if (!b) return;
-  if (modeOf(S.arena, S.robot) === 'code') setCode(S.arena, S.robot, ta.value);
-  setMode(S.arena, S.robot, b.dataset.m);
-  fillExamples(); applyMode();
-});
-$('#btnToCode').addEventListener('click', () => {
-  if (!BK.ws) return;
-  const code = blocksToArduino(BK.ws);
-  setMode(S.arena, S.robot, 'code');
-  setCode(S.arena, S.robot, code);
-  fillExamples(); applyMode(); loadEditor();
-  toast('Your blocks are now Arduino code. Your blocks are saved: switch back to Blocks any time.');
-});
-function loadBlockStarter(a) {
-  if (!BK.ws) return;
-  BK.suppress = true; BK.ws.clear();
-  Blockly.Xml.domToWorkspace(Blockly.utils.xml.textToDom(BLOCK_STARTERS[a].xml()), BK.ws);
-  BK.suppress = false; saveBlocks(); BK.ws.scrollCenter();
-  toast('Starter blocks loaded');
-}
+/*@BLOCKS@*/
 
 /* ---------------- class: teams, submissions, leaderboards, battles ----------------
    Shared data (db capability):

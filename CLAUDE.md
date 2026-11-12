@@ -6,7 +6,7 @@ DOWEE is a virtual robotics lab for teaching kids aged 9–20. Students program 
 
 - `npm run build`: rebuilds the simulator into `app/` (`index.html` + `styles.css`) and `server/public/meta.json` from `src/`. Run it after every change in `src/`. Never edit `app/` by hand.
 - `npm start`: starts the classroom server (`--port`, `--data <folder>`, `--no-open`). The teacher dashboard is at `http://localhost:8080/teacher`.
-- `npm test`: headless simulator checks. `node tools/test.js <line|sumo|maze|race|soccer|lab|straight>` with `LV=ideal|real|tough`.
+- `npm test`: the build, the headless simulator checks (`tools/check.js`) and the blocks checks (`tools/blocks-check.js`). The blocks checks use Playwright when it can be loaded, and are skipped otherwise. `node tools/test.js <line|sumo|maze|race|soccer|lab|straight>` with `LV=ideal|real|tough`.
 - `node tools/sweep.js real '[[Kp,Kd,speed]]'`: tries PID settings across robot units.
 
 ## How it fits together
@@ -17,6 +17,21 @@ DOWEE is a virtual robotics lab for teaching kids aged 9–20. Students program 
 - `src/examples.js`, `src/lessons.js`, `src/goals.js`: example programs, built-in lessons, and the goal types teachers can attach to activities.
 - `src/templates.js`: the student templates per playground (`guided` with TODO steps, `blank` with only the wiring), their missions (3 stars, using `GOAL_TYPES`) and the hint ladder. `src/challenges.js`: fix-the-bug programs, added to `LESSONS` with level "Fix the bug". Their fixes live only in `tools/check.js`.
 - `src/primm.js` (after `advanced-pid.js` in the build): PRIMM content for every lesson (`predict`, `investigate`, `modify`, plus `todo` variants for classroom TODO starters; fix-the-bug lessons get Predict and Investigate) and `LESSON_PATH`, the levels of the Lessons page. Modify checks are `check(W, memo)`, polled about every 200 ms; helpers are in `PQ`. Every Modify step needs a reference change in `MOD` in `tools/check.js`.
+- `src/blocks.js` (inserted into `ui.js` at `/*@BLOCKS@*/`): Blocks mode.
+  - `blocksToArduino(ws)` is the translator.
+    - Orders are whole numbers spaced by 2, because Blockly floors them. The left operand gets `ord + 1`; the right operand of − × ÷ gets `ord - 1`, so it is bracketed.
+    - ÷ always gives a decimal; `dowee_intdiv` gives C's whole-number division.
+    - `inferTypes` types the variables: typed variables (`int`/`float`/`bool`, made with the three Variables buttons; lists are `int name[LIST_SIZE]`) keep their type. Untyped ones become `int` unless a decimal can reach them. `checkFit` warns when a decimal goes into an `int`.
+    - `makeNames` makes names unique and safe.
+    - Only the setup lines that are used are emitted.
+  - `STATEMENT_PREFIX` markers become `BK.lineMap` (code line → block id), which drives:
+    - click-to-highlight in the code view (`#blkCode`);
+    - the glowing running block (`glowRunningBlock`, using `board.line` and `board.calls`, the caller lines kept by `invoke` in `core-sim.js`);
+    - errors pointing at blocks (`blockForError`).
+  - `TOOLBOX(level)` gives `beginner` or `full`. `toolboxLevel()`: a lesson's `toolbox` wins, then `settings.toolbox`.
+  - `window.__doweeBlocks` is a read-only hook for `tools/blocks-check.js`.
+  - Blockly is inlined into `app/index.html` by `tools/build.js` (from `server/public/vendor/blockly`).
+- `src/blocks-content.js` (after `primm.js`): `X` XML helpers, `BLOCK_EXAMPLES[arena][id]` (`starter: true` is what classroom students always get; others are unlocked as `blk:arena/id`), and `BLOCK_LESSONS` (the Blocks track, pushed into `LESSONS` and put first in `LESSON_PATH`). Each lesson has `blocksXml`, `toolbox` and PRIMM. Their reference solutions live in `REF` in `tools/blocks-check.js`.
 - `src/ui.js`: the simulator interface. `tools/build.js` inserts `src/host.js` (classroom mode for students) at the `/*@HOST@*/` marker.
   - Views: `showMeet()`, `showLessons()` (the path page, `buildPath()`), `showWork()`.
   - The lesson pane (`#lessonPane`, left of the code) is built by `buildLessons()`. With no lesson it shows the playground's missions. Layout is set by `layoutWork()`: a column on wide screens (`S.paneOpen`), a drawer at 761–1100 px (`S.drawer`), and its own view on phones (`S.mview`, the bottom `#mSwitch`).
@@ -43,10 +58,18 @@ DOWEE is a virtual robotics lab for teaching kids aged 9–20. Students program 
 
 Done:
 - Simulator with six arenas.
-- Blocks mode.
+- Blocks mode:
+  - code shown beside the blocks with two-way highlighting and the running block glowing;
+  - about 30 Dowee blocks plus Blockly's logic, math, text, loops and functions;
+  - typed variables and lists;
+  - Beginner/Full toolbox;
+  - 14 examples;
+  - a 10-lesson Blocks track;
+  - works offline.
 - Realism levels.
 - Lessons.
 - Classroom mode: join, lesson plan, live roster, hands, handouts, lock, results with CSV export, battles, several classes, and PIN.
+- The teacher can change which playgrounds a class opens at any time (Settings → Playgrounds). This is `c.arenaPick`, via `allowedArenas(c)`; the Test lab is always on, and changing the robot type clears it. `robotInfo` gives a label such as "Line follower + Sumo".
 - Class robot types (`ROBOT_TYPES` in `server/server.js`): line, sumo, rc, obstacle and all. Students only see their class's playgrounds plus the Test lab (`S.allowedArenas` in the app); the teacher sees everything. Classes saved before this feature load as `all`.
 - Live tuning (`buildTune`, `tuneRange`, `prepareGlobals` in `src/ui.js`): global values are set at compile time, so sliders are right immediately. Tuned values are kept per arena across Restart until the number in the code changes. Ranges follow the hardware: PWM 0–255, analogRead 0–1023, HC-SR04 0–400 cm (hard limits), plus times in ms, and type limits such as a 16-bit int.
 - Meet Dowee is a main tab (`showMeet()` / `showWork()` in `src/ui.js`) and the students' starting page. It has numbered parts, and the parts that matter for the class type are highlighted (`CLASS_TYPES`).

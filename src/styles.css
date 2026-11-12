@@ -238,11 +238,28 @@ code.k { font-family: var(--font-mono); font-size: 12.5px; background: var(--sun
 
 /* Blocks */
 .blk { flex: 1; min-height: 320px; display: flex; flex-direction: column; position: relative; }
-#blocklyDiv { flex: 1; min-height: 280px; position: relative; }
+#blocklyDiv { position: relative; }
 .blk-msg { position: absolute; inset: 40% 16px auto; text-align: center; font-weight: 800; color: var(--muted); margin: 0; }
-.blk-code { border-top: 1px solid var(--line); background: var(--code-bg); }
-.blk-code summary { cursor: pointer; padding: 8px 12px; font-weight: 800; font-size: 13px; }
-.blk-code pre { margin: 0; padding: 4px 14px 12px; max-height: 220px; overflow: auto; font: 12px/1.5 var(--font-mono); font-variant-ligatures: none; color: var(--code-ink); }
+/* blocks bar, and the code view beside (or under) the blocks */
+.blk { container: blk / inline-size; }
+.blk-bar { display: flex; gap: 6px; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.blk-note { color: var(--danger); font-weight: 700; }
+.blk-main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(240px, 1fr) minmax(120px, 38%); }
+@container blk (min-width: 720px) { .blk-main { grid-template-columns: minmax(0, 1fr) minmax(230px, 34%); grid-template-rows: minmax(0, 1fr); } .blk-main .blk-code { border-top: 0; border-left: 1px solid var(--line); } }
+.blk.no-code .blk-main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.blk.no-code .blk-code { display: none; }
+#blocklyDiv { min-height: 0; }
+.blk-code { border-top: 1px solid var(--line); background: var(--code-bg); display: flex; flex-direction: column; min-height: 0; }
+.blk-code-head { padding: 6px 12px; font-weight: 800; font-size: 12px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.blk-code pre { margin: 0; padding: 6px 0 12px; flex: 1; min-height: 0; overflow: auto; font: 12px/1.55 var(--font-mono); font-variant-ligatures: none; color: var(--code-ink); }
+.blk-code .ln { display: block; padding: 0 10px 0 0; cursor: pointer; white-space: pre; }
+.blk-code .ln i { display: inline-block; width: 34px; padding-right: 8px; text-align: right; color: var(--code-gutter); font-style: normal; user-select: none; }
+.blk-code .ln:hover { background: var(--code-line); }
+.blk-code .ln.sel { background: #fff1b8; box-shadow: inset 3px 0 0 var(--yellow); }
+@media (min-width: 1101px) {
+  .work.blk-mode:not(.pane-min) { grid-template-columns: minmax(230px, 260px) minmax(380px, 1.3fr) minmax(0, 1fr); }
+  .work.blk-mode.pane-min { grid-template-columns: 30px minmax(420px, 1.3fr) minmax(0, 1fr); }
+}
 #modeSeg button[aria-pressed="true"] { background: var(--yellow); color: var(--navy); }
 .blocklyToolboxDiv { font-family: var(--font-body); }
 .blocklyTreeLabel { font-weight: 800; }

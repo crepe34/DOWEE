@@ -78,7 +78,7 @@ class Board {
   constructor(robot) { this.robot = robot; this.onSerial = null; this.onHint = null; this.onTone = null; this.reset(); }
   reset() {
     this.mode = new Array(22).fill(0); this.out = new Array(22).fill(0); this.pwm = new Array(22).fill(null);
-    this.rx = []; this.baud = 0; this.cost = 0; this.base = 0; this.wake = 0; this.t0 = 0; this.line = 0; this.depth = 0;
+    this.rx = []; this.baud = 0; this.cost = 0; this.base = 0; this.wake = 0; this.t0 = 0; this.line = 0; this.depth = 0; this.calls = [];
     this.prog = null; this.gen = null; this.state = 'off'; this.txFree = 0; this.trigArmed = false; this.rng = mulberry32(1234);
     this.loops = 0; this.warned = new Set(); this.ledToggles = 0; this.G = null; this.error = null; this.serialLines = 0;
   }
@@ -195,7 +195,9 @@ class Board {
     if (++this.depth > 120) throw new RTError('Too many functions calling each other (stack overflow).', this.line, 'A function might be calling itself forever.');
     const L = new Array(F.nslots).fill(0);
     for (let i = 0; i < F.params.length; i++) { const p = F.params[i]; L[p.slot] = p.isArray ? vals[i] : WRAP[p.type](vals[i]); }
+    this.calls.push(this.line);   // the line that called this function (Blocks mode lights up the calling block)
     const sig = yield* F.body(L);
+    this.calls.pop();
     this.depth--;
     const v = sig && sig.r ? sig.v : 0;
     return F.ret === 'void' ? 0 : WRAP[F.ret](v);

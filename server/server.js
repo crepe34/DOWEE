@@ -39,16 +39,28 @@ const ROBOT_TYPES = {
   all: { label: 'Everything (free play)', arenas: ['line', 'race', 'soccer', 'sumo', 'maze', 'lab'], seed: ['blocks', 'drive', 'follow'] },
 };
 const BUILTIN = {
-  blocks: ['Your first blocks program', 'lab', 'lab'], blink: ['Blink the LED', 'lab', 'lab'], drive: ['Drive exactly 1 metre', 'lab', 'lab'], turn: ['Turn 90 degrees', 'lab', 'lab'],
+  blocks: ['Blocks 1: Your first blocks program', 'lab', 'lab'], blink: ['Blink the LED', 'lab', 'lab'], drive: ['Drive exactly 1 metre', 'lab', 'lab'], turn: ['Turn 90 degrees', 'lab', 'lab'],
   see: ['See what the sensors see', 'line', 'oval'], follow: ['Follow the line with 2 sensors', 'line', 'oval'], pid1: ['PID 1: Where is the line?', 'line', 'oval'], pid2: ['PID 2: P, steer smoothly', 'line', 'oval'],
   pid3: ['PID 3: D, calm the wiggle', 'line', 'oval'], pid: ['PID 4: Calibrate and race', 'line', 'snake'],
   apid1: ['Advanced PID 1: Fill in the blanks (worksheet)', 'line', 'snake'], apid2: ['Advanced PID 2: Fill in the blanks (in the editor)', 'line', 'snake'], apid3: ['Advanced PID 3: Build your own PID racer', 'line', 'oval'],
+  'b-blink': ['Blocks 2: Blink forever', 'lab', 'lab'], 'b-square': ['Blocks 3: Drive a square (repeat)', 'lab', 'lab'], 'b-count': ['Blocks 4: Count with a variable', 'lab', 'lab'],
+  'b-follow': ['Blocks 5: Follow the line with if / else', 'line', 'oval'], 'b-avoid': ['Blocks 6: Don\'t bump (distance and if)', 'maze', 'room1'], 'b-rc': ['Blocks 7: Bluetooth remote', 'race', 'none'],
+  'b-func': ['Blocks 8: Make your own block', 'lab', 'lab'], 'b-every': ['Blocks 9: Two things at once (every … ms)', 'line', 'oval'], 'b-tocode': ['Blocks 10: From blocks to code', 'line', 'oval'],
   rc: ['Bluetooth RC driver', 'race', 'none'], sonar: ['Ultrasonic eyes', 'maze', 'room1'], edge: ['Stay inside the ring', 'sumo', 'none'], fight: ['Win a sumo match', 'sumo', 'hunter'], soccer: ['Score two goals', 'soccer', 'easy'],
 };
 const lowerLabel = l => (/^RC/.test(l) ? l : l.charAt(0).toLowerCase() + l.slice(1));
 const robotOf = c => (ROBOT_TYPES[c.robot] ? c.robot : 'all');
-const allowedArenas = c => ROBOT_TYPES[robotOf(c)].arenas;
-const robotInfo = c => ({ robot: robotOf(c), robotLabel: ROBOT_TYPES[robotOf(c)].label, arenas: allowedArenas(c) });
+// The teacher can tick extra playgrounds (or untick some) after making the class: c.arenaPick.
+const ARENA_NAMES = { line: 'Line following', race: 'RC race', soccer: 'Robot soccer', sumo: 'Sumo', maze: 'Obstacle room', lab: 'Test lab' };
+const cleanPick = v => (Array.isArray(v) && v.length ? ARENAS.filter(a => a === 'lab' || v.includes(a)) : null);
+const allowedArenas = c => (Array.isArray(c.arenaPick) && c.arenaPick.length ? ARENAS.filter(a => a === 'lab' || c.arenaPick.includes(a)) : ROBOT_TYPES[robotOf(c)].arenas);
+function robotInfo(c) {
+  const base = ROBOT_TYPES[robotOf(c)], arenas = allowedArenas(c);
+  const custom = arenas.length !== base.arenas.length || arenas.some(a => !base.arenas.includes(a));
+  const added = arenas.filter(a => !base.arenas.includes(a)).map(a => ARENA_NAMES[a]), removed = base.arenas.filter(a => !arenas.includes(a)).map(a => ARENA_NAMES[a]);
+  const label = !custom ? base.label : `${base.label}${added.length ? ' + ' + added.join(', ') : ''}${removed.length ? ' (no ' + removed.join(', ') + ')' : ''}`;
+  return { robot: robotOf(c), robotLabel: label, robotBase: base.label, custom, arenas };
+}
 function seedActivities(robot) {
   return ROBOT_TYPES[robot].seed.map(id => ({ id: newId(4), title: BUILTIN[id][0], builtin: id, arena: BUILTIN[id][1], variant: BUILTIN[id][2], realism: '', intro: '', steps: [], starter: { kind: 'lesson' }, goal: { type: 'builtin' } }));
 }
@@ -59,12 +71,15 @@ const num = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ?
 const now = () => Date.now();
 // sample programs per arena (from the build), used to check what a teacher unlocks
 let META = null;
-function examplesMeta() { if (!META) { try { META = JSON.parse(fs.readFileSync(path.join(__dirname, 'public', 'meta.json'), 'utf8')); } catch (e) { META = { examples: {} }; } } return META.examples || {}; }
-function cleanSettings(v, robot) {
+function metaJson() { if (!META) { try { META = JSON.parse(fs.readFileSync(path.join(__dirname, 'public', 'meta.json'), 'utf8')); } catch (e) { META = { examples: {} }; } } return META; }
+function examplesMeta() { return metaJson().examples || {}; }
+function cleanSettings(v, arenas) {
   v = v && typeof v === 'object' ? v : {};
-  const arenas = ROBOT_TYPES[ROBOT_TYPES[robot] ? robot : 'all'].arenas, ex = examplesMeta();
-  const unlocked = Array.isArray(v.unlocked) ? [...new Set(v.unlocked.map(x => str(x, 40)))].filter(k => { const [a, e] = k.split('/'); return arenas.includes(a) && ex[a] && ex[a][e]; }).slice(0, 40) : [];
-  return { showCode: v.showCode !== false, battles: v.battles !== false, level: v.level === 'blank' ? 'blank' : 'guided', hints: v.hints !== false, unlocked };
+  const ex = examplesMeta();
+  // "arena/example" for code samples, "blk:arena/example" for block samples
+  const bex = metaJson().blockExamples || {};
+  const unlocked = Array.isArray(v.unlocked) ? [...new Set(v.unlocked.map(x => str(x, 44)))].filter(k => { const blk = k.startsWith('blk:'), [a, e] = (blk ? k.slice(4) : k).split('/'); const set = blk ? bex : ex; return arenas.includes(a) && set[a] && set[a][e]; }).slice(0, 60) : [];
+  return { showCode: v.showCode !== false, battles: v.battles !== false, level: v.level === 'blank' ? 'blank' : 'guided', hints: v.hints !== false, toolbox: v.toolbox === 'beginner' ? 'beginner' : 'full', unlocked };
 }
 
 /* ---------------- data ---------------- */
@@ -72,7 +87,7 @@ function newClass(name, robot) {
   robot = ROBOT_TYPES[robot] ? robot : 'line';
   return {
     id: newId(), name: str(name, 60) || 'My robotics class', robot, created: now(), pin: '', announcement: '',
-    lock: null, settings: cleanSettings({}, robot),
+    lock: null, settings: cleanSettings({}, ROBOT_TYPES[robot].arenas),
     activities: seedActivities(robot),
     students: {}, matches: [], handouts: [],
   };
@@ -88,7 +103,7 @@ function load() {
   if (!db.classes[db.activeClass]) db.activeClass = Object.keys(db.classes)[0];
   for (const c of Object.values(db.classes)) {
     if (!ROBOT_TYPES[c.robot]) c.robot = 'all';   // classes saved before robot types existed
-    c.settings = cleanSettings(c.settings, c.robot);   // older classes: guided templates, hints on, nothing unlocked
+    c.settings = cleanSettings(c.settings, allowedArenas(c));   // older classes: guided templates, hints on, nothing unlocked
   }
 }
 let saveTimer = null;
@@ -174,7 +189,7 @@ function teacherState() {
   return {
     version: VERSION, port: PORT, lan: lanUrls(), teacherKey: db.teacherKey, dataFile: DATA_FILE,
     robotTypes: Object.fromEntries(Object.entries(ROBOT_TYPES).map(([k, v]) => [k, { label: v.label, arenas: v.arenas }])),
-    classes: Object.values(db.classes).map(k => ({ id: k.id, name: k.name, robotLabel: ROBOT_TYPES[robotOf(k)].label, students: Object.keys(k.students).length, created: k.created })),
+    classes: Object.values(db.classes).map(k => ({ id: k.id, name: k.name, robotLabel: robotInfo(k).robotLabel, students: Object.keys(k.students).length, created: k.created })),
     active: {
       ...c, ...robotInfo(c),
       students: Object.values(c.students).map(s => ({
@@ -318,7 +333,7 @@ async function handle(req, res) {
       broadcast(); return send(res, 200, { ok: true });
     }
     if (p === '/api/hand') { me.hand = body.up ? { at: now(), note: str(body.note, 200) } : null; broadcast(); return send(res, 200, { ok: true }); }
-    const notInClass = () => fail(res, 400, `This class is a ${lowerLabel(ROBOT_TYPES[robotOf(c)].label)} class, so it doesn't use that playground.`);
+    const notInClass = () => fail(res, 400, 'Your teacher hasn\'t opened that playground for this class.');
     if (p === '/api/submit') {
       if (!ARENAS.includes(body.arena)) return fail(res, 400, 'Unknown arena.');
       if (!allowedArenas(c).includes(body.arena)) return notInClass();
@@ -381,11 +396,13 @@ async function handle(req, res) {
     if (M === 'GET' && p === '/api/teacher/state') return send(res, 200, teacherState());
     if (M === 'POST' && p === '/api/teacher/class') {
       if (body.name !== undefined) c.name = str(body.name, 60) || c.name;
-      if (body.robot !== undefined && ROBOT_TYPES[body.robot]) { c.robot = body.robot; c.settings = cleanSettings(c.settings, c.robot); }
+      if (body.robot !== undefined && ROBOT_TYPES[body.robot] && body.robot !== c.robot) { c.robot = body.robot; c.arenaPick = null; }   // a new robot type starts from its own playgrounds
+      if (body.arenas !== undefined) c.arenaPick = cleanPick(body.arenas);
+      if (body.robot !== undefined || body.arenas !== undefined) c.settings = cleanSettings(c.settings, allowedArenas(c));
       if (body.pin !== undefined) c.pin = str(body.pin, 12).trim();
       if (body.announcement !== undefined) c.announcement = str(body.announcement, 500);
       if (body.lock !== undefined) c.lock = body.lock && c.activities.some(a => a.id === body.lock) ? body.lock : null;
-      if (body.settings && typeof body.settings === 'object') c.settings = cleanSettings({ ...c.settings, ...body.settings }, c.robot);
+      if (body.settings && typeof body.settings === 'object') c.settings = cleanSettings({ ...c.settings, ...body.settings }, allowedArenas(c));
       if (Array.isArray(body.activities)) c.activities = body.activities.slice(0, LIM.activities).map(cleanActivity).filter(Boolean);
       // a lock on an activity that no longer exists, or isn't in this class's playgrounds, is lifted
       if (c.lock) { const la = c.activities.find(a => a.id === c.lock); if (!la || !allowedArenas(c).includes(la.arena)) c.lock = null; }
@@ -410,7 +427,7 @@ async function handle(req, res) {
     if (M === 'POST' && p === '/api/teacher/student/hand') { const s = c.students[body.id]; if (s) { s.hand = null; save(); broadcast(); } return send(res, 200, { ok: true }); }
     if (M === 'POST' && p === '/api/teacher/student/reset') { const s = c.students[body.id]; if (s) { if (body.activity) delete s.progress[body.activity]; else s.progress = {}; save(); broadcast(); } return send(res, 200, { ok: true }); }
     if (M === 'POST' && p === '/api/teacher/handout') {
-      if (!allowedArenas(c).includes(body.arena)) return fail(res, 400, `That playground isn't part of this ${lowerLabel(ROBOT_TYPES[robotOf(c)].label)} class.`);
+      if (!allowedArenas(c).includes(body.arena)) return fail(res, 400, 'That playground isn\'t open for this class. Tick it under Settings → Playgrounds first.');
       const h = { id: newId(4), arena: body.arena, kind: body.kind === 'blocks' ? 'blocks' : 'code', code: str(body.code, LIM.code), xml: str(body.xml, LIM.xml), note: str(body.note, 300), target: body.target === 'all' || c.students[body.target] ? body.target : 'all', at: now() };
       c.handouts.unshift(h); c.handouts = c.handouts.slice(0, 20); save();
       pushTo(h.target, 'handout', h); broadcast(); return send(res, 200, { ok: true });

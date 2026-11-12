@@ -42,9 +42,16 @@
         </div>
       </div>
       <div class="blk" id="blkWrap" hidden>
-        <div id="blocklyDiv"></div>
+        <div class="blk-bar">
+          <button class="btn small" id="blkUndo" title="Undo">↶ Undo</button><button class="btn small" id="blkRedo" title="Redo">↷ Redo</button><button class="btn small" id="blkTidy" title="Line the blocks up neatly">Tidy up</button><button class="btn small" id="blkZoomOut" title="Smaller" aria-label="Zoom out">−</button><button class="btn small" id="blkZoomIn" title="Bigger" aria-label="Zoom in">+</button>
+          <span class="note blk-note" id="blkNote" aria-live="polite"></span><span class="spacer"></span>
+          <button class="btn small" id="blkShow" aria-pressed="true">Hide code</button>
+        </div>
+        <div class="blk-main">
+          <div id="blocklyDiv"></div>
+          <div class="blk-code"><div class="blk-code-head">Arduino code made by your blocks <span class="note">click a line to find its block</span></div><pre id="blkCode"></pre></div>
+        </div>
         <p class="blk-msg" id="blkMsg" hidden></p>
-        <details class="blk-code" id="blkPreview"><summary>Arduino code made by your blocks</summary><pre id="blkCode"></pre></details>
       </div>
       <div class="msgs" id="hostNotice" aria-live="polite"></div>
       <div class="msgs" id="msgs" aria-live="polite"></div>

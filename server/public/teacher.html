@@ -92,9 +92,11 @@
       <div class="form form-wide">
         <label class="fld">Class name<input type="text" id="setName" maxlength="60"></label>
         <label class="fld">Robot for this class<select id="setRobot"></select></label>
+        <div class="fld wide"><span>Playgrounds students can open <span class="note">(the Test lab is always open; you see everything)</span></span><div class="arena-pick" id="setArenas"></div><button class="btn small" type="button" id="setArenasReset">Use the robot type's playgrounds</button></div>
         <label class="fld">Class PIN (optional)<input type="text" id="setPin" maxlength="12" placeholder="Leave empty for no PIN"></label>
         <label class="fld">Student templates<select id="setLevel"><option value="guided">Guided: wiring done, the thinking as TODO steps</option><option value="blank">Blank: only the wiring, students write the rest</option></select></label>
         <label class="fld fld-check"><input type="checkbox" id="setHints"> Students can use the Hint button</label>
+        <label class="fld">Blocks toolbox<select id="setToolbox"><option value="full">Full: every block</option><option value="beginner">Beginner: move, wait, LED, sensors, if, repeat</option></select></label>
         <label class="fld fld-check"><input type="checkbox" id="setShow"> Students can open classmates' handed-in code</label>
       </div>
       <div class="row mt-10"><button class="btn primary" id="saveSettings">Save</button></div>

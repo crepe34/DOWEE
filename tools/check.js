@@ -231,6 +231,7 @@ console.log('\nPRIMM lessons (Predict, Run, Investigate, Modify, Make)');
   };
   for (const l of M.LESSONS) for (const [tag, mods, refs, start] of [['', l.modify, MOD[l.id] && MOD[l.id].refs, (MOD[l.id] && MOD[l.id].start) || startOf(l)], [' (TODO version)', l.todo && l.todo.modify, MOD[l.id] && MOD[l.id].todo, l.todo && l.todo.code]]) {
     if (!mods || !mods.length) continue;
+    if (l.blocks && !MOD[l.id]) continue;   // Blocks lessons are checked from their blocks in tools/blocks-check.js
     const spec = MOD[l.id] || {}, ms = spec.ms || 60000;
     check(`${l.id}${tag}: the starter ticks no Modify step, each reference change ticks its own`, () => {
       want(refs && refs.length === mods.length, `tools/check.js needs ${mods.length} reference change(s)`);
