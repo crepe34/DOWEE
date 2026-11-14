@@ -113,6 +113,8 @@ const EXPECT = {
     count: ['lab', 3200, W => W.robots[0].board.serialLines >= 5],
     tune: ['lab', 3000, W => W.time >= 2999],
     turn: ['lab', 3000, W => still(W) && deg(W) > 60 && deg(W) < 120],
+    // "go 150", then "stop", then "led on": it drives, stops, and the LED is on
+    commands: ['lab', 4000, W => W.time > 3500 && still(W) && W.robots[0].odo > 0.3 && W.robots[0].board.out[13] === 1 && W.robots[0].board.serialLines >= 3, { onStep: keys([300, 'go 150\n'], [2000, 'stop\n'], [2500, 'led on\n']) }],
     pins: ['lab', 4000, W => still(W) && Math.hypot(W.robots[0].x - W.robots[0].start.x, W.robots[0].y - W.robots[0].start.y) > 0.5],
   },
   line: { follow2: ['oval', 60000, lap], follow3: ['oval', 60000, lap], pfollow: ['oval', 60000, lap], blinkfollow: ['oval', 60000, W => lap(W) && W.robots[0].board.ledToggles >= 10],
@@ -169,10 +171,20 @@ REF['b-avoid'].mods = [M.BLOCK_EXAMPLES.maze.avoid.xml()];
     try { const out = serialOf(code); out === want ? ok(name) : bad(name, `printed ${JSON.stringify(out)}, expected ${JSON.stringify(want)}\n${code}`); }
     catch (e) { bad(name, `${e.message}\n${code}`); }
   }
-  // every block in the Full toolbox turns into code that compiles and runs
+  // every block in the Full toolbox, with every dropdown choice, turns into code that compiles and runs
   const every = await p.evaluate(() => window.__doweeBlocks.everyBlock().catch(e => ({ error: e.message })));
   if (every.error) bad('every toolbox block', every.error);
-  else { try { serialOf(every.code, 3000); ok(`every toolbox block (${every.types.length} kinds) compiles and runs`); } catch (e) { bad('every toolbox block', `${e.message}\n${every.code}`); } }
+  else {
+    try { serialOf(every.code, 3000); ok(`every toolbox block (${every.types.length} kinds, every dropdown choice) compiles and runs`); } catch (e) { bad('every toolbox block', `${e.message}\n${every.code}`); }
+    // and every function the text editor knows has a block: none may be missing
+    const src = require('fs').readFileSync(path.join(__dirname, '..', 'src', 'core-lang.js'), 'utf8');
+    const keys = re => [...src.match(re)[1].matchAll(/^\s{2}(\w+):/gm)].map(m => m[1]);
+    const missing = [...keys(/const BUILTINS = \{([\s\S]*?)\n\};/).filter(k => !new RegExp('\\b' + k + '\\(').test(every.code)),
+      ...keys(/const SERIAL = \{([\s\S]*?)\n\};/).filter(k => !every.code.includes('Serial.' + k + '(')).map(k => 'Serial.' + k),
+      ...keys(/const STRING_METHODS = \{([\s\S]*?)\n\};/).filter(k => !every.code.includes('.' + k + '(')).map(k => 'String.' + k),
+      ...keys(/const CONSTS = \{([\s\S]*?)\n\};/).filter(k => !['true', 'false', 'NULL', 'A6', 'A7', 'INPUT'].includes(k) && !new RegExp('\\b' + k + '\\b').test(every.code))];
+    missing.length ? bad('every Arduino function has a block', 'no block writes: ' + missing.join(', ')) : ok('every Arduino function the text editor knows has a block');
+  }
 
   console.log('\nBlocks examples');
   for (const [a, list] of Object.entries(M.BLOCK_EXAMPLES)) for (const [k, ex] of Object.entries(list)) {

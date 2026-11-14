@@ -32,7 +32,7 @@ const X = {
   // the type of every variable id used below (block fields must carry it)
   vt: new Map([['vc', 'int'], ['vb', 'int'], ['ve', 'int'], ['vt', 'float'], ['vd', 'int'], ['vs', 'int'],
     ['kp', 'float'], ['kd', 'float'], ['bs', 'int'], ['le', 'float'], ['er', 'float'], ['tu', 'float'], ['mn', 'list'], ['mx', 'list'], ['vv', 'int'], ['st', 'long'], ['tt', 'long'], ['ww', 'int'], ['to', 'int'],
-    ['ts', 'int'], ['tm', 'int'], ['cm', 'int']]),
+    ['ts', 'int'], ['tm', 'int'], ['cm', 'int'], ['tx', 'String'], ['sp', 'int']]),
   vars: list => (list.length ? `<variables>${list.map(([id, name, type]) => `<variable type="${type || ''}" id="${id}">${name}</variable>`).join('')}</variables>` : ''),
   f: (id, name) => `<field name="VAR" id="${id}" variabletype="${X.vt.get(id) || ''}">${name}</field>`,
   get: (id, name) => `<block type="dowee_var_get">${X.f(id, name)}</block>`,
@@ -61,6 +61,25 @@ const XB = {
   print: v => B('dowee_print_inline', { v: { V: v } }),
   text: t => `<block type="text"><field name="TEXT">${t}</field></block>`,
 };
+// Type commands in the Serial monitor: "go 150", "back 120", "stop", "led on", "led off". Uses the text blocks.
+function commandBlocks() {
+  const cmd = () => X.get('tx', 'command'), t = XB.text;
+  const starts = s => B('dowee_text_compare', { f: { OP: 'startsWith' }, v: { A: cmd(), B: t(s) } });
+  const same = s => B('dowee_text_compare', { f: { OP: 'equals' }, v: { A: cmd(), B: t(s) } });
+  const numberAfter = k => B('dowee_text_num', { f: { OP: 'toInt' }, v: { T: B('dowee_text_sub', { v: { A: k, B: B('dowee_text_length', { v: { T: cmd() } }), T: cmd() } }) } });
+  const join = (a, b) => `<block type="text_join"><mutation items="2"></mutation><value name="ADD0">${a}</value><value name="ADD1">${b}</value></block>`;
+  return X.prog(X.print(t('Type a command: go 150, back 120, stop, led on, led off')),
+    X.ifs([[B('dowee_serial_has'), seq(
+      X.set('tx', 'command', B('dowee_serial_text', { f: { OP: 'line' } })),
+      X.ifs([
+        [starts('go '), seq(X.set('sp', 'speed', numberAfter(4)), X.move('F', X.get('sp', 'speed')), X.print(join(t('Going forward at '), X.get('sp', 'speed'))))],
+        [starts('back '), seq(X.set('sp', 'speed', numberAfter(6)), X.move('B', X.get('sp', 'speed')), X.print(join(t('Going back at '), X.get('sp', 'speed'))))],
+        [same('stop'), seq(X.stop(), X.print(t('Stopped')))],
+        [same('led on'), X.led('HIGH')],
+        [same('led off'), X.led('LOW')]],
+        X.print(join(t('I don\'t know this command: '), cmd()))))]]),
+    { vars: [['tx', 'command', 'String'], ['sp', 'speed', 'int']] });
+}
 // The PID line follower with calibration, the same program as the text example (line/pid), made of blocks.
 function pidBlocks() {
   const g = (id, nm) => X.get(id, nm), i = g('i', 'i'), n = g('pn', 'n');
@@ -115,6 +134,7 @@ const BLOCK_EXAMPLES = {
     count: { name: 'Count in the Serial monitor (variable)', xml: () => X.prog(X.set('vc', 'count', 1), X.print(X.get('vc', 'count'), X.change('vc', 'count', 1, X.wait(0.5))), { vars: [['vc', 'count', 'int']] }) },
     turn: { name: 'Turn 90 degrees', xml: () => X.prog(seq(X.set('ts', 'turnSpeed', 150), X.set('tm', 'turnTime', 400),
       X.motors(X.get('ts', 'turnSpeed'), B('math_single', { f: { OP: 'NEG' }, v: { NUM: X.get('ts', 'turnSpeed') } })), B('dowee_wait_ms', { v: { MS: X.get('tm', 'turnTime') } }), X.stop()), '', { vars: [['ts', 'turnSpeed', 'int'], ['tm', 'turnTime', 'int']] }) },
+    commands: { name: 'Type commands in the Serial monitor (text)', xml: commandBlocks },
     pins: { name: 'Drive with the motor driver pins (L298N)', xml: () => X.prog(seq(
       B('dowee_comment', { f: { T: 'Left motor: IN1 (7) and IN2 (8) pick the direction, ENA (5) the speed' } }),
       B('dowee_dwrite', { v: { PIN: XB.pin('7'), V: XB.hl('HIGH') } }), B('dowee_dwrite', { v: { PIN: XB.pin('8'), V: XB.hl('LOW') } }), B('dowee_awrite', { v: { PIN: XB.pin('5'), V: 180 } }),
