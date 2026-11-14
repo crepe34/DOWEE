@@ -8,6 +8,7 @@ DOWEE is a virtual robotics lab for teaching kids aged 9–20. Students program 
 - `npm start`: starts the classroom server (`--port`, `--data <folder>`, `--no-open`). The teacher dashboard is at `http://localhost:8080/teacher`.
 - `npm test`: the build, the headless simulator checks (`tools/check.js`) and the blocks checks (`tools/blocks-check.js`). The blocks checks use Playwright when it can be loaded, and are skipped otherwise. `node tools/test.js <line|sumo|maze|race|soccer|lab|straight>` with `LV=ideal|real|tough`.
 - `node tools/sweep.js real '[[Kp,Kd,speed]]'`: tries PID settings across robot units.
+- `npm run loadtest -- <students> <seconds> <busy>`: fakes a class against a throwaway server (`tools/load-test.js`) and reports request times, hand/handout delays, Wi-Fi traffic, CPU and memory. Run it after changing the server's live updates.
 
 ## How it fits together
 
@@ -39,7 +40,10 @@ DOWEE is a virtual robotics lab for teaching kids aged 9–20. Students program 
   - Dock: `DOCK` groups and `showPanel(p)`. The panel ids (`p-serial`, `p-plot`, `p-sensors`, `p-wiring`, `p-tune`, `p-class`) are unchanged.
   - Menus: `<details class="menu">` (code ⋯ and View).
   - First-time tour: `TOUR`, `startTour()`, the `seenTour` flag and the ? button.
-- `server/server.js`: classroom server (Node.js, no dependencies). It uses JSON storage in `data/` and live updates over Server-Sent Events. A request counts as the teacher if it comes from localhost or carries the `dowee_teacher` cookie. Students are identified by a token.
+- `server/server.js`: classroom server (Node.js, no dependencies). It uses JSON storage in `data/` and live updates over Server-Sent Events.
+  - `broadcast()` is a throttle, not a debounce (a debounce starved in busy classes): updates go out at most 4 times a second. `broadcast('teacher')` updates only the dashboard (status, connect/close, join), `broadcast(studentId)` the dashboard and that student (hand, stars, hints, PRIMM, progress), and `broadcast()` everyone, at most once a second (class view = `sharedState`, turned into JSON once per beat; `meState` per student). The student roster only lists classmates who handed in a program.
+  - `save()` is throttled the same way. Static files are sent gzipped with an ETag (`fileCache`).
+  - A class holds `LIM.students` (200, or `DOWEE_MAX_STUDENTS`). A request counts as the teacher if it comes from localhost or carries the `dowee_teacher` cookie. Students are identified by a token.
 - `server/public/`: the teacher dashboard (`teacher.html`, `teacher.js`) and the bundled Blockly and QR libraries.
 - Styling lives only in CSS files: `src/styles.css` (simulator) and `server/public/teacher.css` (dashboard). Don't put `<style>` blocks or `style="…"` attributes in the HTML markup; use classes. (Small inline styles inside JavaScript templates are tolerated.)
 - `app/index.html` works in three ways: from the classroom server, as a claude.ai artifact (class features use the artifact `db`), or as a plain offline file.

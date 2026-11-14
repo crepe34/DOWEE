@@ -75,6 +75,17 @@ On the dashboard the teacher can:
 
 Class data is saved on the laptop in `data/dowee-classroom.json`. Use `npm start -- --port 9000` to pick another port, or `--data <folder>` to store data elsewhere.
 
+### How many students?
+
+A class holds up to **200 students** (set `DOWEE_MAX_STUDENTS` to change it). `node tools/load-test.js 50` fakes a class and measures it. On a normal laptop:
+
+| Students | Joining (each student downloads 359 kB once) | Live updates over the Wi-Fi | Raised hand reaches you | Laptop CPU |
+| --- | --- | --- | --- | --- |
+| 50 | 18 MB in total | about 1 Mbit/s | about 0.25 s | about 1–2% |
+| 200 | 72 MB in total | about 9–12 Mbit/s | about 0.25–0.6 s | about 3–4% |
+
+The laptop is never the limit; the classroom Wi-Fi is. For 30–60 students a normal school access point is fine. For a big class, use a good access point (not a phone hotspot) and let students join a few at a time.
+
 ## Run it alone
 
 Open `app/index.html` in a browser (keep `app/styles.css` next to it). It works offline, for one student, without classroom features. Blockly is bundled into the page, so Blocks mode works offline too.
@@ -86,6 +97,7 @@ npm run build                 # rebuilds app/ (index.html + styles.css) and serv
 npm test                      # build, simulator checks, and the blocks checks (tools/blocks-check.js, needs Playwright)
 node tools/test.js line       # runs headless simulations (line, sumo, maze, race, soccer, lab, straight)
 node tools/sweep.js real '[[0.08,1.5,150]]'   # tries PID settings (Kp, Kd, speed) across robot units
+npm run loadtest -- 50 60     # fakes a class of 50 students for 60 s against a throwaway server
 ```
 
 Set `LV=ideal|real|tough` before `node tools/test.js` to choose the realism level.

@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const { exec } = require('child_process');
 
 const VERSION = '1.0.0';
@@ -27,7 +28,7 @@ const DATA_FILE = path.join(DATA_DIR, 'dowee-classroom.json');
 const START_PORT = +(arg('--port') || process.env.PORT || 8080);
 
 /* ---------------- limits & helpers ---------------- */
-const LIM = { body: 300 * 1024, code: 30000, xml: 60000, name: 40, text: 2000, activities: 60, students: 200, matches: 200 };
+const LIM = { body: 300 * 1024, code: 30000, xml: 60000, name: 40, text: 2000, activities: 60, students: Math.max(1, +process.env.DOWEE_MAX_STUDENTS || 200), matches: 200 };
 const ARENAS = ['line', 'race', 'soccer', 'sumo', 'maze', 'lab'];
 const REALISM = ['', 'ideal', 'real', 'tough'];
 // Each class is about one kind of robot. Students only see these playgrounds; the Test lab is always included.
@@ -106,10 +107,11 @@ function load() {
     c.settings = cleanSettings(c.settings, allowedArenas(c));   // older classes: guided templates, hints on, nothing unlocked
   }
 }
+// Saves at most about once a second, on a steady beat, so a busy class can't keep pushing the save back.
 let saveTimer = null;
 function save(immediate) {
-  clearTimeout(saveTimer);
   const write = () => {
+    clearTimeout(saveTimer); saveTimer = null;
     try {
       fs.mkdirSync(DATA_DIR, { recursive: true });
       const tmp = DATA_FILE + '.tmp';
@@ -117,7 +119,7 @@ function save(immediate) {
       fs.renameSync(tmp, DATA_FILE);
     } catch (e) { console.error('Could not save classroom data:', e.message); }
   };
-  if (immediate) write(); else saveTimer = setTimeout(write, 800);
+  if (immediate) write(); else if (!saveTimer) saveTimer = setTimeout(write, 800);
 }
 const cls = () => db.classes[db.activeClass];
 
@@ -145,17 +147,33 @@ function studentFrom(req, url) {
 /* ---------------- live updates (Server-Sent Events) ---------------- */
 const clients = new Set(); // { res, role, sid }
 function sse(res, event, data) { try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch (e) { /* client gone */ } }
-let bcastTimer = null;
-function broadcast() {
-  clearTimeout(bcastTimer);
-  bcastTimer = setTimeout(() => {
-    const c = cls();
-    for (const cl of clients) {
-      if (cl.role === 'teacher') sse(cl.res, 'teacher', teacherState());
-      else { const s = cl.sid && c.students[cl.sid]; if (cl.sid && !s) { sse(cl.res, 'removed', {}); continue; } sse(cl.res, 'state', publicState(s)); }
-    }
-  }, 250);
+// Updates go out at most 4 times a second, on a steady beat: a busy class can't keep pushing them back.
+// The class view students see (roster, leaderboard, plan) changes at most once a second: with a big
+// class it is the largest message, and it goes to every student.
+// broadcast() updates everyone; broadcast('teacher') only the dashboard (a student's status);
+// broadcast(studentId) the dashboard and that student (their hand, stars, hints, lesson parts).
+let bcastTimer = null, lastAll = 0;
+const pending = { all: false, ids: new Set() };
+function broadcast(who) {
+  if (who === undefined) pending.all = true; else if (who !== 'teacher') pending.ids.add(who);
+  if (!bcastTimer) bcastTimer = setTimeout(flushBroadcast, 250);
 }
+function flushBroadcast() {
+  bcastTimer = null;
+  const all = pending.all && Date.now() - lastAll >= 1000, ids = pending.ids;
+  if (all) { pending.all = false; lastAll = Date.now(); } else if (pending.all) bcastTimer = setTimeout(flushBroadcast, 1000 - (Date.now() - lastAll));
+  pending.ids = new Set();
+  const c = cls(); let teacherJson = null, sharedJson = null;
+  for (const cl of clients) {
+    if (cl.role === 'teacher') { teacherJson = teacherJson || JSON.stringify(teacherState()); sseRaw(cl.res, 'teacher', teacherJson); continue; }
+    if (!all && !(cl.sid && ids.has(cl.sid))) continue;
+    const s = cl.sid && c.students[cl.sid]; if (cl.sid && !s) { sse(cl.res, 'removed', {}); continue; }
+    // the class part is the same for everyone: turn it into JSON once
+    sharedJson = sharedJson || JSON.stringify(sharedState(c));
+    sseRaw(cl.res, 'state', sharedJson.slice(0, -1) + ',"me":' + JSON.stringify(meState(s)) + '}');
+  }
+}
+function sseRaw(res, event, json) { try { res.write(`event: ${event}\ndata: ${json}\n\n`); } catch (e) { /* client gone */ } }
 function pushTo(target, event, data) {
   for (const cl of clients) if (cl.role === 'student' && (target === 'all' || cl.sid === target)) sse(cl.res, event, data);
 }
@@ -174,16 +192,17 @@ function leaderboards(c) {
   for (const [arena, map] of Object.entries(wins)) { (lb[arena] = lb[arena] || {}).wins = Object.values(map).sort((a, b) => b.value - a.value).slice(0, 10); }
   return lb;
 }
-function publicState(me) {
-  const c = cls(), on = onlineIds();
+function publicState(me) { return { ...sharedState(cls()), me: meState(me) }; }
+function sharedState(c) {
   return {
     classId: c.id, name: c.name, ...robotInfo(c), announcement: c.announcement, lock: c.lock, settings: c.settings, activities: c.activities,
-    roster: Object.values(c.students).map(s => ({ id: s.id, name: s.name, team: s.team, online: on.has(s.id), subs: Object.keys(s.subs || {}) })),
+    // students only use the roster to list classmates who handed in a program (for battles), so only those are sent
+    roster: Object.values(c.students).filter(s => s.subs && Object.keys(s.subs).length).map(s => ({ id: s.id, name: s.name, team: s.team, subs: Object.keys(s.subs) })),
     leaderboard: leaderboards(c),
     matches: c.matches.slice(0, 20).map(m => ({ arena: m.arena, a: m.a, b: m.b, winner: m.winner, text: m.text, at: m.at })),
-    me: me ? { id: me.id, name: me.name, team: me.team, hand: !!me.hand, progress: me.progress || {}, stars: me.stars || {}, hints: me.hints || {}, subs: Object.fromEntries(Object.entries(me.subs || {}).map(([k, v]) => [k, { at: v.at, activity: v.activity }])) } : null,
   };
 }
+const meState = me => (me ? { id: me.id, name: me.name, team: me.team, hand: !!me.hand, progress: me.progress || {}, stars: me.stars || {}, hints: me.hints || {}, subs: Object.fromEntries(Object.entries(me.subs || {}).map(([k, v]) => [k, { at: v.at, activity: v.activity }])) } : null);
 function teacherState() {
   const c = cls(), on = onlineIds();
   return {
@@ -252,16 +271,34 @@ function readBody(req) {
     req.on('error', bad);
   });
 }
-function serveFile(res, file, extraHeaders) {
-  fs.readFile(file, (err, data) => {
-    if (err) return fail(res, 404, 'Not found');
-    send(res, 200, data, MIME[path.extname(file).toLowerCase()] || 'application/octet-stream', { 'Cache-Control': file.includes(`${path.sep}vendor${path.sep}`) ? 'public, max-age=86400' : 'no-cache', ...extraHeaders });
+// Files are sent gzipped (the student page shrinks from about 1.5 MB to a fraction of that) with an ETag,
+// so a page reload costs almost nothing on the class Wi-Fi. Kept in memory until the file changes.
+const fileCache = new Map();
+function serveFile(res, file, extraHeaders, req) {
+  fs.stat(file, (err, st) => {
+    if (err || !st.isFile()) return fail(res, 404, 'Not found');
+    const hit = fileCache.get(file), headers = { 'Cache-Control': file.includes(`${path.sep}vendor${path.sep}`) ? 'public, max-age=86400' : 'no-cache', Vary: 'Accept-Encoding', ...extraHeaders };
+    const reply = e => {
+      headers.ETag = e.etag;
+      if (req && req.headers['if-none-match'] === e.etag) { res.writeHead(304, headers); return res.end(); }
+      const gz = req && e.gz && /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+      if (gz) headers['Content-Encoding'] = 'gzip';
+      send(res, 200, gz ? e.gz : e.raw, MIME[path.extname(file).toLowerCase()] || 'application/octet-stream', headers);
+    };
+    if (hit && hit.mtime === st.mtimeMs && hit.size === st.size) return reply(hit);
+    fs.readFile(file, (err2, raw) => {
+      if (err2) return fail(res, 404, 'Not found');
+      const zip = /\.(html|css|js|json|svg|txt|map)$/i.test(file) && raw.length > 1024;
+      const e = { mtime: st.mtimeMs, size: st.size, raw, gz: zip ? zlib.gzipSync(raw, { level: 9 }) : null, etag: `"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"` };
+      if (raw.length < 20e6) fileCache.set(file, e);
+      reply(e);
+    });
   });
 }
-function serveStatic(res, rel) {
+function serveStatic(res, rel, req) {
   const file = path.normalize(path.join(PUBLIC, rel));
   if (!file.startsWith(PUBLIC + path.sep)) return fail(res, 403, 'Forbidden');
-  serveFile(res, file);
+  serveFile(res, file, {}, req);
 }
 const csvCell = v => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 
@@ -272,19 +309,19 @@ async function handle(req, res) {
   const c = cls();
 
   // pages
-  if (M === 'GET' && (p === '/' || p === '/index.html')) return serveFile(res, APP_FILE);
-  if (M === 'GET' && p === '/styles.css') return serveFile(res, path.join(APP_DIR, 'styles.css'));
+  if (M === 'GET' && (p === '/' || p === '/index.html')) return serveFile(res, APP_FILE, {}, req);
+  if (M === 'GET' && p === '/styles.css') return serveFile(res, path.join(APP_DIR, 'styles.css'), {}, req);
   if (M === 'GET' && p === '/teacher') {
     if (url.searchParams.get('key') === db.teacherKey) {
       res.writeHead(302, { Location: '/teacher', 'Set-Cookie': `dowee_teacher=${encodeURIComponent(db.teacherKey)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000` });
       return res.end();
     }
     if (!isTeacher(req)) return send(res, 403, '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Teacher only</title><body style="font-family:system-ui;padding:40px;max-width:520px;margin:auto;line-height:1.5"><h2>This page is for the teacher</h2><p>Open the dashboard on the laptop running DOWEE. To use another device, open the teacher link shown in the dashboard\'s <b>Settings</b>.</p><p><a href="/">Go to the simulator</a></p>', 'text/html; charset=utf-8');
-    return serveStatic(res, 'teacher.html');
+    return serveStatic(res, 'teacher.html', req);
   }
   if (M === 'GET' && (p.startsWith('/vendor/') || p === '/teacher.js' || p === '/teacher.css' || p === '/meta.json')) {
     if (p === '/teacher.js' && !isTeacher(req)) return fail(res, 403, 'Teacher only');
-    return serveStatic(res, p.slice(1));
+    return serveStatic(res, p.slice(1), req);
   }
   if (!p.startsWith('/api/')) return fail(res, 404, 'Not found');
 
@@ -296,8 +333,8 @@ async function handle(req, res) {
     const client = { res, role: teacher ? 'teacher' : 'student', sid: s ? s.id : null };
     clients.add(client);
     if (teacher) sse(res, 'teacher', teacherState()); else sse(res, 'state', publicState(s));
-    if (s) { s.lastSeen = now(); broadcast(); }
-    req.on('close', () => { clients.delete(client); if (s) { s.lastSeen = now(); broadcast(); } });
+    if (s) { s.lastSeen = now(); broadcast('teacher'); }
+    req.on('close', () => { clients.delete(client); if (s) { s.lastSeen = now(); broadcast('teacher'); } });
     return;
   }
 
@@ -318,7 +355,7 @@ async function handle(req, res) {
     if (c.pin && str(body.pin, 12).trim() !== c.pin) return fail(res, 403, 'That class PIN is not right. Ask your teacher.');
     if (Object.keys(c.students).length >= LIM.students) return fail(res, 403, 'This class is full.');
     const s = { id: newId(), token: newToken(), name, team, joined: now(), lastSeen: now(), status: {}, progress: {}, bests: {}, stars: {}, hints: {}, primm: {}, subs: {}, hand: null };
-    c.students[s.id] = s; save(); broadcast();
+    c.students[s.id] = s; save(); broadcast('teacher');
     return send(res, 200, { token: s.token, student: { id: s.id, name, team } });
   }
 
@@ -330,17 +367,18 @@ async function handle(req, res) {
     if (p === '/api/profile') { const n = str(body.name, LIM.name).trim(); if (n) me.name = n; me.team = str(body.team, LIM.name).trim(); save(); broadcast(); return send(res, 200, { ok: true }); }
     if (p === '/api/status') {
       me.status = { arena: ARENAS.includes(body.arena) ? body.arena : '', activity: str(body.activity, 16), running: !!body.running, mode: body.mode === 'blocks' ? 'blocks' : 'code', crashed: !!body.crashed, realism: str(body.realism, 8), at: now() };
-      broadcast(); return send(res, 200, { ok: true });
+      broadcast('teacher'); return send(res, 200, { ok: true });
     }
-    if (p === '/api/hand') { me.hand = body.up ? { at: now(), note: str(body.note, 200) } : null; broadcast(); return send(res, 200, { ok: true }); }
+    if (p === '/api/hand') { me.hand = body.up ? { at: now(), note: str(body.note, 200) } : null; broadcast(me.id); return send(res, 200, { ok: true }); }
     const notInClass = () => fail(res, 400, 'Your teacher hasn\'t opened that playground for this class.');
     if (p === '/api/submit') {
       if (!ARENAS.includes(body.arena)) return fail(res, 400, 'Unknown arena.');
       if (!allowedArenas(c).includes(body.arena)) return notInClass();
       const code = str(body.code, LIM.code + 1);
       if (code.length > LIM.code) return fail(res, 413, 'This program is too long to hand in.');
+      const first = !me.subs[body.arena];
       me.subs[body.arena] = { code, mode: body.mode === 'blocks' ? 'blocks' : 'code', activity: str(body.activity, 16), at: now() };
-      save(); broadcast(); return send(res, 200, { ok: true });
+      save(); broadcast(first ? undefined : me.id); return send(res, 200, { ok: true });
     }
     if (p === '/api/best') {
       if (!ARENAS.includes(body.arena)) return fail(res, 400, 'Unknown arena.');
@@ -348,21 +386,26 @@ async function handle(req, res) {
       const key = str(body.key, 20), v = num(body.value, 0, 1e6, null);
       if (!key || v === null) return fail(res, 400, 'Bad value.');
       const b = (me.bests[body.arena] = me.bests[body.arena] || {});
-      if (b[key] === undefined || v < b[key]) { b[key] = +v.toFixed(2); save(); broadcast(); }
+      if (b[key] === undefined || v < b[key]) {
+        b[key] = +v.toFixed(2); save();
+        // everyone's leaderboard only changes if this time gets into the top 10
+        const others = Object.values(c.students).map(s => s.bests && s.bests[body.arena] && s.bests[body.arena][key]).filter(x => x !== undefined).sort((x, y) => x - y);
+        broadcast(others.length <= 10 || b[key] <= others[9] ? undefined : me.id);
+      }
       return send(res, 200, { ok: true });
     }
     if (p === '/api/stars') {
       if (!ARENAS.includes(body.arena)) return fail(res, 400, 'Unknown arena.');
       if (!allowedArenas(c).includes(body.arena)) return notInClass();
       const n = Math.round(num(body.n, 0, 3, 0)), st = (me.stars = me.stars || {});
-      if (!(st[body.arena] >= n)) { st[body.arena] = n; save(); broadcast(); }
+      if (!(st[body.arena] >= n)) { st[body.arena] = n; save(); broadcast(me.id); }
       return send(res, 200, { ok: true });
     }
     if (p === '/api/hint') {
       if (c.settings.hints === false) return fail(res, 403, 'Your teacher has turned hints off. Raise your hand instead!');
       const key = str(body.key, 40); if (!key) return fail(res, 400, 'Bad hint.');
       const h = (me.hints = me.hints || {}); h[key] = Math.min(99, (h[key] || 0) + 1);
-      save(); broadcast(); return send(res, 200, { ok: true });
+      save(); broadcast(me.id); return send(res, 200, { ok: true });
     }
     if (p === '/api/primm') {
       // How far a student got in a lesson's Predict / Run / Investigate / Modify / Make parts,
@@ -372,7 +415,7 @@ async function handle(req, res) {
       e.done = Math.max(e.done, Math.round(num(body.done, 0, 9, 0))); e.total = Math.round(num(body.total, 0, 9, e.total));
       if (e.pr === null && typeof body.predictRight === 'boolean') e.pr = body.predictRight;
       if (e.done === Math.round(num(body.done, 0, 9, 0))) e.next = str(body.next, 16);
-      e.at = now(); save(); broadcast(); return send(res, 200, { ok: true });
+      e.at = now(); save(); broadcast(me.id); return send(res, 200, { ok: true });
     }
     if (p === '/api/progress') {
       const id = str(body.activity, 16);
@@ -380,7 +423,7 @@ async function handle(req, res) {
       const pr = (me.progress[id] = me.progress[id] || { done: false, attempts: 0 });
       pr.attempts = (pr.attempts || 0) + (body.attempt ? 1 : 0);
       if (body.done && !pr.done) { pr.done = true; pr.at = now(); pr.result = str(body.result, 120); }
-      save(); broadcast(); return send(res, 200, { ok: true });
+      save(); broadcast(me.id); return send(res, 200, { ok: true });
     }
   }
   if (M === 'GET' && p === '/api/code') {
@@ -424,7 +467,7 @@ async function handle(req, res) {
       mergeStudent(into, from); delete c.students[body.from]; save(); broadcast(); return send(res, 200, { ok: true });
     }
     if (M === 'POST' && p === '/api/teacher/student/remove') { if (c.students[body.id]) { delete c.students[body.id]; save(); broadcast(); } return send(res, 200, { ok: true }); }
-    if (M === 'POST' && p === '/api/teacher/student/hand') { const s = c.students[body.id]; if (s) { s.hand = null; save(); broadcast(); } return send(res, 200, { ok: true }); }
+    if (M === 'POST' && p === '/api/teacher/student/hand') { const s = c.students[body.id]; if (s) { s.hand = null; save(); broadcast(s.id); } return send(res, 200, { ok: true }); }
     if (M === 'POST' && p === '/api/teacher/student/reset') { const s = c.students[body.id]; if (s) { if (body.activity) delete s.progress[body.activity]; else s.progress = {}; save(); broadcast(); } return send(res, 200, { ok: true }); }
     if (M === 'POST' && p === '/api/teacher/handout') {
       if (!allowedArenas(c).includes(body.arena)) return fail(res, 400, 'That playground isn\'t open for this class. Tick it under Settings → Playgrounds first.');

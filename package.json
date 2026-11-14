@@ -7,7 +7,8 @@
     "start": "node server/server.js",
     "build": "node tools/build.js",
     "test": "node tools/build.js && node tools/check.js && node tools/blocks-check.js",
-    "test:blocks": "node tools/blocks-check.js"
+    "test:blocks": "node tools/blocks-check.js",
+    "loadtest": "node tools/load-test.js"
   },
   "engines": { "node": ">=18" }
 }
