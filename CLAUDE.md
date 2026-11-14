@@ -67,9 +67,9 @@ DOWEE is a virtual robotics lab for teaching kids aged 9–20. Students program 
 Done:
 - Simulator with six arenas.
 - Blocks mode:
-  - code shown beside the blocks with two-way highlighting and the running block glowing;
-  - about 30 Dowee blocks plus Blockly's logic, math, text, loops and functions;
-  - typed variables and lists;
+  - code shown under the blocks (full width, with a drag bar `#blkSplit` saved as `blkCodeH`), with two-way highlighting and the running block glowing;
+  - a block for every Arduino function the interpreter has (`BUILTINS`, `SERIAL`, `STRING_METHODS` in `core-lang.js`), plus Blockly's logic, math, loops and functions. `npm test` builds one program from every Full toolbox block (`__doweeBlocks.everyBlock()`), and checks the printed answers of the function blocks (`OUTPUT` in `tools/blocks-check.js`). When you add an interpreter function, add its block too;
+  - typed variables (whole number, decimal, true/false, text = `String`) and lists. Text blocks count letters from 1, like lists;
   - Beginner/Full toolbox;
   - 14 examples;
   - a 10-lesson Blocks track;
@@ -81,6 +81,7 @@ Done:
 - Class robot types (`ROBOT_TYPES` in `server/server.js`): line, sumo, rc, obstacle and all. Students only see their class's playgrounds plus the Test lab (`S.allowedArenas` in the app); the teacher sees everything. Classes saved before this feature load as `all`.
 - Live tuning (`buildTune`, `tuneRange`, `prepareGlobals` in `src/ui.js`): global values are set at compile time, so sliders are right immediately. Tuned values are kept per arena across Restart until the number in the code changes. Ranges follow the hardware: PWM 0–255, analogRead 0–1023, HC-SR04 0–400 cm (hard limits), plus times in ms, and type limits such as a 16-bit int.
 - Meet Dowee is a main tab (`showMeet()` / `showWork()` in `src/ui.js`) and the students' starting page. It has numbered parts, and the parts that matter for the class type are highlighted (`CLASS_TYPES`).
+- The examples menu (`fillExamples(others)` in `src/ui.js`) lists only the current playground's samples; "More from other playgrounds…" lists the rest, and picking one opens its playground first (`goToSampleArena`).
 - Students write their own code (`samplesLocked()` in `src/ui.js`): in a class, students (and guests) start from the class's template (Guided or Blank, set by the teacher) and only see the samples the teacher unlocked (`settings.unlocked`) or sent. Built-in lessons give them a TODO version (`todo` in `src/lessons.js`). The teacher and solo/offline use keep every sample.
 - Missions with stars and the hint ladder in the Lessons tab. Stars and hint use are reported to the teacher (`/api/stars`, `/api/hint`); the roster, Results and CSV show them. The teacher can turn hints off (`settings.hints`).
 - PID path (`PID_LESSONS` in `src/lessons.js`): pid1 the weighted-average error, pid2 P, pid3 D, then pid (calibrate and race). Each step's goal is out of reach for the step before; `npm test` checks the starters fail and the finished steps pass. New line follower classes get all four in their plan.

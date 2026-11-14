@@ -70,14 +70,40 @@ function defineDoweeBlocks() {
     { type: 'dowee_pin_read', message0: 'pin %1 is HIGH', args0: [{ type: 'field_dropdown', name: 'PIN', options: PIN_IN }], output: 'Boolean', colour: C.pins, tooltip: 'digitalRead. The pin is set to INPUT for you.' },
     { type: 'dowee_analog_read', message0: 'analog read %1', args0: [{ type: 'field_dropdown', name: 'PIN', options: PIN_AIN }], output: 'Number', colour: C.pins, tooltip: 'analogRead: 0 (0 V) to 1023 (5 V).' },
     st({ type: 'dowee_analog_write', message0: 'analog write pin %1 value %2', args0: [{ type: 'field_dropdown', name: 'PIN', options: PIN_PWM }, { type: 'input_value', name: 'V', check: 'Number' }], inputsInline: true, tooltip: 'analogWrite (PWM): 0 to 255. Only pins 3, 5, 6, 9, 10 and 11 can do this.' }, C.pins),
-    { type: 'dowee_pulse_in', message0: 'pulse length on pin %1 (µs)', args0: [{ type: 'field_dropdown', name: 'PIN', options: PIN_IN }], output: 'Number', colour: C.pins, tooltip: 'pulseIn(pin, HIGH): how long the pin stays HIGH, in microseconds.' },
+    { type: 'dowee_pulse_in', message0: 'pulse length on pin %1 while %2 (µs)', args0: [{ type: 'field_dropdown', name: 'PIN', options: PIN_IN }, { type: 'field_dropdown', name: 'STATE', options: [['HIGH', 'HIGH'], ['LOW', 'LOW']] }], output: 'Number', colour: C.pins, tooltip: 'pulseIn: how long the pin stays HIGH (or LOW), in microseconds. Gives 0 if no pulse comes within 30 ms.' },
     // Math extras
     { type: 'dowee_map', message0: 'map %1 from %2 – %3 to %4 – %5', args0: [{ type: 'input_value', name: 'V', check: 'Number' }, { type: 'input_value', name: 'FL', check: 'Number' }, { type: 'input_value', name: 'FH', check: 'Number' }, { type: 'input_value', name: 'TL', check: 'Number' }, { type: 'input_value', name: 'TH', check: 'Number' }], inputsInline: true, output: 'Number', colour: C.math, tooltip: 'Changes a number from one range to another, like 0–1023 to 0–255.' },
     { type: 'dowee_minmax', message0: '%1 of %2 and %3', args0: [{ type: 'field_dropdown', name: 'OP', options: [['smaller', 'min'], ['bigger', 'max']] }, { type: 'input_value', name: 'A', check: 'Number' }, { type: 'input_value', name: 'B', check: 'Number' }], inputsInline: true, output: 'Number', colour: C.math },
     { type: 'dowee_intdiv', message0: 'whole-number %1 ÷ %2', args0: [{ type: 'input_value', name: 'A', check: 'Number' }, { type: 'input_value', name: 'B', check: 'Number' }], inputsInline: true, output: 'Number', colour: C.math, tooltip: 'Divides and drops the part after the point: 7 ÷ 2 = 3. This is what / does with int in Arduino code.' },
-    // Variables that know their type (whole number, decimal, true/false). Blockly's own variable blocks only take untyped ones.
-    { type: 'dowee_var_get', message0: '%1', args0: [{ type: 'field_variable', name: 'VAR', variable: 'x', variableTypes: ['', 'int', 'float', 'bool'], defaultType: 'int' }], output: null, colour: C.vars },
-    st({ type: 'dowee_var_set', message0: 'set %1 to %2', args0: [{ type: 'field_variable', name: 'VAR', variable: 'x', variableTypes: ['', 'int', 'float', 'bool'], defaultType: 'int' }, { type: 'input_value', name: 'VALUE' }], inputsInline: true }, C.vars),
+    { type: 'dowee_trig', message0: '%1 of %2 degrees', args0: [{ type: 'field_dropdown', name: 'OP', options: [['sin', 'sin'], ['cos', 'cos'], ['tan', 'tan']] }, { type: 'input_value', name: 'A', check: 'Number' }], inputsInline: true, output: 'Number', colour: C.math, tooltip: 'sin, cos and tan of an angle in degrees. Arduino works in radians, so the code multiplies by DEG_TO_RAD.' },
+    { type: 'dowee_atan2', message0: 'angle (degrees) to point x %1 y %2', args0: [{ type: 'input_value', name: 'X', check: 'Number' }, { type: 'input_value', name: 'Y', check: 'Number' }], inputsInline: true, output: 'Number', colour: C.math, tooltip: 'atan2(y, x): which way a point is, from -180 to 180 degrees. 0 is straight along x.' },
+    { type: 'dowee_sq', message0: '%1 squared', args0: [{ type: 'input_value', name: 'A', check: 'Number' }], inputsInline: true, output: 'Number', colour: C.math, tooltip: 'sq(x): x times x.' },
+    { type: 'dowee_const', message0: '%1', args0: [{ type: 'field_dropdown', name: 'C', options: [['π (3.14…)', 'PI'], ['π ÷ 2', 'HALF_PI'], ['2 × π', 'TWO_PI']] }], output: 'Number', colour: C.math },
+    { type: 'dowee_isnan', message0: '%1 is not a number', args0: [{ type: 'input_value', name: 'A', check: 'Number' }], inputsInline: true, output: 'Boolean', colour: C.math, tooltip: 'isnan: true for an impossible answer, like the square root of -1.' },
+    { type: 'dowee_bit', message0: 'bit %1 of %2', args0: [{ type: 'input_value', name: 'N', check: 'Number' }, { type: 'input_value', name: 'A', check: 'Number' }], inputsInline: true, output: 'Number', colour: C.math, tooltip: 'bitRead: 0 or 1. Bit 0 is the ones place in binary: 5 is 101, so bit 0 is 1, bit 1 is 0, bit 2 is 1.' },
+    st({ type: 'dowee_random_seed', message0: 'shuffle the random numbers', tooltip: 'randomSeed(analogRead(A5)): A5 is not connected, so its noise gives a different set of random numbers each time.' }, C.math),
+    // More timing and pins
+    st({ type: 'dowee_wait_us', message0: 'wait %1 microseconds', args0: [{ type: 'input_value', name: 'US', check: 'Number' }], inputsInline: true, tooltip: 'delayMicroseconds: 1000 µs is 1 ms. For very short waits, like the 10 µs ultrasonic trigger pulse.' }, C.time),
+    { type: 'dowee_micros', message0: 'microseconds since start', output: 'Number', colour: C.time, tooltip: 'micros(): goes up by 1,000,000 every second.' },
+    st({ type: 'dowee_pin_mode', message0: 'set pin %1 as %2', args0: [{ type: 'field_dropdown', name: 'PIN', options: PIN_OUT }, { type: 'field_dropdown', name: 'MODE', options: [['OUTPUT', 'OUTPUT'], ['INPUT', 'INPUT'], ['INPUT with pull-up', 'INPUT_PULLUP']] }], tooltip: 'pinMode. The pin blocks already do this for you; use it for INPUT_PULLUP (a button between the pin and GND reads LOW when pressed).' }, C.pins),
+    { type: 'dowee_pin_value', message0: 'digital read pin %1', args0: [{ type: 'field_dropdown', name: 'PIN', options: PIN_IN }], output: 'Number', colour: C.pins, tooltip: 'digitalRead as a number: 1 (HIGH) or 0 (LOW).' },
+    // More Serial and text
+    st({ type: 'dowee_serial_begin', message0: 'start Serial at %1 baud', args0: [{ type: 'field_dropdown', name: 'BAUD', options: [['9600', '9600'], ['115200', '115200'], ['57600', '57600'], ['38400', '38400'], ['19200', '19200'], ['4800', '4800']] }], tooltip: 'Serial.begin. Blocks start Serial at 9600 for you; the HC-05 Bluetooth module also uses 9600.' }, C.text),
+    st({ type: 'dowee_print_fmt', message0: 'show %1 in %2', args0: [{ type: 'input_value', name: 'V', check: 'Number' }, { type: 'field_dropdown', name: 'F', options: [['binary (BIN)', 'BIN'], ['hexadecimal (HEX)', 'HEX'], ['octal (OCT)', 'OCT'], ['decimal (DEC)', 'DEC']] }], inputsInline: true, tooltip: 'Serial.println(value, BIN): shows a whole number in another base.' }, C.text),
+    st({ type: 'dowee_serial_write', message0: 'send character %1', args0: [{ type: 'input_value', name: 'V', check: 'Number' }], inputsInline: true, tooltip: 'Serial.write: sends one character (a letter block, or its number: 65 is A).' }, C.text),
+    { type: 'dowee_serial_read', message0: '%1 from Serial', args0: [{ type: 'field_dropdown', name: 'OP', options: [['next character', 'read'], ['peek at next character', 'peek'], ['decimal number', 'parseFloat'], ['how many characters are waiting', 'available']] }], output: 'Number', colour: C.text, tooltip: 'read takes the next character (-1 if none), peek looks without taking it, parseFloat reads a number like 2.5, available counts what is waiting.' },
+    { type: 'dowee_serial_text', message0: 'text from Serial %1', args0: [{ type: 'field_dropdown', name: 'OP', options: [['up to a new line', 'line'], ['everything waiting', 'all']] }], output: 'String', colour: C.text, tooltip: 'Serial.readStringUntil(\'\\n\') or Serial.readString().' },
+    { type: 'dowee_char', message0: 'letter %1', args0: [{ type: 'field_input', name: 'L', text: 'A' }], output: 'Number', colour: C.text, tooltip: 'One character, like \'A\'. In Arduino a character is a small number (A is 65), so you can compare it with what Serial reads.' },
+    { type: 'dowee_num_text', message0: '%1 as text with %2 decimals', args0: [{ type: 'input_value', name: 'V', check: 'Number' }, { type: 'input_value', name: 'D', check: 'Number' }], inputsInline: true, output: 'String', colour: C.text, tooltip: 'String(value, decimals): 3.14159 with 2 decimals is "3.14".' },
+    { type: 'dowee_text_length', message0: 'length of %1', args0: [{ type: 'input_value', name: 'T' }], inputsInline: true, output: 'Number', colour: C.text, tooltip: 'How many characters: "Dowee" has 5.' },
+    { type: 'dowee_text_num', message0: '%1 as a %2', args0: [{ type: 'input_value', name: 'T' }, { type: 'field_dropdown', name: 'OP', options: [['whole number', 'toInt'], ['decimal', 'toFloat']] }], inputsInline: true, output: 'Number', colour: C.text, tooltip: 'Turns text like "42" into the number 42 (toInt, toFloat). Text that is not a number gives 0.' },
+    { type: 'dowee_text_char', message0: 'letter %1 of %2', args0: [{ type: 'input_value', name: 'I', check: 'Number' }, { type: 'input_value', name: 'T' }], inputsInline: true, output: 'String', colour: C.text, tooltip: 'Letters count from 1, like list items. (Arduino\'s charAt counts from 0.)' },
+    { type: 'dowee_text_find', message0: 'where is %1 in %2', args0: [{ type: 'input_value', name: 'F' }, { type: 'input_value', name: 'T' }], inputsInline: true, output: 'Number', colour: C.text, tooltip: 'The letter number where it starts (from 1), or 0 if it is not there. (Arduino\'s indexOf counts from 0 and gives -1.)' },
+    { type: 'dowee_text_sub', message0: 'letters %1 to %2 of %3', args0: [{ type: 'input_value', name: 'A', check: 'Number' }, { type: 'input_value', name: 'B', check: 'Number' }, { type: 'input_value', name: 'T' }], inputsInline: true, output: 'String', colour: C.text, tooltip: 'Part of the text: letters 2 to 4 of "Dowee" is "owe". (substring in Arduino.)' },
+    { type: 'dowee_text_compare', message0: '%1 %2 %3', args0: [{ type: 'input_value', name: 'A' }, { type: 'field_dropdown', name: 'OP', options: [['is the same as', 'equals'], ['starts with', 'startsWith'], ['ends with', 'endsWith']] }, { type: 'input_value', name: 'B' }], inputsInline: true, output: 'Boolean', colour: C.text },
+    // Variables that know their type (whole number, decimal, true/false, text). Blockly's own variable blocks only take untyped ones.
+    { type: 'dowee_var_get', message0: '%1', args0: [{ type: 'field_variable', name: 'VAR', variable: 'x', variableTypes: ['', 'int', 'float', 'bool', 'String'], defaultType: 'int' }], output: null, colour: C.vars },
+    st({ type: 'dowee_var_set', message0: 'set %1 to %2', args0: [{ type: 'field_variable', name: 'VAR', variable: 'x', variableTypes: ['', 'int', 'float', 'bool', 'String'], defaultType: 'int' }, { type: 'input_value', name: 'VALUE' }], inputsInline: true }, C.vars),
     st({ type: 'dowee_var_change', message0: 'change %1 by %2', args0: [{ type: 'field_variable', name: 'VAR', variable: 'x', variableTypes: ['', 'int', 'float'], defaultType: 'int' }, { type: 'input_value', name: 'DELTA', check: 'Number' }], inputsInline: true }, C.vars),
     // Lists (arrays)
     st({ type: 'dowee_list_set', message0: 'set item %1 of %2 to %3', args0: [{ type: 'input_value', name: 'I', check: 'Number' }, { type: 'field_variable', name: 'VAR', variable: 'list', variableTypes: ['list'], defaultType: 'list' }, { type: 'input_value', name: 'V', check: 'Number' }], inputsInline: true, tooltip: 'Items count from 1. (In Arduino code they count from 0, so the code says [i - 1].)' }, C.list),
@@ -95,7 +121,7 @@ const isWhole = s => /^-?\d+$/.test(s);
 const isNum = s => /^-?\d+(\.\d+)?$/.test(s);
 // C string literal: escapes quotes and backslashes; characters Serial can't show become '?'.
 const cStr = t => '"' + String(t).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/[^\x20-\x7e\\]/g, '?') + '"';
-const TYPE_RANK = { bool: 0, int: 1, long: 2, float: 3 };
+const TYPE_RANK = { bool: 0, int: 1, long: 2, float: 3, String: 4 };
 const wider = (a, b) => (TYPE_RANK[a] >= TYPE_RANK[b] ? a : b);
 
 function makeGenerator() {
@@ -149,7 +175,7 @@ function makeGenerator() {
   F.dowee_pin_read = b => { const p = b.getFieldValue('PIN'); if (!/^A[0-4]$/.test(p)) pinIn(p); return [`digitalRead(${p}) == HIGH`, O.EQ]; };
   F.dowee_analog_read = b => [`analogRead(${b.getFieldValue('PIN')})`, O.ATOMIC];
   F.dowee_analog_write = b => { const p = b.getFieldValue('PIN'); pinOut(p); return `analogWrite(${p}, ${v(b, 'V', O.NONE)});\n`; };
-  F.dowee_pulse_in = b => { const p = b.getFieldValue('PIN'); if (!/^A[0-4]$/.test(p)) pinIn(p); return [`pulseIn(${p}, HIGH, 30000)`, O.ATOMIC]; };
+  F.dowee_pulse_in = b => { const p = b.getFieldValue('PIN'); if (!/^A[0-4]$/.test(p)) pinIn(p); return [`pulseIn(${p}, ${b.getFieldValue('STATE') || 'HIGH'}, 30000)`, O.ATOMIC]; };
   F.dowee_map = b => [`map(${['V', 'FL', 'FH', 'TL', 'TH'].map(k => v(b, k, O.NONE)).join(', ')})`, O.ATOMIC];
   F.dowee_minmax = b => [`${b.getFieldValue('OP')}(${v(b, 'A', O.NONE)}, ${v(b, 'B', O.NONE)})`, O.ATOMIC];
   F.dowee_intdiv = b => [`(long)(${v(b, 'A', O.NONE)}) / (long)(${v(b, 'B', O.NONE, '1')})`, O.MULT];
@@ -157,6 +183,41 @@ function makeGenerator() {
   const idx = b => { const i = v(b, 'I', O.ADD, '1'); return isWhole(i) ? String(Math.max(0, +i - 1)) : `${i} - 1`; };
   F.dowee_list_set = b => `${name(b)}[${idx(b)}] = ${v(b, 'V', O.NONE)};\n`;
   F.dowee_list_get = b => [`${name(b)}[${idx(b)}]`, O.ATOMIC];
+  F.dowee_pin_mode = b => { const p = b.getFieldValue('PIN'); return `pinMode(${p === '13' ? 'LED_BUILTIN' : p}, ${b.getFieldValue('MODE')});\n`; };
+  F.dowee_pin_value = b => { const p = b.getFieldValue('PIN'); if (!/^A[0-4]$/.test(p)) pinIn(p); return [`digitalRead(${p})`, O.ATOMIC]; };
+  F.dowee_wait_us = b => `delayMicroseconds(${v(b, 'US', O.NONE, '10')});\n`;
+  F.dowee_micros = () => ['micros()', O.ATOMIC];
+  // more math
+  F.dowee_trig = b => [`${b.getFieldValue('OP')}(${v(b, 'A', O.MULT + 1)} * DEG_TO_RAD)`, O.ATOMIC];
+  F.dowee_atan2 = b => [`atan2(${v(b, 'Y', O.NONE)}, ${v(b, 'X', O.NONE, '1')}) * RAD_TO_DEG`, O.MULT];
+  F.dowee_sq = b => [`sq(${v(b, 'A', O.NONE)})`, O.ATOMIC];
+  F.dowee_const = b => [b.getFieldValue('C'), O.ATOMIC];
+  F.dowee_isnan = b => [`isnan(${v(b, 'A', O.NONE)})`, O.ATOMIC];
+  F.dowee_bit = b => [`bitRead(${v(b, 'A', O.NONE)}, ${v(b, 'N', O.NONE)})`, O.ATOMIC];
+  F.dowee_random_seed = () => 'randomSeed(analogRead(A5));\n';
+  // more Serial and text
+  F.dowee_serial_begin = b => { g.serial = true; g.baud = b.getFieldValue('BAUD'); return ''; };
+  F.dowee_print_fmt = b => { g.serial = true; return `Serial.println(${v(b, 'V', O.NONE)}, ${b.getFieldValue('F')});\n`; };
+  F.dowee_serial_write = b => { g.serial = true; return `Serial.write(${v(b, 'V', O.NONE, "'?'")});\n`; };
+  F.dowee_serial_read = b => { g.serial = true; const op = b.getFieldValue('OP'); return [`Serial.${op}()`, O.ATOMIC]; };
+  F.dowee_serial_text = b => { g.serial = true; return [b.getFieldValue('OP') === 'all' ? 'Serial.readString()' : "Serial.readStringUntil('\\n')", O.ATOMIC]; };
+  F.dowee_char = b => { const c = (b.getFieldValue('L') || ' ')[0]; return [/[\x20-\x7e]/.test(c) ? `'${c === "'" || c === '\\' ? '\\' + c : c}'` : "'?'", O.ATOMIC]; };
+  F.dowee_num_text = b => [`String(${v(b, 'V', O.NONE)}, ${v(b, 'D', O.NONE, '2')})`, O.ATOMIC];
+  // Text blocks work on Arduino Strings. A text that is not already a String (a "quoted" text, a number) is wrapped in String( ).
+  const STRINGY = new Set(['dowee_num_text', 'dowee_serial_text', 'dowee_text_char', 'dowee_text_sub']);
+  const str = (b, input) => {
+    const t = b.getInputTargetBlock(input);
+    if (!t) return 'String("")';
+    if (STRINGY.has(t.type) || ((t.type === 'variables_get' || t.type === 'dowee_var_get') && g.typeOfVar(t.getFieldValue('VAR')) === 'String')) return v(b, input, O.ATOMIC);
+    return `String(${v(b, input, O.NONE)})`;
+  };
+  const from1 = (b, input) => { const i = v(b, input, O.ADD, '1'); return isWhole(i) ? String(Math.max(0, +i - 1)) : `${i} - 1`; };
+  F.dowee_text_length = b => [`${str(b, 'T')}.length()`, O.ATOMIC];
+  F.dowee_text_num = b => [`${str(b, 'T')}.${b.getFieldValue('OP')}()`, O.ATOMIC];
+  F.dowee_text_char = b => [`String(${str(b, 'T')}.charAt(${from1(b, 'I')}))`, O.ATOMIC];
+  F.dowee_text_find = b => [`${str(b, 'T')}.indexOf(${v(b, 'F', O.NONE, '""')}) + 1`, O.ADD];
+  F.dowee_text_sub = b => [`${str(b, 'T')}.substring(${from1(b, 'A')}, ${v(b, 'B', O.NONE, '1')})`, O.ATOMIC];
+  F.dowee_text_compare = b => [`${str(b, 'A')}.${b.getFieldValue('OP')}(${str(b, 'B')})`, O.ATOMIC];
   // control
   F.controls_if = b => {
     let n = 0, code = '';
@@ -212,7 +273,8 @@ function makeGenerator() {
   // variables and text
   F.variables_get = F.dowee_var_get = b => [name(b), O.ATOMIC];
   F.dowee_var_change = b => F.math_change(b);
-  F.variables_set = F.dowee_var_set = b => { g.checkFit(b, name(b), b.getInputTargetBlock('VALUE')); return `${name(b)} = ${v(b, 'VALUE', O.NONE, g.typeOfVar(b.getFieldValue('VAR')) === 'bool' ? 'false' : '0')};\n`; };
+  F.variables_set = F.dowee_var_set = b => { g.checkFit(b, name(b), b.getInputTargetBlock('VALUE')); const vt = g.typeOfVar(b.getFieldValue('VAR'));
+    return `${name(b)} = ${vt === 'String' && g.typeOf(b.getInputTargetBlock('VALUE')) !== 'String' ? `String(${v(b, 'VALUE', O.NONE, '""')})` : v(b, 'VALUE', O.NONE, vt === 'bool' ? 'false' : vt === 'String' ? '""' : '0')};\n`; };
   F.text = b => [cStr(b.getFieldValue('TEXT') || ''), O.ATOMIC];
   F.text_join = b => {
     const parts = []; for (let i = 0; i < (b.itemCount_ || 0); i++) parts.push(v(b, 'ADD' + i, O.ADD + 1, '""'));
@@ -252,8 +314,9 @@ function makeNames(ws) {
 // Types: typed variables keep their type; untyped ones become int unless a decimal can end up in them.
 function inferTypes(g, ws) {
   const blocks = ws.getAllBlocks(false), vtype = new Map(), ret = new Map();
-  for (const e of g.names.all()) vtype.set(e.id, ['int', 'float', 'bool', 'long'].includes(e.type) ? e.type : null);
-  const fixed = id => ['int', 'float', 'bool', 'long'].includes((g.names.all().find(e => e.id === id) || {}).type);
+  const TYPED = ['int', 'float', 'bool', 'long', 'String'];
+  for (const e of g.names.all()) vtype.set(e.id, TYPED.includes(e.type) ? e.type : null);
+  const fixed = id => TYPED.includes((g.names.all().find(e => e.id === id) || {}).type);
   const T = (b, seen = 0) => {
     if (!b || seen > 40) return 'int';
     const t = b.type, k = (n) => T(b.getInputTargetBlock(n), seen + 1);
@@ -263,7 +326,11 @@ function inferTypes(g, ws) {
     if (t === 'math_round' || t === 'math_modulo' || t === 'dowee_intdiv' || t === 'math_random_int' || t === 'dowee_map' || t === 'dowee_sensor' || t === 'dowee_sensor_n' || t === 'dowee_analog_read' || t === 'dowee_line_pos' || t === 'dowee_distance' || t === 'dowee_serial_num' || t === 'dowee_list_get') return t === 'math_modulo' || t === 'dowee_intdiv' || t === 'dowee_distance' || t === 'math_random_int' || t === 'dowee_map' ? 'long' : 'int';
     if (t === 'math_constrain') return wider(k('VALUE'), wider(k('LOW'), k('HIGH')));
     if (t === 'dowee_minmax') return wider(k('A'), k('B'));
-    if (t === 'dowee_millis' || t === 'dowee_pulse_in') return 'long';
+    if (t === 'dowee_millis' || t === 'dowee_pulse_in' || t === 'dowee_micros') return 'long';
+    if (/^(text|text_join|dowee_num_text|dowee_serial_text|dowee_text_char|dowee_text_sub)$/.test(t)) return 'String';
+    if (/^dowee_(trig|atan2|const)$/.test(t) || (t === 'dowee_serial_read' && b.getFieldValue('OP') === 'parseFloat') || (t === 'dowee_text_num' && b.getFieldValue('OP') === 'toFloat')) return 'float';
+    if (t === 'dowee_sq') return k('A');
+    if (t === 'dowee_isnan' || t === 'dowee_text_compare') return 'bool';
     if (t === 'dowee_time') return 'float';
     if (/^logic_|dowee_black|dowee_bt_is|dowee_pin_read|dowee_serial_has/.test(t)) return 'bool';
     if (t === 'variables_get' || t === 'dowee_var_get') return vtype.get(b.getFieldValue('VAR')) || 'int';
@@ -293,7 +360,10 @@ function inferTypes(g, ws) {
   // A decimal going into a whole-number variable loses its fraction: say so on the block.
   g.checkFit = (blk, cname, valueBlock) => {
     const want = g.typeOfVar(blk.getFieldValue('VAR')), got = T(valueBlock);
-    blk.setWarningText && blk.setWarningText(want !== 'float' && got === 'float' && want !== 'bool' ? `${cname} is a whole-number variable, so the part after the point is dropped (2.7 becomes 2). Use a decimal variable to keep it.` : null);
+    const msg = want === 'String' || !valueBlock ? null
+      : got === 'String' ? `${cname} holds a number, so it can't keep text. Use a text variable, or turn the text into a number with "… as a whole number".`
+      : want !== 'float' && got === 'float' && want !== 'bool' ? `${cname} is a whole-number variable, so the part after the point is dropped (2.7 becomes 2). Use a decimal variable to keep it.` : null;
+    blk.setWarningText && blk.setWarningText(msg);
   };
 }
 
@@ -306,7 +376,7 @@ const HELPERS = {
 function blocksToArduino(ws, opts = {}) {
   if (!BK.gen) BK.gen = makeGenerator();
   const g = BK.gen; g.init(ws);
-  g.used = new Set(); g.globals = []; g.defs = []; g.pins = { out: new Set(), in: new Set(), led: false }; g.serial = false; g.black = false; g.timerN = 0;
+  g.used = new Set(); g.globals = []; g.defs = []; g.pins = { out: new Set(), in: new Set(), led: false }; g.serial = false; g.baud = '9600'; g.black = false; g.timerN = 0;
   g.names = makeNames(ws); g.freshName = g.names.fresh;
   const procNames = new Map(); g.procName = raw => { if (!procNames.has(raw)) procNames.set(raw, g.names.clean(raw)); return procNames.get(raw); };
   inferTypes(g, ws);
@@ -328,7 +398,7 @@ function blocksToArduino(ws, opts = {}) {
     const isParam = ws.getAllBlocks(false).some(b => /^procedures_def/.test(b.type) && (b.getVars ? b.getVars() : []).includes(e.raw));
     if (isParam) return '';
     const t = g.typeOfVar(e.id);
-    return `${t} ${e.c} = ${t === 'bool' ? 'false' : '0'};`;
+    return `${t} ${e.c} = ${t === 'bool' ? 'false' : t === 'String' ? '""' : '0'};`;
   }).filter(Boolean);
   const dist = g.used.has('distance'), bt = g.used.has('bt'), lists = g.names.all().some(e => e.type === 'list');
   const motors = /\bdrive\(/.test(setupBody + loopBody + g.defs.join('\n'));
@@ -338,7 +408,7 @@ function blocksToArduino(ws, opts = {}) {
     g.pins.led ? '  pinMode(LED_BUILTIN, OUTPUT);' : '',
     dist ? '  pinMode(TRIG, OUTPUT);\n  pinMode(ECHO, INPUT);' : '',
     ...[...g.pins.out].map(p => `  pinMode(${p}, OUTPUT);`), ...[...g.pins.in].filter(p => !g.pins.out.has(p)).map(p => `  pinMode(${p}, INPUT);`),
-    serial ? '  Serial.begin(9600);' : '',
+    serial ? `  Serial.begin(${g.baud});` : '',
   ].filter(Boolean);
   const lines = [
     '// Made with blocks in DOWEE. This is real Arduino code for Dowee:',
@@ -387,7 +457,7 @@ function toolboxLevel() {
 }
 const TOOLBOX = level => {
   const num = n => ({ shadow: { type: 'math_number', fields: { NUM: n } } }), blk = (type, extra = {}) => ({ kind: 'block', type, ...extra });
-  const full = level !== 'beginner';
+  const full = level !== 'beginner', lbl = text => ({ kind: 'label', text }), txt = t => ({ shadow: { type: 'text', fields: { TEXT: t } } });
   const cat = (name, colour, contents) => ({ kind: 'category', name, colour, contents });
   return { kind: 'categoryToolbox', contents: [
     cat('Start', C.start, [blk('dowee_start'), blk('dowee_forever')]),
@@ -399,29 +469,37 @@ const TOOLBOX = level => {
       blk('dowee_print', { inputs: { V: { shadow: { type: 'text', fields: { TEXT: 'Hello!' } } } } })]),
     cat('Control', C.control, [blk('controls_if'), blk('controls_if', { extraState: { hasElse: true } }), blk('controls_repeat_ext', { inputs: { TIMES: num(4) } }), blk('dowee_wait', { inputs: { SEC: num(1) } }),
       ...(full ? [blk('controls_whileUntil'), blk('controls_for', { inputs: { FROM: num(1), TO: num(5), BY: num(1) } }), blk('controls_flow_statements')] : [])]),
-    ...(full ? [cat('Timing', C.time, [blk('dowee_every', { inputs: { MS: num(500) } }), blk('dowee_wait_ms', { inputs: { MS: num(100) } }), blk('dowee_wait_until'), blk('dowee_millis')])] : []),
+    ...(full ? [cat('Timing', C.time, [blk('dowee_every', { inputs: { MS: num(500) } }), blk('dowee_wait_ms', { inputs: { MS: num(100) } }), blk('dowee_wait_until'), blk('dowee_millis'), blk('dowee_wait_us', { inputs: { US: num(10) } }), blk('dowee_micros')])] : []),
     cat('Logic', C.logic, [blk('logic_compare', { inputs: { A: num(0), B: num(30) }, fields: { OP: 'LT' } }), blk('logic_operation'), ...(full ? [blk('logic_negate'), blk('logic_boolean')] : [])]),
     cat('Math', C.math, [blk('math_number'), blk('math_arithmetic', { inputs: { A: num(1), B: num(1) } }), blk('math_random_int', { inputs: { FROM: num(1), TO: num(10) } }),
       ...(full ? [blk('dowee_map', { inputs: { V: num(512), FL: num(0), FH: num(1023), TL: num(0), TH: num(255) } }), blk('math_constrain', { inputs: { VALUE: num(50), LOW: num(0), HIGH: num(100) } }),
-        blk('dowee_minmax', { inputs: { A: num(1), B: num(2) } }), blk('math_single'), blk('math_round'), blk('math_modulo', { inputs: { DIVIDEND: num(7), DIVISOR: num(2) } }), blk('dowee_intdiv', { inputs: { A: num(7), B: num(2) } })] : [])]),
-    ...(full ? [cat('Text & Serial', C.text, [blk('dowee_print', { inputs: { V: { shadow: { type: 'text', fields: { TEXT: 'Hello!' } } } } }), blk('dowee_print_inline', { inputs: { V: { shadow: { type: 'text', fields: { TEXT: 'x = ' } } } } }),
-      blk('text'), blk('text_join'), blk('dowee_serial_has'), blk('dowee_serial_num'), blk('dowee_comment')])] : []),
-    ...(full ? [cat('Pins', C.pins, [blk('dowee_pin_write'), blk('dowee_pin_read'), blk('dowee_analog_read'), blk('dowee_analog_write', { inputs: { V: num(128) } }), blk('dowee_pulse_in')])] : []),
+        blk('dowee_minmax', { inputs: { A: num(1), B: num(2) } }), blk('math_single'), blk('dowee_sq', { inputs: { A: num(4) } }), blk('math_round'), blk('math_modulo', { inputs: { DIVIDEND: num(7), DIVISOR: num(2) } }), blk('dowee_intdiv', { inputs: { A: num(7), B: num(2) } }),
+        lbl('Angles'), blk('dowee_trig', { inputs: { A: num(30) } }), blk('dowee_atan2', { inputs: { X: num(1), Y: num(1) } }), blk('dowee_const'),
+        lbl('More'), blk('dowee_random_seed'), blk('dowee_bit', { inputs: { N: num(0), A: num(5) } }), blk('dowee_isnan', { inputs: { A: num(0) } })] : [])]),
+    ...(full ? [cat('Serial', C.text, [blk('dowee_print', { inputs: { V: { shadow: { type: 'text', fields: { TEXT: 'Hello!' } } } } }), blk('dowee_print_inline', { inputs: { V: { shadow: { type: 'text', fields: { TEXT: 'x = ' } } } } }),
+      blk('dowee_print_fmt', { inputs: { V: num(5) } }), blk('dowee_serial_write', { inputs: { V: { shadow: { type: 'dowee_char' } } } }),
+      lbl('Reading what was typed'), blk('dowee_serial_has'), blk('dowee_serial_num'), blk('dowee_serial_read'), blk('dowee_serial_text'), blk('dowee_char'),
+      lbl('Setting up'), blk('dowee_serial_begin'), blk('dowee_comment')])] : []),
+    ...(full ? [cat('Text', C.text, [blk('text'), blk('text_join'), blk('dowee_num_text', { inputs: { V: num(3.14159), D: num(2) } }),
+      blk('dowee_text_length', { inputs: { T: txt('Dowee') } }), blk('dowee_text_num', { inputs: { T: txt('42') } }), blk('dowee_text_char', { inputs: { I: num(1), T: txt('Dowee') } }),
+      blk('dowee_text_find', { inputs: { F: txt('w'), T: txt('Dowee') } }), blk('dowee_text_sub', { inputs: { A: num(2), B: num(4), T: txt('Dowee') } }), blk('dowee_text_compare', { inputs: { A: txt('yes'), B: txt('yes') } })])] : []),
+    ...(full ? [cat('Pins', C.pins, [blk('dowee_pin_write'), blk('dowee_pin_read'), blk('dowee_pin_value'), blk('dowee_analog_read'), blk('dowee_analog_write', { inputs: { V: num(128) } }), blk('dowee_pulse_in'),
+      blk('dowee_pin_mode', { fields: { PIN: '2', MODE: 'INPUT_PULLUP' } }), lbl('Sound'), blk('dowee_tone', { inputs: { HZ: num(440), MS: num(200) } }), blk('dowee_notone')])] : []),
     { kind: 'category', name: 'Variables', colour: C.vars, custom: 'DOWEE_VARS' },
     ...(full ? [{ kind: 'category', name: 'Lists', colour: C.list, custom: 'DOWEE_LISTS' }, { kind: 'category', name: 'My blocks', colour: C.func, custom: 'PROCEDURE' }] : []),
   ] };
 };
 // Variables flyout: three ways to make one (whole number, decimal, true/false), then the blocks for each.
-const VAR_KINDS = [['int', 'Make a whole-number variable'], ['float', 'Make a decimal variable'], ['bool', 'Make a true/false variable']];
+const VAR_KINDS = [['int', 'Make a whole-number variable'], ['float', 'Make a decimal variable'], ['bool', 'Make a true/false variable'], ['String', 'Make a text variable']];
 function varsFlyout(ws) {
   const out = VAR_KINDS.map(([t, text]) => ({ kind: 'button', text, callbackKey: 'mkvar-' + t }));
   const vars = ws.getAllVariables().filter(x => x.type !== 'list').sort((a, b) => a.name.localeCompare(b.name));
-  const label = x => ({ int: 'whole number', float: 'decimal', bool: 'true/false', long: 'whole number' }[x.type] || 'number');
+  const label = x => ({ int: 'whole number', float: 'decimal', bool: 'true/false', long: 'whole number', String: 'text' }[x.type] || 'number');
   for (const x of vars) {
     const field = { VAR: { id: x.getId() } };
     out.push({ kind: 'label', text: `${x.name} (${label(x)})` });
-    out.push({ kind: 'block', type: 'dowee_var_set', fields: field, inputs: { VALUE: x.type === 'bool' ? { shadow: { type: 'logic_boolean' } } : { shadow: { type: 'math_number', fields: { NUM: 0 } } } } });
-    if (x.type !== 'bool') out.push({ kind: 'block', type: 'dowee_var_change', fields: field, inputs: { DELTA: { shadow: { type: 'math_number', fields: { NUM: 1 } } } } });
+    out.push({ kind: 'block', type: 'dowee_var_set', fields: field, inputs: { VALUE: x.type === 'bool' ? { shadow: { type: 'logic_boolean' } } : x.type === 'String' ? { shadow: { type: 'text', fields: { TEXT: '' } } } : { shadow: { type: 'math_number', fields: { NUM: 0 } } } } });
+    if (x.type !== 'bool' && x.type !== 'String') out.push({ kind: 'block', type: 'dowee_var_change', fields: field, inputs: { DELTA: { shadow: { type: 'math_number', fields: { NUM: 1 } } } } });
     out.push({ kind: 'block', type: 'dowee_var_get', fields: field });
   }
   return out;
@@ -438,6 +516,13 @@ function listsFlyout(ws) {
 }
 
 /* ---------------- the Blocks editor ---------------- */
+// Scroll so the first block sits at the top left, next to the toolbox (centring hid the start of wide programs).
+function showProgramStart() {
+  const ws = BK.ws, b = ws && ws.getTopBlocks(true)[0];
+  if (!b) { ws && ws.scrollCenter(); return; }
+  const xy = b.getRelativeToSurfaceXY(), s = ws.scale;
+  ws.scroll(16 - xy.x * s, 16 - xy.y * s);
+}
 async function showBlocks() {
   $('#editor').hidden = true; $('#blkWrap').hidden = false; $('#btnToCode').hidden = false;
   const msg = $('#blkMsg');
@@ -457,7 +542,7 @@ async function showBlocks() {
     BK.ws = Blockly.inject($('#blocklyDiv'), { toolbox: TOOLBOX(BK.level), theme, sounds: false, trashcan: false, renderer: 'zelos', zoom: { controls: false, wheel: true, startScale: 0.75, maxScale: 2, minScale: 0.4 }, grid: { spacing: 24, length: 2, colour: '#e6efe9', snap: true }, move: { scrollbars: true, drag: true, wheel: false } });
     BK.ws.registerToolboxCategoryCallback('DOWEE_VARS', varsFlyout);
     BK.ws.registerToolboxCategoryCallback('DOWEE_LISTS', listsFlyout);
-    for (const t of ['int', 'float', 'bool', 'list']) BK.ws.registerButtonCallback('mkvar-' + t, btn => Blockly.Variables.createVariableButtonHandler(btn.getTargetWorkspace(), null, t));
+    for (const t of ['int', 'float', 'bool', 'String', 'list']) BK.ws.registerButtonCallback('mkvar-' + t, btn => Blockly.Variables.createVariableButtonHandler(btn.getTargetWorkspace(), null, t));
     BK.ws.addChangeListener(e => {
       if (e.type === Blockly.Events.SELECTED) { blkSelectLines(e.newElementId); return; }
       if (BK.suppress || e.isUiEvent) return;
@@ -468,7 +553,7 @@ async function showBlocks() {
   setToolboxLevel();
   loadWorkspace(S.arena, S.robot);
   Blockly.svgResize(BK.ws);
-  requestAnimationFrame(() => { Blockly.svgResize(BK.ws); BK.ws.scrollCenter(); });
+  requestAnimationFrame(() => { Blockly.svgResize(BK.ws); showProgramStart(); });
 }
 function setToolboxLevel() {
   if (!BK.ws) return;
@@ -489,7 +574,7 @@ function loadWorkspace(a, r) {
   if (!saved) BK.ws.cleanUp();   // starters are laid out by Blockly, so hats never overlap
   BK.arena = a; BK.robot = r; BK.suppress = false;
   saveBlocks();
-  BK.ws.scrollCenter();
+  showProgramStart();
 }
 const blkKey = (a, r) => `blocks:${a}:${r}`, blkCodeKey = (a, r) => `blockcode:${a}:${r}`;
 function saveBlocks() {
@@ -550,12 +635,29 @@ function applyMode() {
 }
 function setBlkCodeShown(on) { BK.showCode = on; store.set('blkShowCode', on); $('#blkWrap').classList.toggle('no-code', !on); $('#blkShow').setAttribute('aria-pressed', on); $('#blkShow').textContent = on ? 'Hide code' : 'Show code'; if (BK.ws) setTimeout(() => Blockly.svgResize(BK.ws), 0); }
 setBlkCodeShown(BK.showCode);
+// The bar between the blocks (top) and the code (bottom): drag it, or use the arrow keys. The share is remembered.
+(function blockSplit() {
+  const bar = $('#blkSplit'), main = bar.parentElement;
+  const set = pct => { pct = Math.max(15, Math.min(70, pct)); main.style.setProperty('--blk-code-h', pct + '%'); store.set('blkCodeH', pct); if (BK.ws) Blockly.svgResize(BK.ws); };
+  const saved = store.get('blkCodeH', null); if (saved) main.style.setProperty('--blk-code-h', saved + '%');
+  const now = () => parseFloat(getComputedStyle(main).getPropertyValue('--blk-code-h')) || 36;
+  bar.addEventListener('pointerdown', e => {
+    e.preventDefault(); bar.setPointerCapture(e.pointerId); bar.classList.add('drag');
+    const move = ev => { const r = main.getBoundingClientRect(); set((r.bottom - ev.clientY) / r.height * 100); };
+    const up = () => { bar.classList.remove('drag'); bar.removeEventListener('pointermove', move); bar.removeEventListener('pointerup', up); bar.removeEventListener('pointercancel', up); };
+    bar.addEventListener('pointermove', move); bar.addEventListener('pointerup', up); bar.addEventListener('pointercancel', up);
+  });
+  bar.addEventListener('keydown', e => {
+    if (e.key === 'ArrowUp') { e.preventDefault(); set(now() + 5); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); set(now() - 5); }
+  });
+})();
 $('#blkShow').addEventListener('click', () => setBlkCodeShown(!BK.showCode));
 $('#blkUndo').addEventListener('click', () => BK.ws && BK.ws.undo(false));
 $('#blkRedo').addEventListener('click', () => BK.ws && BK.ws.undo(true));
 $('#blkZoomIn').addEventListener('click', () => BK.ws && BK.ws.zoomCenter(1));
 $('#blkZoomOut').addEventListener('click', () => BK.ws && BK.ws.zoomCenter(-1));
-$('#blkTidy').addEventListener('click', () => { if (BK.ws) { BK.ws.cleanUp(); BK.ws.scrollCenter(); } });
+$('#blkTidy').addEventListener('click', () => { if (BK.ws) { BK.ws.cleanUp(); showProgramStart(); } });
 $('#modeSeg').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (modeOf(S.arena, S.robot) === 'code') setCode(S.arena, S.robot, ta.value);
@@ -575,7 +677,7 @@ function loadBlockExample(a, k) {
   BK.suppress = true; BK.ws.clear();
   Blockly.Xml.domToWorkspace(Blockly.utils.xml.textToDom(BLOCK_EXAMPLES[a][k].xml()), BK.ws);
   BK.ws.cleanUp();
-  BK.suppress = false; saveBlocks(); BK.ws.scrollCenter();
+  BK.suppress = false; saveBlocks(); showProgramStart();
   toast(`Loaded: ${BLOCK_EXAMPLES[a][k].name}. Undo with the ↶ button.`);
 }
 // Which block examples a student may load: the starter of each playground, plus what the teacher unlocked.
@@ -590,6 +692,32 @@ window.__doweeBlocks = {
     await loadBlockly(); defineDoweeBlocks();
     const ws = new Blockly.Workspace();
     try { Blockly.Xml.domToWorkspace(Blockly.utils.xml.textToDom(xml), ws); return blocksToArduino(ws, { noMap: true }); } finally { ws.dispose(); }
+  },
+  // one program that uses every block in the Full toolbox: values go into "show" (or "if" for yes/no ones)
+  async everyBlock() {
+    await loadBlockly(); defineDoweeBlocks();
+    const ws = new Blockly.Workspace(), defs = [];
+    const walk = list => list.forEach(x => { if (x.contents) walk(x.contents); else if (x.kind === 'block') defs.push(x); });
+    walk(TOOLBOX('full').contents);
+    try {
+      let conn = ws.newBlock('dowee_start').getInput('DO').connection;
+      for (const d of defs) {
+        if (d.type === 'dowee_start' || d.type === 'dowee_forever') continue;
+        const b = Blockly.serialization.blocks.append({ type: d.type, fields: d.fields, inputs: d.inputs, extraState: d.extraState }, ws);
+        let s = b;
+        if (b.outputConnection) {
+          const yesNo = (b.outputConnection.getCheck() || []).includes('Boolean');
+          s = ws.newBlock(yesNo ? 'controls_if' : 'dowee_print');
+          s.getInput(yesNo ? 'IF0' : 'V').connection.connect(b.outputConnection);
+        }
+        if (s.previousConnection && !s.nextConnection) {   // break / continue: only inside a loop
+          const loop = Blockly.serialization.blocks.append({ type: 'controls_repeat_ext', inputs: { TIMES: { shadow: { type: 'math_number', fields: { NUM: 1 } } } } }, ws);
+          loop.getInput('DO').connection.connect(s.previousConnection); s = loop;
+        }
+        if (s.previousConnection) { conn.connect(s.previousConnection); conn = s.nextConnection; }
+      }
+      return { types: [...new Set(defs.map(d => d.type))], code: blocksToArduino(ws, { noMap: true }) };
+    } finally { ws.dispose(); }
   },
   state: () => BK,
   examples: () => Object.fromEntries(Object.entries(BLOCK_EXAMPLES).map(([a, ex]) => [a, Object.fromEntries(Object.entries(ex).map(([k, e]) => [k, e.xml()]))])),

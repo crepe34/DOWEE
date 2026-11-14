@@ -205,11 +205,15 @@ $('#variantSel').addEventListener('change', e => {
   stop(); updateRobotTabs(); S.bestTrail = null; S.bestLap = Infinity; resetWorld(); buildWiring();
 });
 $('#startSel').addEventListener('change', e => { S.start = e.target.value; store.set('start', S.start); stop(); resetWorld(); });
-function fillExamples() {
+// The examples menu shows the samples of the playground you are in. Samples made for another
+// playground are under "More from other playgrounds…": picking one opens that playground first.
+function fillExamples(others) {
   if (typeof modeOf === 'function' && modeOf(S.arena, S.robot) === 'blocks') {
-    const group = a => { const ks = blockExamplesFor(a); return ks.length ? `<optgroup label="${esc(ARENAS[a].name)}">${ks.map(k => `<option value="blk:${a}/${k}">${esc(BLOCK_EXAMPLES[a][k].name)}</option>`).join('')}</optgroup>` : ''; };
-    const order = [S.arena, ...Object.keys(BLOCK_EXAMPLES).filter(a => a !== S.arena)].filter(a => allowed(a) && BLOCK_EXAMPLES[a]);
-    $('#exampleSel').innerHTML = '<option value="">Load a blocks example…</option>' + order.map(group).join('');
+    const opts = a => blockExamplesFor(a).map(k => `<option value="blk:${a}/${k}">${esc(BLOCK_EXAMPLES[a][k].name)}</option>`).join('');
+    const rest = Object.keys(BLOCK_EXAMPLES).filter(a => a !== S.arena && allowed(a) && blockExamplesFor(a).length);
+    if (others) { $('#exampleSel').innerHTML = '<option value="">Opens that playground…</option>' + rest.map(a => `<optgroup label="${esc(ARENAS[a].name)}">${opts(a)}</optgroup>`).join(''); return; }
+    const here = opts(S.arena);
+    $('#exampleSel').innerHTML = `<option value="">${here ? 'Load a blocks example…' : 'No blocks examples here yet…'}</option>` + (here ? `<optgroup label="${esc(ARENAS[S.arena].name)}">${here}</optgroup>` : '') + (rest.length ? '<option value="__all">More from other playgrounds…</option>' : '');
     return;
   }
   const t = TEMPLATES[S.arena], bugs = LESSONS.filter(l => l.bug && l.arena === S.arena && allowed(l.arena));
@@ -221,26 +225,39 @@ function fillExamples() {
     return;
   }
   const ex = EXAMPLES[S.arena];
-  $('#exampleSel').innerHTML = '<option value="">Load an example…</option>' + tpl + bug + Object.entries(ex).map(([k, v]) => `<option value="${k}">${esc(v.name)}</option>`).join('') + (Object.keys(EXAMPLES).filter(allowed).length > 1 ? '<option value="__all">More from other arenas…</option>' : '');
+  if (others) {
+    $('#exampleSel').innerHTML = '<option value="">Opens that playground…</option>' + Object.entries(EXAMPLES).filter(([a]) => a !== S.arena && allowed(a)).map(([a, list]) => `<optgroup label="${esc(ARENAS[a].name)}">${Object.entries(list).map(([kk, v]) => `<option value="${a}/${kk}">${esc(v.name)}</option>`).join('')}</optgroup>`).join('');
+    return;
+  }
+  const own = Object.entries(ex).map(([k, v]) => `<option value="${k}">${esc(v.name)}</option>`).join('');
+  $('#exampleSel').innerHTML = '<option value="">Load an example…</option>' + tpl + bug + (own ? `<optgroup label="Samples for ${esc(ARENAS[S.arena].name)}">${own}</optgroup>` : '') + (Object.keys(EXAMPLES).filter(a => a !== S.arena && allowed(a)).length ? '<option value="__all">More from other playgrounds…</option>' : '');
+}
+// Open the playground a sample was made for (it may need a different track, robots or rules).
+function goToSampleArena(a) {
+  if (a === S.arena) return true;
+  if (!setArena(a)) return false;
+  toast(`Opened ${ARENAS[a].name}: this sample was made for it.`);
+  return true;
 }
 $('#exampleSel').addEventListener('change', e => {
   const k = e.target.value; e.target.value = '';
   if (!k) return;
-  if (k.startsWith('blk:')) { const [a, ex] = k.slice(4).split('/'); if (a !== S.arena) toast(`This example is for ${ARENAS[a].name}: switch playgrounds to try it there.`); loadBlockExample(a, ex); return; }
+  if (k === '__all') { fillExamples(true); return; }
+  if (k.startsWith('blk:')) {
+    const [a, ex] = k.slice(4).split('/');
+    if (a === S.arena) { loadBlockExample(a, ex); return; }
+    setMode(a, 'A', 'blocks');
+    if (goToSampleArena(a)) showBlocks().then(() => loadBlockExample(a, ex)); else fillExamples();
+    return;
+  }
   if (k.startsWith('bug:')) { const L = LESSONS.find(l => l.id === k.slice(4)); if (L) startLesson(L); fillExamples(); return; }
   if (k.startsWith('tpl:')) {
     ta.focus(); ta.select(); insertText(templateCode(S.arena, k.slice(4))); ta.scrollTop = 0; syncScroll();
     toast('Template loaded. Undo with Ctrl+Z.'); fillExamples(); return;
   }
-  if (k === '__all') {
-    if (samplesLocked()) return;
-    const all = [];
-    for (const [a, ex] of Object.entries(EXAMPLES)) for (const [kk, v] of Object.entries(ex)) all.push(`${a}/${kk}: ${v.name}`);
-    $('#exampleSel').innerHTML = '<option value="">Load an example…</option>' + Object.entries(EXAMPLES).filter(([a]) => allowed(a)).flatMap(([a, ex]) => Object.entries(ex).map(([kk, v]) => `<option value="${a}/${kk}">${esc(ARENAS[a].name)}: ${esc(v.name)}</option>`)).join('');
-    return;
-  }
   const [a, kk] = k.includes('/') ? k.split('/') : [S.arena, k];
   if (!EXAMPLES[a] || !EXAMPLES[a][kk] || (samplesLocked() && !unlockedSamples(a).some(([, e]) => e === kk))) { fillExamples(); return; }
+  if (a !== S.arena) { setMode(a, 'A', 'code'); if (!goToSampleArena(a)) { fillExamples(); return; } }
   const src = EXAMPLES[a][kk].code;
   ta.focus(); ta.select(); insertText(src); ta.scrollTop = 0; syncScroll();
   toast('Example loaded. Undo with Ctrl+Z.');

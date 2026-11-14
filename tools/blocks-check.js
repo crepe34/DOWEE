@@ -43,6 +43,31 @@ const GOLDEN = [
   ['only what is used is set up', X.prog(X.led('HIGH'), ''), null, code => !code.includes('pinMode(IN1') && !code.includes('Serial.begin') && code.includes('pinMode(LED_BUILTIN, OUTPUT);')],
 ];
 
+// The new function blocks: what the program prints in the Serial monitor must be exactly this.
+const blk = (type, fields = {}, values = {}) => `<block type="${type}">${Object.entries(fields).map(([k, v]) => `<field name="${k}">${v}</field>`).join('')}${Object.entries(values).map(([k, v]) => `<value name="${k}">${v}</value>`).join('')}</block>`;
+const txt = t => blk('text', { TEXT: t });
+// statement blocks one after another: each goes into the <next> of the one before
+const chain = (...bs) => bs.reduceRight((next, b) => (next ? b.replace(/<\/block>$/, `<next>${next}</next></block>`) : b), '');
+const prints = (...exprs) => X.prog(exprs.reduceRight((next, e) => X.print(e, next), ''), '');
+const OUTPUT = [
+  ['sin, cos (degrees), squared, π', prints(blk('dowee_trig', { OP: 'sin' }, { A: n(30) }), blk('dowee_trig', { OP: 'cos' }, { A: n(60) }), blk('dowee_sq', {}, { A: n(7) }), blk('dowee_const', { C: 'PI' })), '0.50\n0.50\n49\n3.14\n'],
+  ['angle to a point', prints(blk('dowee_atan2', {}, { X: n(1), Y: n(1) })), '45.00\n'],
+  ['bit, not a number', prints(blk('dowee_bit', {}, { N: n(2), A: n(5) }), blk('dowee_isnan', {}, { A: blk('math_single', { OP: 'ROOT' }, { NUM: n(-1) }) })), '1\n1\n'],
+  ['text: length, letter, where, part, compare (counting from 1)', prints(blk('dowee_text_length', {}, { T: txt('Dowee') }), blk('dowee_text_char', {}, { I: n(1), T: txt('Dowee') }), blk('dowee_text_find', {}, { F: txt('w'), T: txt('Dowee') }), blk('dowee_text_find', {}, { F: txt('z'), T: txt('Dowee') }), blk('dowee_text_sub', {}, { A: n(2), B: n(4), T: txt('Dowee') }), blk('dowee_text_compare', { OP: 'startsWith' }, { A: txt('Dowee'), B: txt('Do') })), '5\nD\n3\n0\nowe\n1\n'],
+  ['text to numbers and back', prints(blk('math_arithmetic', { OP: 'ADD' }, { A: blk('dowee_text_num', { OP: 'toInt' }, { T: txt('41') }), B: n(1) }), blk('dowee_num_text', {}, { V: n(3.14159), D: n(3) })), '42\n3.142\n'],
+  ['binary, hex, a letter', X.prog(chain(blk('dowee_print_fmt', { F: 'BIN' }, { V: n(5) }), blk('dowee_print_fmt', { F: 'HEX' }, { V: n(255) }), blk('dowee_serial_write', {}, { V: blk('dowee_char', { L: 'A' }) })), ''), '101\nFF\nA'],
+  ['a text variable', X.prog(`<block type="dowee_var_set"><field name="VAR" id="t1" variabletype="String">name</field><value name="VALUE">${txt('Dowee')}</value><next>${X.print(blk('text_join', {}, {}).replace('<block type="text_join">', '<block type="text_join"><mutation items="2"></mutation>').replace('</block>', `<value name="ADD0">${txt('Hi ')}</value><value name="ADD1"><block type="dowee_var_get"><field name="VAR" id="t1" variabletype="String">name</field></block></value></block>`))}</next></block>`, '', { vars: [['t1', 'name', 'String']] }), 'Hi Dowee\n'],
+];
+function serialOf(code, ms = 300) {
+  const W = M.buildWorld('lab', 'lab', { realism: 'ideal', unitA: 1, runSeed: 7 }, M.makeCfg('dowee'), M.makeCfg('dowee'), 'none');
+  const r = W.robots[0]; let out = '', err = null;
+  r.board.onSerial = s => { out += s; }; r.board.onError = e => { err = e; };
+  r.board.load(M.compileArduino(code, r.board), 0);
+  for (let i = 0; i < ms && !err; i++) W.step();
+  if (err) throw new Error(`program crashed: ${err.message} (line ${err.line})`);
+  return out;
+}
+
 // Run Arduino code in the simulator, polling checks every 200 ms like the app does.
 function sim(arena, variant, code, ms, checks = [], opts = {}) {
   const opp = opts.opp || (arena === 'sumo' ? variant : 'none');
@@ -120,6 +145,17 @@ REF['b-avoid'].mods = [M.BLOCK_EXAMPLES.maze.avoid.xml()];
     else if (test && !test(code)) bad(name, `unexpected code:\n${code}`);
     else ok(name);
   }
+
+  console.log('\nFunction blocks give the right answers');
+  for (const [name, xml, want] of OUTPUT) {
+    const code = await toCode(xml);
+    try { const out = serialOf(code); out === want ? ok(name) : bad(name, `printed ${JSON.stringify(out)}, expected ${JSON.stringify(want)}\n${code}`); }
+    catch (e) { bad(name, `${e.message}\n${code}`); }
+  }
+  // every block in the Full toolbox turns into code that compiles and runs
+  const every = await p.evaluate(() => window.__doweeBlocks.everyBlock().catch(e => ({ error: e.message })));
+  if (every.error) bad('every toolbox block', every.error);
+  else { try { serialOf(every.code, 3000); ok(`every toolbox block (${every.types.length} kinds) compiles and runs`); } catch (e) { bad('every toolbox block', `${e.message}\n${every.code}`); } }
 
   console.log('\nBlocks examples');
   for (const [a, list] of Object.entries(M.BLOCK_EXAMPLES)) for (const [k, ex] of Object.entries(list)) {
