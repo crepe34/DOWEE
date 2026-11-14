@@ -73,9 +73,10 @@ Done:
 - Blocks mode:
   - code shown under the blocks (full width, with a drag bar `#blkSplit` saved as `blkCodeH`), with two-way highlighting and the running block glowing;
   - a block for every Arduino function the interpreter has (`BUILTINS`, `SERIAL`, `STRING_METHODS` in `core-lang.js`), plus Blockly's logic, math, loops and functions. `npm test` builds one program from every Full toolbox block (`__doweeBlocks.everyBlock()`), and checks the printed answers of the function blocks (`OUTPUT` in `tools/blocks-check.js`). When you add an interpreter function, add its block too;
-  - typed variables (whole number, decimal, true/false, text = `String`) and lists. Text blocks count letters from 1, like lists;
+  - typed variables (whole number, big whole number = `long`, decimal, true/false, text = `String`) and lists (`list` = int, `flist` = float). Text blocks count letters from 1, like lists;
+  - the C language parts too: "any pin" blocks (`dowee_dwrite`, `dowee_dread`, `dowee_aread`, `dowee_awrite`, `dowee_pmode`, `dowee_pulse`, with a `dowee_pin` shadow that sets pinMode for you; a variable pin does not), `dowee_switch`/`dowee_case`/`dowee_case_default` (each case ends with break; numbers or one letter), `dowee_do_while`, `logic_ternary`, `dowee_bitop`/`dowee_bitnot` (orders SHIFT/BAND/BXOR/BOR), and "and" inside "or" is bracketed. Every text example has a block version (`pidBlocks()` builds the PID one with the generic `B()`/`seq()` helpers in `blocks-content.js`);
   - Beginner/Full toolbox;
-  - 14 examples;
+  - 19 examples;
   - a 10-lesson Blocks track;
   - works offline.
 - Realism levels.

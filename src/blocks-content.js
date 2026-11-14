@@ -30,7 +30,9 @@ const X = {
   tone: (hz, ms, next = '') => `<block type="dowee_tone"><field name="PIN">4</field><value name="HZ">${X.num(hz)}</value><value name="MS">${X.num(ms)}</value>${X.nx(next)}</block>`,
   // variables: [id, name, type] where type is int, float, bool or list
   // the type of every variable id used below (block fields must carry it)
-  vt: new Map([['vc', 'int'], ['vb', 'int'], ['ve', 'int'], ['vt', 'float'], ['vd', 'int'], ['vs', 'int']]),
+  vt: new Map([['vc', 'int'], ['vb', 'int'], ['ve', 'int'], ['vt', 'float'], ['vd', 'int'], ['vs', 'int'],
+    ['kp', 'float'], ['kd', 'float'], ['bs', 'int'], ['le', 'float'], ['er', 'float'], ['tu', 'float'], ['mn', 'list'], ['mx', 'list'], ['vv', 'int'], ['st', 'long'], ['tt', 'long'], ['ww', 'int'], ['to', 'int'],
+    ['ts', 'int'], ['tm', 'int'], ['cm', 'int']]),
   vars: list => (list.length ? `<variables>${list.map(([id, name, type]) => `<variable type="${type || ''}" id="${id}">${name}</variable>`).join('')}</variables>` : ''),
   f: (id, name) => `<field name="VAR" id="${id}" variabletype="${X.vt.get(id) || ''}">${name}</field>`,
   get: (id, name) => `<block type="dowee_var_get">${X.f(id, name)}</block>`,
@@ -40,6 +42,66 @@ const X = {
   call: (name, next = '') => `<block type="procedures_callnoreturn"><mutation name="${name}"></mutation>${X.nx(next)}</block>`,
   prog: (start, forever, opts = {}) => `<xml xmlns="https://developers.google.com/blockly/xml">${X.vars(opts.vars || [])}${opts.extra || ''}<block type="dowee_start" x="20" y="20">${start ? `<statement name="DO">${start}</statement>` : ''}</block><block type="dowee_forever" x="20" y="${start ? 220 : 120}">${forever ? `<statement name="DO">${forever}</statement>` : ''}</block></xml>`,
 };
+// Any block: B(type, { f: fields, v: values (numbers become number shadows), s: statements, m: mutation }, next)
+const B = (type, o = {}, next = '') => `<block type="${type}">${o.m || ''}${Object.entries(o.f || {}).map(([k, x]) => (k === 'VAR' ? x : `<field name="${k}">${x}</field>`)).join('')}${Object.entries(o.v || {}).map(([k, x]) => `<value name="${k}">${typeof x === 'number' ? X.num(x) : x}</value>`).join('')}${Object.entries(o.s || {}).map(([k, x]) => `<statement name="${k}">${x}</statement>`).join('')}${X.nx(next)}</block>`;
+// statement blocks one after another
+const seq = (...bs) => bs.filter(Boolean).reduceRight((next, b) => (next ? b.replace(/<\/block>$/, `<next>${next}</next></block>`) : b), '');
+const XB = {
+  forI: (id, from, to, body) => B('controls_for', { f: { VAR: X.f(id, 'i') }, v: { FROM: from, TO: to, BY: 1 }, s: { DO: body } }),
+  item: (id, nm, i) => B('dowee_list_get', { f: { VAR: X.f(id, nm) }, v: { I: i } }),
+  setItem: (id, nm, i, val) => B('dowee_list_set', { f: { VAR: X.f(id, nm) }, v: { I: i, V: val } }),
+  sensorN: i => B('dowee_sensor_n', { v: { N: i } }),
+  ms: n => B('dowee_wait_ms', { v: { MS: n } }),
+  millis: () => B('dowee_millis'),
+  and: (a, b) => `<block type="logic_operation"><field name="OP">AND</field><value name="A">${a}</value><value name="B">${b}</value></block>`,
+  defr: (name, args, body, ret, y) => `<block type="procedures_defreturn" x="20" y="${y}"><mutation>${args.map(([id, n]) => `<arg name="${n}" varid="${id}"></arg>`).join('')}</mutation><field name="NAME">${name}</field>${body ? `<statement name="STACK">${body}</statement>` : ''}<value name="RETURN">${ret}</value></block>`,
+  callr: (name, args) => `<block type="procedures_callreturn"><mutation name="${name}">${args.map(([n]) => `<arg name="${n}"></arg>`).join('')}</mutation>${args.map(([, x], i) => `<value name="ARG${i}">${x}</value>`).join('')}</block>`,
+  pin: p => B('dowee_pin', { f: { PIN: p } }),
+  hl: v => B('dowee_hilo', { f: { V: v } }),
+  print: v => B('dowee_print_inline', { v: { V: v } }),
+  text: t => `<block type="text"><field name="TEXT">${t}</field></block>`,
+};
+// The PID line follower with calibration, the same program as the text example (line/pid), made of blocks.
+function pidBlocks() {
+  const g = (id, nm) => X.get(id, nm), i = g('i', 'i'), n = g('pn', 'n');
+  const mn = k => XB.item('mn', 'minV', k), mx = k => XB.item('mx', 'maxV', k);
+  const calibrate = X.defn('calibrate', seq(
+    XB.forI('i', 1, 5, seq(XB.setItem('mn', 'minV', i, 1023), XB.setItem('mx', 'maxV', i, 0))),
+    X.led('HIGH'),
+    X.set('st', 'start', XB.millis()),
+    B('controls_whileUntil', { f: { MODE: 'WHILE' }, v: { BOOL: X.lt(X.arith('MINUS', XB.millis(), g('st', 'start')), 2000) }, s: { DO: seq(
+      X.set('tt', 't', X.arith('MINUS', XB.millis(), g('st', 'start'))),
+      X.ifs([[X.or(X.or(X.lt(g('tt', 't'), 250), XB.and(X.cmp('GTE', g('tt', 't'), 750), X.lt(g('tt', 't'), 1250))), X.cmp('GTE', g('tt', 't'), 1750)), X.motors(-120, 120)]], X.motors(120, -120)),
+      XB.forI('i', 1, 5, seq(
+        X.set('vv', 'v', XB.sensorN(i)),
+        X.ifs([[X.lt(g('vv', 'v'), mn(i)), XB.setItem('mn', 'minV', i, g('vv', 'v'))]]),
+        X.ifs([[X.cmp('GT', g('vv', 'v'), mx(i)), XB.setItem('mx', 'maxV', i, g('vv', 'v'))]]))),
+    ) } }),
+    X.stop(),
+    XB.forI('i', 1, 5, X.ifs([[X.lt(X.arith('MINUS', mx(i), mn(i)), 100), XB.setItem('mx', 'maxV', i, X.arith('ADD', mn(i), 100))]])),
+    X.led('LOW'),
+    XB.ms(300)), 520);
+  const readSensor = XB.defr('readSensor', [['pn', 'n']], '', B('math_constrain', { v: { VALUE: B('dowee_map', { v: { V: XB.sensorN(n), FL: mn(n), FH: mx(n), TL: 0, TH: 1000 } }), LOW: 0, HIGH: 1000 } }), 1180);
+  const readLine = XB.defr('readLine', [], seq(
+    X.set('ww', 'weighted', 0), X.set('to', 'total', 0),
+    XB.forI('i', 1, 5, seq(
+      X.set('vv', 'v', XB.callr('readSensor', [['n', i]])),
+      X.ifs([[X.lt(g('vv', 'v'), 100), X.set('vv', 'v', 0)]]),
+      B('dowee_var_change', { f: { VAR: X.f('ww', 'weighted') }, v: { DELTA: X.arith('MULTIPLY', g('vv', 'v'), X.arith('MINUS', i, 3)) } }),
+      B('dowee_var_change', { f: { VAR: X.f('to', 'total') }, v: { DELTA: g('vv', 'v') } }))),
+    // line lost: keep turning the way we last saw it
+    B('procedures_ifreturn', { m: '<mutation value="1"></mutation>', v: { CONDITION: X.lt(g('to', 'total'), 300), VALUE: B('logic_ternary', { v: { IF: X.cmp('GT', g('le', 'lastError'), 0), THEN: 2000, ELSE: -2000 } }) } })),
+    X.arith('MULTIPLY', X.arith('DIVIDE', g('ww', 'weighted'), g('to', 'total')), 1000), 1300);
+  return X.prog(
+    seq(X.set('kp', 'Kp', 0.08), X.set('kd', 'Kd', 1.5), X.set('bs', 'baseSpeed', 150), X.call('calibrate')),
+    seq(X.set('er', 'error', XB.callr('readLine', [])),
+      X.set('tu', 'turn', X.arith('ADD', X.arith('MULTIPLY', g('kp', 'Kp'), g('er', 'error')), X.arith('MULTIPLY', g('kd', 'Kd'), X.arith('MINUS', g('er', 'error'), g('le', 'lastError'))))),
+      X.set('le', 'lastError', g('er', 'error')),
+      X.motors(X.arith('ADD', g('bs', 'baseSpeed'), g('tu', 'turn')), X.arith('MINUS', g('bs', 'baseSpeed'), g('tu', 'turn'))),
+      XB.ms(2)),
+    { vars: [['kp', 'Kp', 'float'], ['kd', 'Kd', 'float'], ['bs', 'baseSpeed', 'int'], ['le', 'lastError', 'float'], ['er', 'error', 'float'], ['tu', 'turn', 'float'], ['mn', 'minV', 'list'], ['mx', 'maxV', 'list'],
+      ['i', 'i', ''], ['vv', 'v', 'int'], ['st', 'start', 'long'], ['tt', 't', 'long'], ['ww', 'weighted', 'int'], ['to', 'total', 'int'], ['pn', 'n', '']], extra: calibrate + readSensor + readLine });
+}
 const BX = {
   rc: () => X.prog('', X.btRead(X.ifs([[X.bt('F'), X.move('F', 220)], [X.bt('B'), X.move('B', 220)], [X.bt('L'), X.move('SL', 130)], [X.bt('R'), X.move('SR', 130)], [X.bt('G'), X.move('TL', 220)], [X.bt('I'), X.move('TR', 220)], [X.bt('S'), X.stop()]]))),
   follow2: (s = 150) => X.prog('', X.ifs([[X.black('A1'), X.move('TL', s)], [X.black('A3'), X.move('TR', s)]], X.move('F', s))),
@@ -51,12 +113,24 @@ const BLOCK_EXAMPLES = {
     blink: { name: 'Blink the light', xml: () => X.prog('', X.led('HIGH', X.wait(0.5, X.led('LOW', X.wait(0.5))))) },
     square: { name: 'Drive a square (repeat)', xml: () => X.prog(X.repeat(4, X.move('F', 180, X.wait(1, X.move('SR', 150, X.wait(0.3)))), X.stop()), '') },
     count: { name: 'Count in the Serial monitor (variable)', xml: () => X.prog(X.set('vc', 'count', 1), X.print(X.get('vc', 'count'), X.change('vc', 'count', 1, X.wait(0.5))), { vars: [['vc', 'count', 'int']] }) },
+    turn: { name: 'Turn 90 degrees', xml: () => X.prog(seq(X.set('ts', 'turnSpeed', 150), X.set('tm', 'turnTime', 400),
+      X.motors(X.get('ts', 'turnSpeed'), B('math_single', { f: { OP: 'NEG' }, v: { NUM: X.get('ts', 'turnSpeed') } })), B('dowee_wait_ms', { v: { MS: X.get('tm', 'turnTime') } }), X.stop()), '', { vars: [['ts', 'turnSpeed', 'int'], ['tm', 'turnTime', 'int']] }) },
+    pins: { name: 'Drive with the motor driver pins (L298N)', xml: () => X.prog(seq(
+      B('dowee_comment', { f: { T: 'Left motor: IN1 (7) and IN2 (8) pick the direction, ENA (5) the speed' } }),
+      B('dowee_dwrite', { v: { PIN: XB.pin('7'), V: XB.hl('HIGH') } }), B('dowee_dwrite', { v: { PIN: XB.pin('8'), V: XB.hl('LOW') } }), B('dowee_awrite', { v: { PIN: XB.pin('5'), V: 180 } }),
+      B('dowee_comment', { f: { T: 'Right motor: IN3 (9) and IN4 (10) pick the direction, ENB (6) the speed' } }),
+      B('dowee_dwrite', { v: { PIN: XB.pin('9'), V: XB.hl('HIGH') } }), B('dowee_dwrite', { v: { PIN: XB.pin('10'), V: XB.hl('LOW') } }), B('dowee_awrite', { v: { PIN: XB.pin('6'), V: 180 } }),
+      X.wait(1.5), B('dowee_awrite', { v: { PIN: XB.pin('5'), V: 0 } }), B('dowee_awrite', { v: { PIN: XB.pin('6'), V: 0 } })), '') },
     tune: { name: 'Play a tune (tone)', xml: () => X.prog(X.tone(262, 300, X.wait(0.35, X.tone(330, 300, X.wait(0.35, X.tone(392, 300, X.wait(0.35, X.tone(523, 600))))))), '') },
   },
   line: {
     follow2: { name: 'Follow the line with 2 sensors', starter: true, xml: () => BX.follow2() },
     follow3: { name: 'Smoother: 3 sensors', xml: () => X.prog('', X.ifs([[X.black('A2'), X.move('F', 170)], [X.black('A1'), X.move('TL', 150)], [X.black('A3'), X.move('TR', 150)]])) },
     pfollow: { name: 'Steer by line position (P control)', xml: () => X.prog(X.set('vb', 'baseSpeed', 140), X.set('ve', 'error', X.linePos(), X.set('vt', 'turn', X.arith('MULTIPLY', X.get('ve', 'error'), 0.02), X.motors(X.arith('ADD', X.get('vb', 'baseSpeed'), X.get('vt', 'turn')), X.arith('MINUS', X.get('vb', 'baseSpeed'), X.get('vt', 'turn'))))), { vars: [['vb', 'baseSpeed', 'int'], ['ve', 'error', 'int'], ['vt', 'turn', 'float']] }) },
+    pid: { name: 'PID line follower with calibration', xml: pidBlocks },
+    print: { name: 'Print sensor values (for the Plotter)', xml: () => X.prog('', seq(
+      XB.forI('i', 1, 5, seq(XB.print(XB.sensorN(X.get('i', 'i'))), X.ifs([[X.lt(X.get('i', 'i'), 5), XB.print(XB.text(','))]]))),
+      X.print(XB.text('')), XB.ms(50)), { vars: [['i', 'i', '']] }) },
     blinkfollow: { name: 'Blink while following (every N ms)', xml: () => X.prog('', X.every(250, X.toggle(), X.ifs([[X.black('A1'), X.move('TL', 150)], [X.black('A3'), X.move('TR', 150)]], X.move('F', 150)))) },
   },
   maze: {
@@ -66,7 +140,15 @@ const BLOCK_EXAMPLES = {
   sumo: {
     basic: { name: 'Sumo: stay in, find, push', starter: true, xml: () => X.prog(X.wait(5), X.ifs([[X.or(X.not(X.black('A0')), X.not(X.black('A4'))), X.move('B', 220, X.wait(0.3, X.move('SR', 200, X.wait(0.25))))], [X.lt(X.dist(), 60), X.move('F', 255)]], X.move('SL', 130))) },
   },
-  race: { rc: { name: 'Bluetooth remote control', starter: true, xml: BX.rc } },
+  race: {
+    rc: { name: 'Bluetooth remote control', starter: true, xml: BX.rc },
+    rcswitch: { name: 'Remote control with "check" (switch)', xml: () => X.prog('', X.ifs([[B('dowee_serial_has'), seq(
+      X.set('cm', 'command', B('dowee_serial_read', { f: { OP: 'read' } })),
+      B('dowee_switch', { v: { VALUE: X.get('cm', 'command') }, s: { CASES: seq(
+        B('dowee_case', { f: { N: 'F' }, s: { DO: X.move('F', 220) } }), B('dowee_case', { f: { N: 'B' }, s: { DO: X.move('B', 220) } }),
+        B('dowee_case', { f: { N: 'L' }, s: { DO: X.move('SL', 130) } }), B('dowee_case', { f: { N: 'R' }, s: { DO: X.move('SR', 130) } }),
+        B('dowee_case', { f: { N: 'S' }, s: { DO: X.stop() } })) } }))]]), { vars: [['cm', 'command', 'int']] }) },
+  },
   soccer: { rc: { name: 'Bluetooth remote control', starter: true, xml: BX.rc } },
 };
 const blockStarterOf = a => { const ex = BLOCK_EXAMPLES[a] || BLOCK_EXAMPLES.lab; return Object.keys(ex).find(k => ex[k].starter) || Object.keys(ex)[0]; };

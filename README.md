@@ -23,7 +23,10 @@ The example programs also run on a real Dowee wired as shown in the Wiring tab.
     - math (`map`, `constrain`, `min`/`max`, `abs`, `sq`, `sqrt`, `pow`, `%`, rounding, `sin`/`cos`/`tan` in degrees, `atan2`, `PI`, `random`/`randomSeed`, `bitRead`, `isnan`);
     - Serial (`begin`, `print`/`println` with BIN/HEX, `write`, `available`, `read`, `peek`, `parseInt`/`parseFloat`, `readString`/`readStringUntil`);
     - text (`String`, joining, length, a letter, finding, part of a text, `equals`/`startsWith`/`endsWith`, `toInt`/`toFloat`);
-    - variables with a type (whole number, decimal, true/false, text), lists, and "make your own block" (functions with inputs and a return value).
+    - **any pin by number** (or from a variable): `digitalWrite`/`digitalRead`/`analogRead`/`analogWrite`/`pinMode`/`pulseIn` on every pin, so a block program can drive the L298N motor pins itself or trigger the ultrasonic by hand, with `HIGH`/`LOW` as values;
+    - the C language parts: `switch`/`case` ("check … is …", with numbers or letters), `do … while`, `? :` ("choose"), bit operators (`&`, `|`, `^`, `<<`, `>>`, `~`), `break`/`continue`;
+    - variables with a type (whole number, big whole number `long` for `millis()`, decimal, true/false, text), lists of whole numbers or decimals (fill with `1, 2, 3`, change an item, size), and "make your own block" (functions with inputs and a return value).
+  - **Everything a text program does can be built with blocks.** Every text sample has a block version, including the PID line follower with calibration.
   - **The translator is careful:** brackets are kept where they change the result, ÷ divides like a calculator (7 ÷ 2 = 3.5), list items count from 1, variable names are made safe, only the setup a program needs is written, and a warning appears on any block that won't run or that drops a fraction.
   - **Beginner or Full toolbox**, chosen per class. **Turn into code** switches to typed code and keeps the blocks.
   - **Example programs** for every playground. The examples menu shows the samples made for the playground you are in; samples for other playgrounds are under "More from other playgrounds…" and open their own playground.

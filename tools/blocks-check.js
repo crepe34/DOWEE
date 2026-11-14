@@ -26,6 +26,8 @@ const GOLDEN = [
   ['7 ÷ 2 is 3.5, not 3', show(X.arith('DIVIDE', n(7), n(2))), 'Serial.println(7 / 2.0);'],
   ['a × (b + c)', show(X.arith('MULTIPLY', n(2), X.arith('ADD', n(3), n(4)))), 'Serial.println(2 * (3 + 4));'],
   ['a + (b + c) needs none', show(X.arith('ADD', n(2), X.arith('ADD', n(3), n(4)))), 'Serial.println(2 + 3 + 4);'],
+  ['an "and" inside an "or" gets brackets', show(X.or(X.cmp('LT', n(1), 2), `<block type="logic_operation"><field name="OP">AND</field><value name="A">${X.cmp('LT', n(3), 4)}</value><value name="B">${X.cmp('LT', n(5), 6)}</value></block>`)), 'Serial.println(1 < 2 || (3 < 4 && 5 < 6));'],
+  ['shift and bits keep C\'s order', show(`<block type="dowee_bitop"><field name="OP">&amp;</field><value name="A"><block type="dowee_bitop"><field name="OP">|</field><value name="A">${n(6)}</value><value name="B">${n(1)}</value></block></value><value name="B">${n(3)}</value></block>`), 'Serial.println((6 | 1) & 3);'],
   ['comparison of a sum', show(X.cmp('LT', X.arith('ADD', n(1), n(2)), n(4))), 'Serial.println(1 + 2 < 4);'],
   ['text is escaped for C', show(`<block type="text"><field name="TEXT">say "hi" \\ é</field></block>`), 'Serial.println("say \\"hi\\" \\\\ ?");'],
   ['whole-number divide', show(`<block type="dowee_intdiv"><value name="A">${n(7)}</value><value name="B">${n(2)}</value></block>`), 'Serial.println((long)(7) / (long)(2));'],
@@ -46,6 +48,8 @@ const GOLDEN = [
 // The new function blocks: what the program prints in the Serial monitor must be exactly this.
 const blk = (type, fields = {}, values = {}) => `<block type="${type}">${Object.entries(fields).map(([k, v]) => `<field name="${k}">${v}</field>`).join('')}${Object.entries(values).map(([k, v]) => `<value name="${k}">${v}</value>`).join('')}</block>`;
 const txt = t => blk('text', { TEXT: t });
+const caseB = (label, body) => `<block type="dowee_case"><field name="N">${label}</field><statement name="DO">${body}</statement></block>`;
+const lf = (id, nm, type) => `<field name="VAR" id="${id}" variabletype="${type}">${nm}</field>`;
 // statement blocks one after another: each goes into the <next> of the one before
 const chain = (...bs) => bs.reduceRight((next, b) => (next ? b.replace(/<\/block>$/, `<next>${next}</next></block>`) : b), '');
 const prints = (...exprs) => X.prog(exprs.reduceRight((next, e) => X.print(e, next), ''), '');
@@ -56,6 +60,16 @@ const OUTPUT = [
   ['text: length, letter, where, part, compare (counting from 1)', prints(blk('dowee_text_length', {}, { T: txt('Dowee') }), blk('dowee_text_char', {}, { I: n(1), T: txt('Dowee') }), blk('dowee_text_find', {}, { F: txt('w'), T: txt('Dowee') }), blk('dowee_text_find', {}, { F: txt('z'), T: txt('Dowee') }), blk('dowee_text_sub', {}, { A: n(2), B: n(4), T: txt('Dowee') }), blk('dowee_text_compare', { OP: 'startsWith' }, { A: txt('Dowee'), B: txt('Do') })), '5\nD\n3\n0\nowe\n1\n'],
   ['text to numbers and back', prints(blk('math_arithmetic', { OP: 'ADD' }, { A: blk('dowee_text_num', { OP: 'toInt' }, { T: txt('41') }), B: n(1) }), blk('dowee_num_text', {}, { V: n(3.14159), D: n(3) })), '42\n3.142\n'],
   ['binary, hex, a letter', X.prog(chain(blk('dowee_print_fmt', { F: 'BIN' }, { V: n(5) }), blk('dowee_print_fmt', { F: 'HEX' }, { V: n(255) }), blk('dowee_serial_write', {}, { V: blk('dowee_char', { L: 'A' }) })), ''), '101\nFF\nA'],
+  ['choose a value (? :)', prints(blk('logic_ternary', {}, { IF: X.cmp('GT', n(5), 3), THEN: n(10), ELSE: n(20) })), '10\n'],
+  ['check a value: numbers, a letter, otherwise', X.prog(chain(
+    blk('dowee_switch', {}, { VALUE: n(2) }).replace(/<\/block>$/, `<statement name="CASES">${chain(caseB('1', X.print(txt('one'))), caseB('2', X.print(txt('two'))), `<block type="dowee_case_default"><statement name="DO">${X.print(txt('other'))}</statement></block>`)}</statement></block>`),
+    blk('dowee_switch', {}, { VALUE: blk('dowee_char', { L: 'F' }) }).replace(/<\/block>$/, `<statement name="CASES">${chain(caseB('B', X.print(txt('back'))), caseB('F', X.print(txt('forward'))))}</statement></block>`),
+    blk('dowee_switch', {}, { VALUE: n(9) }).replace(/<\/block>$/, `<statement name="CASES">${chain(caseB('1', X.print(txt('one'))), `<block type="dowee_case_default"><statement name="DO">${X.print(txt('other'))}</statement></block>`)}</statement></block>`)), ''), 'two\nforward\nother\n'],
+  ['do … while runs, then checks', X.prog(chain(X.set('vc', 'count', 0), `<block type="dowee_do_while"><statement name="DO">${X.change('vc', 'count', 1)}</statement><value name="C">${X.cmp('LT', X.get('vc', 'count'), 3)}</value></block>`, X.print(X.get('vc', 'count'))), '', { vars: [['vc', 'count', 'int']] }), '3\n'],
+  ['bits, with C\'s brackets', prints(blk('dowee_bitop', { OP: '&' }, { A: n(6), B: n(3) }), blk('dowee_bitop', { OP: '<<' }, { A: n(1), B: n(3) }), blk('dowee_bitnot', {}, { A: n(0) }), blk('dowee_bitop', { OP: '&' }, { A: blk('dowee_bitop', { OP: '|' }, { A: n(6), B: n(1) }), B: n(3) }), blk('dowee_bitop', { OP: '<<' }, { A: X.arith('ADD', n(1), n(1)), B: n(2) })), '2\n8\n-1\n3\n8\n'],
+  ['a list of decimals: fill, change, size', X.prog(chain(`<block type="dowee_list_fill">${lf('fl', 'f', 'flist')}<field name="ITEMS">1.5, 2.5</field></block>`, `<block type="dowee_list_change">${lf('fl', 'f', 'flist')}<value name="I">${n(2)}</value><value name="V">${n(1)}</value></block>`,
+    X.print(X.arith('ADD', `<block type="dowee_list_get">${lf('fl', 'f', 'flist')}<value name="I">${n(1)}</value></block>`, `<block type="dowee_list_get">${lf('fl', 'f', 'flist')}<value name="I">${n(2)}</value></block>`)), X.print(`<block type="dowee_list_size">${lf('fl', 'f', 'flist')}</block>`)), '', { vars: [['fl', 'f', 'flist']] }), '5.00\n20\n'],
+  ['any pin: write and read pin 13, the analog pin by number', X.prog(chain(blk('dowee_dwrite', {}, { PIN: blk('dowee_pin', { PIN: '13' }), V: blk('dowee_hilo', { V: 'HIGH' }) }), X.print(blk('dowee_dread', {}, { PIN: blk('dowee_pin', { PIN: '13' }) })), X.print(X.cmp('GTE', blk('dowee_aread', {}, { PIN: blk('dowee_pin', { PIN: 'A2' }) }), 0))), ''), '1\n1\n'],
   ['a text variable', X.prog(`<block type="dowee_var_set"><field name="VAR" id="t1" variabletype="String">name</field><value name="VALUE">${txt('Dowee')}</value><next>${X.print(blk('text_join', {}, {}).replace('<block type="text_join">', '<block type="text_join"><mutation items="2"></mutation>').replace('</block>', `<value name="ADD0">${txt('Hi ')}</value><value name="ADD1"><block type="dowee_var_get"><field name="VAR" id="t1" variabletype="String">name</field></block></value></block>`))}</next></block>`, '', { vars: [['t1', 'name', 'String']] }), 'Hi Dowee\n'],
 ];
 function serialOf(code, ms = 300) {
@@ -98,11 +112,14 @@ const EXPECT = {
     square: ['lab', 9000, W => still(W) && Math.abs(deg(W) - 360) < 40],
     count: ['lab', 3200, W => W.robots[0].board.serialLines >= 5],
     tune: ['lab', 3000, W => W.time >= 2999],
+    turn: ['lab', 3000, W => still(W) && deg(W) > 60 && deg(W) < 120],
+    pins: ['lab', 4000, W => still(W) && Math.hypot(W.robots[0].x - W.robots[0].start.x, W.robots[0].y - W.robots[0].start.y) > 0.5],
   },
-  line: { follow2: ['oval', 60000, lap], follow3: ['oval', 60000, lap], pfollow: ['oval', 60000, lap], blinkfollow: ['oval', 60000, W => lap(W) && W.robots[0].board.ledToggles >= 10] },
+  line: { follow2: ['oval', 60000, lap], follow3: ['oval', 60000, lap], pfollow: ['oval', 60000, lap], blinkfollow: ['oval', 60000, W => lap(W) && W.robots[0].board.ledToggles >= 10],
+    pid: ['oval', 60000, lap], print: ['oval', 2000, W => W.robots[0].board.serialLines >= 20] },
   maze: { avoid: ['room1', 40000, W => W.robots[0].odo > 3], cautious: ['room1', 40000, W => W.robots[0].odo > 2] },
   sumo: { basic: ['statue', 60000, W => W.state.result === 'A', { until: W => W.state.over }] },
-  race: { rc: ['none', 6000, W => W.robots[0].odo > 0.3, { onStep: keys([3500, 'F']) }] },
+  race: { rc: ['none', 6000, W => W.robots[0].odo > 0.3, { onStep: keys([3500, 'F']) }], rcswitch: ['none', 6000, W => W.robots[0].odo > 0.3, { onStep: keys([3500, 'F']) }] },
   soccer: { rc: ['easy', 3000, W => W.robots[0].odo > 0.3, { onStep: keys([500, 'F']) }] },
 };
 // The finished version of each Blocks lesson, one per Modify step (the last one also reaches the goal unless `goal` is given).
