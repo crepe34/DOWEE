@@ -82,6 +82,25 @@ function serialOf(code, ms = 300) {
   return out;
 }
 
+// Each text sample and its block translation, run in the same world with the same key presses:
+// they must end in the same place and print the same thing. [block example, text example, track, ms, keys, loose]
+const RC_KEYS = [[300, 'F'], [900, '5'], [1200, 'L'], [1700, 'q'], [1900, 'G'], [2500, 'H'], [3000, 'R'], [3400, 'J'], [3900, '0'], [4000, 'B'], [4600, 'I'], [5200, 'S']];
+const SAME = [
+  ['lab/blink', 'lab/blink', 'lab', 3000], ['lab/meterfull', 'lab/meter', 'lab', 4000], ['lab/turn', 'lab/turn', 'lab', 3000],
+  ['line/bang', 'line/bang', 'oval', 20000], ['line/print', 'line/print', 'oval', 1000], ['line/pid', 'line/pid', 'oval', 30000, [], true],
+  ['race/rcfull', 'race/rc', 'none', 6000, RC_KEYS], ['soccer/rcfull', 'soccer/rc', 'easy', 6000, RC_KEYS],
+  ['sumo/full', 'sumo/basic', 'statue', 30000], ['maze/avoidfull', 'maze/avoid', 'room1', 20000],
+];
+function runOnce(arena, variant, code, ms, keyList) {
+  const W = M.buildWorld(arena, variant, { realism: 'ideal', unitA: 1, runSeed: 7 }, M.makeCfg('dowee'), M.makeCfg('dowee'), arena === 'sumo' ? variant : 'none');
+  const r = W.robots[0]; let out = '', err = null;
+  r.board.onSerial = s => { out += s; }; r.board.onError = e => { err = e; };
+  r.board.load(M.compileArduino(code, r.board), 0);
+  for (let i = 0; i < ms && !err && !(W.state && W.state.over); i++) { for (const [t, k] of keyList || []) if (i === t) W.deliver(r.board, k); W.step(); }
+  if (err) throw new Error(`crashed: ${err.message} (line ${err.line})`);
+  return { x: r.x, y: r.y, th: r.th, odo: r.odo, out, laps: (W.state.laps || []).length, result: W.state.result || '' };
+}
+
 // Run Arduino code in the simulator, polling checks every 200 ms like the app does.
 function sim(arena, variant, code, ms, checks = [], opts = {}) {
   const opp = opts.opp || (arena === 'sumo' ? variant : 'none');
@@ -112,17 +131,18 @@ const EXPECT = {
     square: ['lab', 9000, W => still(W) && Math.abs(deg(W) - 360) < 40],
     count: ['lab', 3200, W => W.robots[0].board.serialLines >= 5],
     tune: ['lab', 3000, W => W.time >= 2999],
+    meterfull: ['lab', 4000, W => still(W) && Math.hypot(W.robots[0].x - W.robots[0].start.x, W.robots[0].y - W.robots[0].start.y) > 0.5],
     turn: ['lab', 3000, W => still(W) && deg(W) > 60 && deg(W) < 120],
     // "go 150", then "stop", then "led on": it drives, stops, and the LED is on
     commands: ['lab', 4000, W => W.time > 3500 && still(W) && W.robots[0].odo > 0.3 && W.robots[0].board.out[13] === 1 && W.robots[0].board.serialLines >= 3, { onStep: keys([300, 'go 150\n'], [2000, 'stop\n'], [2500, 'led on\n']) }],
     pins: ['lab', 4000, W => still(W) && Math.hypot(W.robots[0].x - W.robots[0].start.x, W.robots[0].y - W.robots[0].start.y) > 0.5],
   },
   line: { follow2: ['oval', 60000, lap], follow3: ['oval', 60000, lap], pfollow: ['oval', 60000, lap], blinkfollow: ['oval', 60000, W => lap(W) && W.robots[0].board.ledToggles >= 10],
-    pid: ['oval', 60000, lap], print: ['oval', 2000, W => W.robots[0].board.serialLines >= 20] },
-  maze: { avoid: ['room1', 40000, W => W.robots[0].odo > 3], cautious: ['room1', 40000, W => W.robots[0].odo > 2] },
-  sumo: { basic: ['statue', 60000, W => W.state.result === 'A', { until: W => W.state.over }] },
-  race: { rc: ['none', 6000, W => W.robots[0].odo > 0.3, { onStep: keys([3500, 'F']) }], rcswitch: ['none', 6000, W => W.robots[0].odo > 0.3, { onStep: keys([3500, 'F']) }] },
-  soccer: { rc: ['easy', 3000, W => W.robots[0].odo > 0.3, { onStep: keys([500, 'F']) }] },
+    pid: ['oval', 60000, lap], bang: ['oval', 60000, lap], print: ['oval', 2000, W => W.robots[0].board.serialLines >= 20] },
+  maze: { avoidfull: ['room1', 40000, W => W.robots[0].odo > 3], avoid: ['room1', 40000, W => W.robots[0].odo > 3], cautious: ['room1', 40000, W => W.robots[0].odo > 2] },
+  sumo: { basic: ['statue', 60000, W => W.state.result === 'A', { until: W => W.state.over }], full: ['statue', 60000, W => W.state.result === 'A', { until: W => W.state.over }] },
+  race: { rc: ['none', 6000, W => W.robots[0].odo > 0.3, { onStep: keys([3500, 'F']) }], rcswitch: ['none', 6000, W => W.robots[0].odo > 0.3, { onStep: keys([3500, 'F']) }], rcfull: ['none', 6000, W => W.robots[0].odo > 0.3, { onStep: keys([3500, 'F']) }] },
+  soccer: { rc: ['easy', 3000, W => W.robots[0].odo > 0.3, { onStep: keys([500, 'F']) }], rcfull: ['easy', 3000, W => W.robots[0].odo > 0.3, { onStep: keys([500, 'F']) }] },
 };
 // The finished version of each Blocks lesson, one per Modify step (the last one also reaches the goal unless `goal` is given).
 const LV = { vc: ['vc', 'count', 'int'], vs: ['vs', 'speed', 'int'] };
@@ -193,6 +213,19 @@ REF['b-avoid'].mods = [M.BLOCK_EXAMPLES.maze.avoid.xml()];
     const code = await toCode(ex.xml());
     try { const { hit, W } = sim(a, e[0], code, e[1], [e[2]], e[3] || {}); hit[0] ? ok(name, `${(W.time / 1000).toFixed(1)} s`) : bad(name, 'did not do its job'); }
     catch (err) { bad(name, err.message); }
+  }
+
+  console.log('\nBlock translations do the same as the text samples');
+  for (const [bk, tk, variant, ms, keyList, loose] of SAME) {
+    const [ba, be] = bk.split('/'), [ta, te] = tk.split('/'), name = `${bk} = text ${tk}`;
+    try {
+      const code = await toCode(M.BLOCK_EXAMPLES[ba][be].xml());
+      const A = runOnce(ta, variant, M.EXAMPLES[ta][te].code, ms, keyList), Bk = runOnce(ba, variant, code, ms, keyList);
+      const gap = Math.hypot(A.x - Bk.x, A.y - Bk.y);
+      const why = loose ? (Bk.laps < Math.max(1, A.laps - 1) ? `the blocks did ${Bk.laps} laps, the text ${A.laps}` : A.out.split('\n')[0] !== Bk.out.split('\n')[0] ? `calibration printed ${JSON.stringify(Bk.out.split('\n')[0])}, text ${JSON.stringify(A.out.split('\n')[0])}` : '')
+        : gap > 0.03 ? `ended ${(gap * 100).toFixed(1)} cm apart` : A.out !== Bk.out ? `printed ${JSON.stringify(Bk.out.slice(0, 80))}, text ${JSON.stringify(A.out.slice(0, 80))}` : A.result !== Bk.result ? `result ${Bk.result}, text ${A.result}` : '';
+      why ? bad(name, why) : ok(name, loose ? `${Bk.laps} laps (text ${A.laps})` : `both drove ${A.odo.toFixed(2)} m and ended ${(gap * 1000).toFixed(0)} mm apart${A.out ? ', same Serial output' : ''}${A.result ? ', both ' + (A.result === 'A' ? 'won' : A.result) : ''}`);
+    } catch (e) { bad(name, e.message); }
   }
 
   console.log('\nBlocks lessons');

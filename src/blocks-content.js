@@ -32,7 +32,8 @@ const X = {
   // the type of every variable id used below (block fields must carry it)
   vt: new Map([['vc', 'int'], ['vb', 'int'], ['ve', 'int'], ['vt', 'float'], ['vd', 'int'], ['vs', 'int'],
     ['kp', 'float'], ['kd', 'float'], ['bs', 'int'], ['le', 'float'], ['er', 'float'], ['tu', 'float'], ['mn', 'list'], ['mx', 'list'], ['vv', 'int'], ['st', 'long'], ['tt', 'long'], ['ww', 'int'], ['to', 'int'],
-    ['ts', 'int'], ['tm', 'int'], ['cm', 'int'], ['tx', 'String'], ['sp', 'int']]),
+    ['ts', 'int'], ['tm', 'int'], ['cm', 'int'], ['tx', 'String'], ['sp', 'int'],
+    ['lf', 'int'], ['rt', 'int'], ['el', 'int'], ['ar', 'int'], ['ss', 'int'], ['dl', 'long'], ['sd', 'int'], ['cr', 'int'], ['dt', 'int'], ['ch', 'int']]),
   vars: list => (list.length ? `<variables>${list.map(([id, name, type]) => `<variable type="${type || ''}" id="${id}">${name}</variable>`).join('')}</variables>` : ''),
   f: (id, name) => `<field name="VAR" id="${id}" variabletype="${X.vt.get(id) || ''}">${name}</field>`,
   get: (id, name) => `<block type="dowee_var_get">${X.f(id, name)}</block>`,
@@ -80,6 +81,62 @@ function commandBlocks() {
         X.print(join(t('I don\'t know this command: '), cmd()))))]]),
     { vars: [['tx', 'command', 'String'], ['sp', 'speed', 'int']] });
 }
+// Complete block translations of the text samples (same variables, same steps, same behaviour).
+// tools/blocks-check.js runs each next to its text sample (SAME) and checks they do the same thing.
+const neg = x => B('math_single', { f: { OP: 'NEG' }, v: { NUM: x } });
+const idiv = (a, b) => B('dowee_intdiv', { v: { A: a, B: b } });
+const and2 = (a, b) => `<block type="logic_operation"><field name="OP">AND</field><value name="A">${a}</value><value name="B">${b}</value></block>`;
+const FULL = {
+  // lab/meter: drive for driveTime ms at speed, then stop and say "Done!"
+  meter: () => X.prog(seq(X.set('sp', 'speed', 180), X.set('dt', 'driveTime', 1500), X.led('HIGH'), X.motors(X.get('sp', 'speed'), X.get('sp', 'speed')),
+    B('dowee_wait_ms', { v: { MS: X.get('dt', 'driveTime') } }), X.stop(), X.led('LOW'), X.print(XB.text('Done!'))), '', { vars: [['sp', 'speed', 'int'], ['dt', 'driveTime', 'int']] }),
+  // line/bang: digitalRead of the two middle sensors
+  bang: () => {
+    const hl = v => B('dowee_hilo', { f: { V: v } }), eq = (id, nm, v) => X.cmp('EQ', X.get(id, nm), hl(v)), sp = () => X.get('sp', 'speed');
+    return X.prog(X.set('sp', 'speed', 150), seq(
+      X.set('lf', 'left', B('dowee_dread', { v: { PIN: XB.pin('A1') } })), X.set('rt', 'right', B('dowee_dread', { v: { PIN: XB.pin('A3') } })),
+      X.ifs([[and2(eq('lf', 'left', 'HIGH'), eq('rt', 'right', 'LOW')), X.motors(0, sp())], [and2(eq('rt', 'right', 'HIGH'), eq('lf', 'left', 'LOW')), X.motors(sp(), 0)]], X.motors(sp(), sp()))),
+      { vars: [['sp', 'speed', 'int'], ['lf', 'left', 'int'], ['rt', 'right', 'int']] });
+  },
+  // race/rc and soccer/rc: switch on the letter, speed keys 0-9 and q
+  rc: () => {
+    const sp = () => X.get('sp', 'speed'), cmd = () => X.get('ch', 'cmd'), L = c => B('dowee_char', { f: { L: c } });
+    const is = (c, body) => B('dowee_case', { f: { N: c }, s: { DO: body } });
+    return X.prog(X.set('sp', 'speed', 220), X.ifs([[B('dowee_serial_has'), seq(
+      X.set('ch', 'cmd', B('dowee_serial_read', { f: { OP: 'read' } })),
+      B('dowee_switch', { v: { VALUE: cmd() }, s: { CASES: seq(
+        is('F', X.motors(sp(), sp())), is('B', X.motors(neg(sp()), neg(sp()))),
+        is('L', X.motors(neg(idiv(sp(), 2)), idiv(sp(), 2))), is('R', X.motors(idiv(sp(), 2), neg(idiv(sp(), 2)))),
+        is('G', X.motors(idiv(sp(), 3), sp())), is('I', X.motors(sp(), idiv(sp(), 3))),
+        is('H', X.motors(neg(idiv(sp(), 3)), neg(sp()))), is('J', X.motors(neg(sp()), neg(idiv(sp(), 3)))),
+        is('S', X.stop()), is('q', X.set('sp', 'speed', 255)),
+        B('dowee_case_default', { s: { DO: X.ifs([[and2(X.cmp('GTE', cmd(), L('0')), X.cmp('LTE', cmd(), L('9'))),
+          X.set('sp', 'speed', B('dowee_map', { v: { V: X.arith('MINUS', cmd(), L('0')), FL: 0, FH: 9, TL: 60, TH: 240 } }))]]) } })) } }))]]),
+      { vars: [['sp', 'speed', 'int'], ['ch', 'cmd', 'int']] });
+  },
+  // sumo/basic: wait 5 s blinking, back away from the edge, charge when close, else spin to search
+  sumo: () => {
+    const g = (id, nm) => X.get(id, nm), lim = () => g('el', 'edgeLimit');
+    return X.prog(seq(X.set('el', 'edgeLimit', 400), X.set('ar', 'attackRange', 70), X.set('ss', 'searchSpeed', 130),
+      B('dowee_comment', { f: { T: 'Sumo rule: wait 5 seconds after the start. Blink while waiting.' } }),
+      X.repeat(5, seq(X.led('HIGH'), X.wait(0.5), X.led('LOW'), X.wait(0.5)))),
+    seq(X.set('lf', 'left', B('dowee_sensor', { f: { PIN: 'A0' } })), X.set('rt', 'right', B('dowee_sensor', { f: { PIN: 'A4' } })),
+      X.ifs([[X.or(X.lt(g('lf', 'left'), lim()), X.lt(g('rt', 'right'), lim())), seq(
+        X.motors(-220, -220), XB.ms(250), X.ifs([[X.lt(g('lf', 'left'), lim()), X.motors(200, -200)]], X.motors(-200, 200)), XB.ms(220))]],
+      seq(X.set('dl', 'd', X.dist()), X.ifs([[X.lt(g('dl', 'd'), g('ar', 'attackRange')), seq(X.led('HIGH'), X.motors(255, 255))]],
+        seq(X.led('LOW'), X.motors(g('ss', 'searchSpeed'), neg(g('ss', 'searchSpeed')))))))),
+    { vars: [['el', 'edgeLimit', 'int'], ['ar', 'attackRange', 'int'], ['ss', 'searchSpeed', 'int'], ['lf', 'left', 'int'], ['rt', 'right', 'int'], ['dl', 'd', 'long']] });
+  },
+  // maze/avoid: print the distance, back up and turn left for a random time when something is close
+  avoid: () => {
+    const g = (id, nm) => X.get(id, nm);
+    return X.prog(seq(X.set('sd', 'safeDistance', 25), X.set('cr', 'cruise', 200)), seq(
+      X.set('dl', 'd', X.dist()), X.print(g('dl', 'd')),
+      X.ifs([[X.lt(g('dl', 'd'), g('sd', 'safeDistance')), seq(X.motors(-150, -150), XB.ms(200), X.motors(-170, 170),
+        B('dowee_wait_ms', { v: { MS: B('math_random_int', { v: { FROM: 250, TO: 499 } }) } }))]], X.motors(g('cr', 'cruise'), g('cr', 'cruise'))),
+      XB.ms(30)), { vars: [['sd', 'safeDistance', 'int'], ['cr', 'cruise', 'int'], ['dl', 'd', 'long']] });
+  },
+};
 // The PID line follower with calibration, the same program as the text example (line/pid), made of blocks.
 function pidBlocks() {
   const g = (id, nm) => X.get(id, nm), i = g('i', 'i'), n = g('pn', 'n');
@@ -97,7 +154,9 @@ function pidBlocks() {
         X.ifs([[X.cmp('GT', g('vv', 'v'), mx(i)), XB.setItem('mx', 'maxV', i, g('vv', 'v'))]]))),
     ) } }),
     X.stop(),
-    XB.forI('i', 1, 5, X.ifs([[X.lt(X.arith('MINUS', mx(i), mn(i)), 100), XB.setItem('mx', 'maxV', i, X.arith('ADD', mn(i), 100))]])),
+    // a sensor that never saw the line gets a range of 100; then show each sensor's range in the Serial monitor
+    XB.forI('i', 1, 5, seq(X.ifs([[X.lt(X.arith('MINUS', mx(i), mn(i)), 100), XB.setItem('mx', 'maxV', i, X.arith('ADD', mn(i), 100))]]),
+      XB.print(mn(i)), XB.print(XB.text('-')), XB.print(mx(i)), X.ifs([[X.lt(i, 5), XB.print(XB.text('  '))]], X.print(XB.text(''))))),
     X.led('LOW'),
     XB.ms(300)), 520);
   const readSensor = XB.defr('readSensor', [['pn', 'n']], '', B('math_constrain', { v: { VALUE: B('dowee_map', { v: { V: XB.sensorN(n), FL: mn(n), FH: mx(n), TL: 0, TH: 1000 } }), LOW: 0, HIGH: 1000 } }), 1180);
@@ -128,7 +187,8 @@ const BX = {
 // Example programs per playground. `starter` is the one classroom students always get.
 const BLOCK_EXAMPLES = {
   lab: {
-    meter: { name: 'Drive 1 metre and stop', starter: true, xml: () => X.prog(X.led('HIGH', X.move('F', 180, X.wait(1.5, X.stop(X.led('LOW'))))), '') },
+    meterfull: { name: 'Drive 1 metre, then stop', xml: FULL.meter },
+    meter: { name: 'Drive 1 metre and stop (simple)', starter: true, xml: () => X.prog(X.led('HIGH', X.move('F', 180, X.wait(1.5, X.stop(X.led('LOW'))))), '') },
     blink: { name: 'Blink the light', xml: () => X.prog('', X.led('HIGH', X.wait(0.5, X.led('LOW', X.wait(0.5))))) },
     square: { name: 'Drive a square (repeat)', xml: () => X.prog(X.repeat(4, X.move('F', 180, X.wait(1, X.move('SR', 150, X.wait(0.3)))), X.stop()), '') },
     count: { name: 'Count in the Serial monitor (variable)', xml: () => X.prog(X.set('vc', 'count', 1), X.print(X.get('vc', 'count'), X.change('vc', 'count', 1, X.wait(0.5))), { vars: [['vc', 'count', 'int']] }) },
@@ -144,7 +204,8 @@ const BLOCK_EXAMPLES = {
     tune: { name: 'Play a tune (tone)', xml: () => X.prog(X.tone(262, 300, X.wait(0.35, X.tone(330, 300, X.wait(0.35, X.tone(392, 300, X.wait(0.35, X.tone(523, 600))))))), '') },
   },
   line: {
-    follow2: { name: 'Follow the line with 2 sensors', starter: true, xml: () => BX.follow2() },
+    follow2: { name: 'Follow the line with 2 sensors (simple)', starter: true, xml: () => BX.follow2() },
+    bang: { name: 'Simple 2-sensor follower', xml: FULL.bang },
     follow3: { name: 'Smoother: 3 sensors', xml: () => X.prog('', X.ifs([[X.black('A2'), X.move('F', 170)], [X.black('A1'), X.move('TL', 150)], [X.black('A3'), X.move('TR', 150)]])) },
     pfollow: { name: 'Steer by line position (P control)', xml: () => X.prog(X.set('vb', 'baseSpeed', 140), X.set('ve', 'error', X.linePos(), X.set('vt', 'turn', X.arith('MULTIPLY', X.get('ve', 'error'), 0.02), X.motors(X.arith('ADD', X.get('vb', 'baseSpeed'), X.get('vt', 'turn')), X.arith('MINUS', X.get('vb', 'baseSpeed'), X.get('vt', 'turn'))))), { vars: [['vb', 'baseSpeed', 'int'], ['ve', 'error', 'int'], ['vt', 'turn', 'float']] }) },
     pid: { name: 'PID line follower with calibration', xml: pidBlocks },
@@ -154,14 +215,17 @@ const BLOCK_EXAMPLES = {
     blinkfollow: { name: 'Blink while following (every N ms)', xml: () => X.prog('', X.every(250, X.toggle(), X.ifs([[X.black('A1'), X.move('TL', 150)], [X.black('A3'), X.move('TR', 150)]], X.move('F', 150)))) },
   },
   maze: {
-    avoid: { name: 'Avoid obstacles', starter: true, xml: () => X.prog('', X.ifs([[X.lt(X.dist(), 25), X.move('B', 160, X.wait(0.2, X.move('SL', 170, X.wait(0.4))))]], X.move('F', 200))) },
+    avoidfull: { name: 'Avoid obstacles with ultrasonic', xml: FULL.avoid },
+    avoid: { name: 'Avoid obstacles (simple)', starter: true, xml: () => X.prog('', X.ifs([[X.lt(X.dist(), 25), X.move('B', 160, X.wait(0.2, X.move('SL', 170, X.wait(0.4))))]], X.move('F', 200))) },
     cautious: { name: 'Slow down near walls (map)', xml: () => X.prog('', X.set('vd', 'd', X.dist(), X.ifs([[X.lt(X.get('vd', 'd'), 22), X.move('SL', 170, X.wait(0.35))]], X.move('F', `<block type="dowee_map"><value name="V"><block type="math_constrain"><value name="VALUE">${X.get('vd', 'd')}</value><value name="LOW">${X.num(20)}</value><value name="HIGH">${X.num(100)}</value></block></value><value name="FL">${X.num(20)}</value><value name="FH">${X.num(100)}</value><value name="TL">${X.num(110)}</value><value name="TH">${X.num(240)}</value></block>`))), { vars: [['vd', 'd', 'int']] }) },
   },
   sumo: {
-    basic: { name: 'Sumo: stay in, find, push', starter: true, xml: () => X.prog(X.wait(5), X.ifs([[X.or(X.not(X.black('A0')), X.not(X.black('A4'))), X.move('B', 220, X.wait(0.3, X.move('SR', 200, X.wait(0.25))))], [X.lt(X.dist(), 60), X.move('F', 255)]], X.move('SL', 130))) },
+    full: { name: 'Sumo: search, attack, stay in', xml: FULL.sumo },
+    basic: { name: 'Sumo: stay in, find, push (simple)', starter: true, xml: () => X.prog(X.wait(5), X.ifs([[X.or(X.not(X.black('A0')), X.not(X.black('A4'))), X.move('B', 220, X.wait(0.3, X.move('SR', 200, X.wait(0.25))))], [X.lt(X.dist(), 60), X.move('F', 255)]], X.move('SL', 130))) },
   },
   race: {
-    rc: { name: 'Bluetooth remote control', starter: true, xml: BX.rc },
+    rc: { name: 'Bluetooth remote control (simple)', starter: true, xml: BX.rc },
+    rcfull: { name: 'Bluetooth RC car', xml: FULL.rc },
     rcswitch: { name: 'Remote control with "check" (switch)', xml: () => X.prog('', X.ifs([[B('dowee_serial_has'), seq(
       X.set('cm', 'command', B('dowee_serial_read', { f: { OP: 'read' } })),
       B('dowee_switch', { v: { VALUE: X.get('cm', 'command') }, s: { CASES: seq(
@@ -169,7 +233,7 @@ const BLOCK_EXAMPLES = {
         B('dowee_case', { f: { N: 'L' }, s: { DO: X.move('SL', 130) } }), B('dowee_case', { f: { N: 'R' }, s: { DO: X.move('SR', 130) } }),
         B('dowee_case', { f: { N: 'S' }, s: { DO: X.stop() } })) } }))]]), { vars: [['cm', 'command', 'int']] }) },
   },
-  soccer: { rc: { name: 'Bluetooth remote control', starter: true, xml: BX.rc } },
+  soccer: { rc: { name: 'Bluetooth remote control (simple)', starter: true, xml: BX.rc }, rcfull: { name: 'Bluetooth RC (soccer)', xml: FULL.rc } },
 };
 const blockStarterOf = a => { const ex = BLOCK_EXAMPLES[a] || BLOCK_EXAMPLES.lab; return Object.keys(ex).find(k => ex[k].starter) || Object.keys(ex)[0]; };
 

@@ -76,7 +76,7 @@ Done:
   - typed variables (whole number, big whole number = `long`, decimal, true/false, text = `String`) and lists (`list` = int, `flist` = float). Text blocks count letters from 1, like lists;
   - the C language parts too: "any pin" blocks (`dowee_dwrite`, `dowee_dread`, `dowee_aread`, `dowee_awrite`, `dowee_pmode`, `dowee_pulse`, with a `dowee_pin` shadow that sets pinMode for you; a variable pin does not), `dowee_switch`/`dowee_case`/`dowee_case_default` (each case ends with break; numbers or one letter), `dowee_do_while`, `logic_ternary`, `dowee_bitop`/`dowee_bitnot` (orders SHIFT/BAND/BXOR/BOR), and "and" inside "or" is bracketed. Every text example has a block version (`pidBlocks()` builds the PID one with the generic `B()`/`seq()` helpers in `blocks-content.js`);
   - Beginner/Full toolbox;
-  - 20 examples (every text example has a block version, plus `lab/commands`, which reads typed Serial commands with the text blocks);
+  - 26 examples. Every text example has a complete block translation (`FULL` and `pidBlocks()` in `blocks-content.js`: meterfull, bang, pid, print, turn, blink, avoidfull, sumo full, rcfull for race and soccer), and `SAME` in `tools/blocks-check.js` runs each next to its text sample and requires the same end position (within 3 cm), Serial output and result. The short starters are marked "(simple)". Plus `lab/commands`, which reads typed Serial commands with the text blocks;
   - a 10-lesson Blocks track;
   - works offline.
 - Realism levels.
