@@ -37,21 +37,15 @@ int threshold = 500;   // above this = the sensor sees the line (calibrate() wor
 int onLine[5];         // 1 = this sensor sees the line, 0 = it sees the white floor
 int seen = 0;          // how many sensors see the line
 float position = 3;    // where the line is: 1 (far left) .. 3 (middle) .. 5 (far right)`;
-const CALIBRATE_FN = `// Sweep left and right over the line for 2 seconds, so every sensor sees white and black.
+const CALIBRATE_FN = `// Sweep left and right over the line, so every sensor sees white and black.
 // Then the threshold is halfway between the average white and the average black.
 void calibrate() {
   digitalWrite(LED_BUILTIN, HIGH);
-  unsigned long start = millis();
-  while (millis() - start < 2000) {
-    unsigned long t = millis() - start;
-    if (t < 250 || (t >= 750 && t < 1250) || t >= 1750) drive(-120, 120);
-    else drive(120, -120);
-    for (int i = 0; i < 5; i++) {
-      int v = analogRead(A0 + i);
-      if (v < minV[i]) minV[i] = v;
-      if (v > maxV[i]) maxV[i] = v;
-    }
-  }
+  sweep(-120, 120, 250);   // turn left
+  sweep(120, -120, 500);   // turn right, across the line
+  sweep(-120, 120, 500);   // and back
+  sweep(120, -120, 500);
+  sweep(-120, 120, 250);   // end in the middle
   drive(0, 0);
   long whiteSum = 0;
   long blackSum = 0;
@@ -70,6 +64,19 @@ void calibrate() {
   Serial.println(threshold);
   digitalWrite(LED_BUILTIN, LOW);
   delay(300);
+}
+
+// Turn for some milliseconds while remembering each sensor's whitest (min) and blackest (max) reading.
+void sweep(int left, int right, int ms) {
+  drive(left, right);
+  unsigned long start = millis();
+  while (millis() - start < ms) {
+    for (int i = 0; i < 5; i++) {
+      int v = analogRead(A0 + i);
+      if (v < minV[i]) minV[i] = v;
+      if (v > maxV[i]) maxV[i] = v;
+    }
+  }
 }`;
 const READLINE_FN = `// Reads all 5 sensors: each one sees the line (1) or not (0).
 // The line's position is the average of the sensors that see it:
@@ -87,51 +94,31 @@ void readLine() {
 
 const EXAMPLES = {
   line: {
-    pid: { name: 'PID line follower (5 sensors)', code: `// PID line follower with calibration
-// Five IR sensors on A0 (left) to A4 (right). Higher reading = darker floor.
-// 1. Press the start button on pin 2 (or type g in the Serial monitor).
-// 2. calibrate(): Dowee sweeps over the line and works out the threshold between white and black.
-// 3. It follows the line with a PID worked out every 10 ms. If the line is lost, it spins
-//    towards where it was last seen. At a crossing, it drives straight over.
+    pid: { name: 'PID line follower (5 sensors)', code: `// PID line follower
+// 1. calibrate(): learn white and black, and put the threshold halfway between them.
+// 2. readLine(): which sensors see the line, and where it is: 1 (far left) .. 3 (middle) .. 5 (far right).
+// 3. The PID steers by how far the line is from the middle, every 10 ms.
 ${MOTOR_SETUP}
 
 // ---- Tune these in the Tune tab while the robot drives ----
-float Kp = 70;        // turn harder when far from the line (error 1 = one sensor off centre)
-float Ki = 0;         // the I part: 0 = off (Dowee's motors are matched, so it only adds wobble)
-float Kd = 1000;      // calms the wobble: the change in error over one 10 ms step, times Kd
+float Kp = 70;        // P: turn harder when the line is far from the middle
+float Ki = 0;         // I: 0 = off (Dowee's motors are matched, so it would only add wobble)
+float Kd = 1000;      // D: calms the wobble
 int baseSpeed = 240;  // cruising speed, 0-255
-int turnSpeed = 170;  // spin speed when the line is lost
-int sampleMs = 10;    // work out the PID every 10 ms
-
-const int startButton = 2;   // a button between pin 2 and GND: reads LOW while pressed
 
 ${LINE_GLOBALS}
 
 float lastError = 0;
 float integral = 0;
-char lostSide = 's';  // where the line was last seen at the edge: 'l', 'r', or 's' (not yet)
-unsigned long lastPid = 0;
 
 void setup() {
 ${PINMODES}
   pinMode(LED_BUILTIN, OUTPUT);
-  pinMode(startButton, INPUT_PULLUP);
   Serial.begin(9600);
-  waitForStart();
   calibrate();
 }
 
 ${DRIVE_FN}
-
-// Wait for the start button (pin 2 goes LOW) or the letter g in the Serial monitor.
-void waitForStart() {
-  Serial.println("Press the button on pin 2, or type g, to start.");
-  while (true) {
-    if (digitalRead(startButton) == LOW) break;
-    if (Serial.available() > 0 && Serial.read() == 'g') break;
-  }
-  Serial.println("Go!");
-}
 
 ${CALIBRATE_FN}
 
@@ -139,36 +126,12 @@ ${READLINE_FN}
 
 void loop() {
   readLine();
-
-  // Remember which edge sensor saw the line last
-  if (onLine[0] == 1 && onLine[4] == 0) lostSide = 'l';
-  if (onLine[4] == 1 && onLine[0] == 0) lostSide = 'r';
-
-  // Line lost: spin towards where it was last seen until a middle sensor finds it
-  if (seen == 0 && lostSide != 's') {
-    if (lostSide == 'r') drive(turnSpeed, -turnSpeed);
-    else drive(-turnSpeed, turnSpeed);
-    while (onLine[1] == 0 && onLine[2] == 0 && onLine[3] == 0) readLine();
-    lastError = position - 3;
-    return;
-  }
-
-  // A crossing (every sensor sees black): drive straight over it
-  if (seen == 5) {
-    drive(baseSpeed, baseSpeed);
-    while (seen == 5) readLine();
-    return;
-  }
-
-  // The PID, every sampleMs milliseconds
-  if (millis() - lastPid >= sampleMs) {
-    lastPid = millis();
-    float error = position - 3;            // + means the line is to the RIGHT
-    integral = constrain(integral + error, -40, 40);   // anti-windup
-    float turn = Kp * error + Ki * integral + Kd * (error - lastError);
-    lastError = error;
-    drive(baseSpeed + turn, baseSpeed - turn);
-  }
+  float error = position - 3;           // + means the line is to the RIGHT
+  integral = constrain(integral + error, -40, 40);
+  float turn = Kp * error + Ki * integral + Kd * (error - lastError);
+  lastError = error;
+  drive(baseSpeed + turn, baseSpeed - turn);
+  delay(10);                            // the same time every loop, so D measures the change over 10 ms
 }
 ` },
     bang: { name: 'Simple 2-sensor follower', code: `// Beginner line follower: uses only the two outer-middle sensors.

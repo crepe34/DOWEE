@@ -19,20 +19,14 @@ function check(name, fn) {
   catch (e) { failed++; console.log(`  FAIL  ${name} — ${e.message}`); }
 }
 const want = (cond, msg) => { if (!cond) throw new Error(msg); };
-// The PID sample waits for its start button; in the simulator you type g instead.
-const typeG = (W, i) => { if (i === 500) W.deliver(W.robots[0].board, 'g'); };
 const dist = r => Math.hypot(r.x - r.start.x, r.y - r.start.y);
 
 for (const lv of ['ideal', 'real']) {
   console.log(`\n${lv === 'ideal' ? 'Ideal robot (default)' : 'Realistic world'}`);
-  for (const track of ['oval', 'snake', 'figure8']) check(`PID line follower laps ${track} (started with g)`, () => {
-    const { W } = run('line', track, EXAMPLES.line.pid.code, 45000, { lv, onStep: typeG });
+  for (const track of ['oval', 'snake', 'figure8']) check(`PID line follower laps ${track}`, () => {
+    const { W } = run('line', track, EXAMPLES.line.pid.code, 45000, { lv });
     want(W.state.laps.length >= 2, `only ${W.state.laps.length} laps in 45 s`);
     return W.state.laps.map(l => l.time.toFixed(1) + ' s').join(', ');
-  });
-  check('PID line follower waits for the start', () => {
-    const { r } = run('line', 'oval', EXAMPLES.line.pid.code, 5000, { lv });
-    want(r.odo < 0.01, `it drove ${r.odo.toFixed(2)} m before being started`);
   });
   check('2-sensor follower laps the oval', () => {
     const { W } = run('line', 'oval', EXAMPLES.line.bang.code, 60000, { lv });
@@ -76,7 +70,7 @@ for (const [a, t] of Object.entries(M.TEMPLATES)) for (const lv of ['guided', 'b
 });
 // A reference program for each playground must earn every star it can without a human driving.
 // the finished PID 4 lesson: the same method as the PID sample, without the start button
-const PID4_DONE = M.LESSONS.find(l => l.id === 'pid').code.replace('    float turn = Kp * error;   // the P part, from PID 3', '    float turn = Kp * error + Kd * change;');
+const PID4_DONE = M.LESSONS.find(l => l.id === 'pid').code.replace('  float turn = Kp * error;   // the P part, from PID 3', '  float turn = Kp * error + Kd * change;');
 const REF = { line: [PID4_DONE], sumo: [EXAMPLES.sumo.basic.code], maze: [EXAMPLES.maze.avoid.code, EXAMPLES.maze.avoid.code.replace('int safeDistance = 25;', 'int safeDistance = 30;').replace('int cruise = 200;', 'int cruise = 255;')],
   lab: [EXAMPLES.lab.meter.code.replace('int driveTime = 1500;', 'int driveTime = 2150;'), EXAMPLES.lab.turn.code.replace('int turnTime = 400;', 'int turnTime = TT;'), EXAMPLES.lab.blink.code] };
 for (const [a, codes] of Object.entries(REF)) M.TEMPLATES[a].missions.forEach((m, i) => check(`mission ${a} ${i + 1}: ${m.text}`, () => {
@@ -123,8 +117,8 @@ const PID_FIX = {
     ['  // TODO 2: the threshold is halfway between the average white and the average black.\n  threshold = 0;', '  threshold = (avgWhite + avgBlack) / 2;']],
   pid2: [['    // TODO 1: does sensor i see the line? 1 if analogRead(A0 + i) is above the threshold, else 0.\n    onLine[i] = 0;\n    // TODO 2: count it: add onLine[i] to seen, and onLine[i] * (i + 1) to sum.\n\n', '    onLine[i] = analogRead(A0 + i) > threshold ? 1 : 0;\n    seen += onLine[i];\n    sum += onLine[i] * (i + 1);\n'],
     ['  // TODO 3: if seen is more than 0, the position is the average:  (float)sum / seen\n  //         (if no sensor sees the line, keep the last position)\n', '  if (seen > 0) position = (float)sum / seen;\n']],
-  pid3: [['    float turn = 0;', '    float turn = Kp * error;'], ['    drive(baseSpeed, baseSpeed);\n  }\n}', '    drive(baseSpeed + turn, baseSpeed - turn);\n  }\n}']],
-  pid: [['    float turn = Kp * error;   // the P part, from PID 3', '    float turn = Kp * error + Kd * change;']],
+  pid3: [['  float turn = 0;', '  float turn = Kp * error;'], ['  drive(baseSpeed, baseSpeed);\n  delay(10);', '  drive(baseSpeed + turn, baseSpeed - turn);\n  delay(10);']],
+  pid: [['  float turn = Kp * error;   // the P part, from PID 3', '  float turn = Kp * error + Kd * change;']],
 };
 for (const [id, fix] of Object.entries(PID_FIX)) check(`${id}: starter fails, finished step passes`, () => {
   const L = M.LESSONS.find(l => l.id === id);
@@ -170,8 +164,8 @@ console.log('\nAdvanced PID lessons');
       `  // TODO: average the minV values, average the maxV values, and set the threshold halfway between them.\n\n`,
       `  long whiteSum = 0;\n  long blackSum = 0;\n  for (int i = 0; i < 5; i++) {\n    whiteSum += minV[i];\n    blackSum += maxV[i];\n  }\n  threshold = (whiteSum / 5 + blackSum / 5) / 2;\n`),
     2: c => gsub(c, `  // TODO: like in PID 2.\n\n`, `  int sum = 0;\n  seen = 0;\n  for (int i = 0; i < 5; i++) {\n    onLine[i] = analogRead(A0 + i) > threshold ? 1 : 0;\n    seen += onLine[i];\n    sum += onLine[i] * (i + 1);\n  }\n  if (seen > 0) position = (float)sum / seen;\n`),
-    3: c => gsub(c, '    float turn = 0;\n    if (error > 0.5) turn = 50;\n    if (error < -0.5) turn = -50;', '    float turn = Kp * error + Kd * (error - lastError);'),
-    4: (c, lim = true) => gsub(gsub(gsub(c, '    float turn = Kp * error + Kd * (error - lastError);', `    integral = ${lim ? 'constrain(integral + error, -iLimit, iLimit)' : 'integral + error'};\n    float turn = Kp * error + Ki * integral + Kd * (error - lastError);`),
+    3: c => gsub(c, '  float turn = 0;\n  if (error > 0.5) turn = 50;\n  if (error < -0.5) turn = -50;', '  float turn = Kp * error + Kd * (error - lastError);'),
+    4: (c, lim = true) => gsub(gsub(gsub(c, '  float turn = Kp * error + Kd * (error - lastError);', `  integral = ${lim ? 'constrain(integral + error, -iLimit, iLimit)' : 'integral + error'};\n  float turn = Kp * error + Ki * integral + Kd * (error - lastError);`),
       'float Kp = 70;', 'float Kp = 20;'), 'float Ki = 0;', `float Ki = ${lim ? 1 : 3};`),
     5: c => gsub(gsub(gsub(c, 'float Kp = 20;', 'float Kp = 70;'), 'float Ki = 1;', 'float Ki = 0;'), 'int baseSpeed = 150;', 'int baseSpeed = 220;'),
   };
@@ -261,7 +255,7 @@ console.log('\nPRIMM lessons (Predict, Run, Investigate, Modify, Make)');
 
 console.log('\nRepeatability');
 check('Ideal robot: same code, same result', () => {
-  const a = run('line', 'snake', EXAMPLES.line.pid.code, 30000, { seed: 11, onStep: typeG }), b = run('line', 'snake', EXAMPLES.line.pid.code, 30000, { seed: 999, onStep: typeG });
+  const a = run('line', 'snake', EXAMPLES.line.pid.code, 30000, { seed: 11 }), b = run('line', 'snake', EXAMPLES.line.pid.code, 30000, { seed: 999 });
   const key = x => JSON.stringify([x.W.state.laps, x.r.x.toFixed(9), x.r.y.toFixed(9)]);
   want(key(a) === key(b), 'two ideal runs differ');
   return 'identical laps and final position';

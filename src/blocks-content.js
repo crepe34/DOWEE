@@ -138,51 +138,21 @@ const FULL = {
       XB.ms(30)), { vars: [['sd', 'safeDistance', 'int'], ['cr', 'cruise', 'int'], ['dl', 'd', 'long']] });
   },
 };
-// The PID line follower with calibration: the same program as the text example (line/pid), made of blocks.
-// "calibrate the line sensors", "line position" and "how many sensors see the line" write the same code as the text.
+// The PID line follower: the same program as the text example (line/pid), made of blocks.
+// "calibrate the line sensors" and "line position" write the same code as the text.
 function pidBlocks() {
-  const g = (id, nm) => X.get(id, nm);
-  const L = c => B('dowee_char', { f: { L: c } }), eq = (a, b) => X.cmp('EQ', a, b), and2 = (a, b) => XB.and(a, b);
-  const whileDo = (cond, body) => B('controls_whileUntil', { f: { MODE: 'WHILE' }, v: { BOOL: cond }, s: body ? { DO: body } : {} });
-  const brk = () => '<block type="controls_flow_statements"><field name="FLOW">BREAK</field></block>';
-  const set = (id, nm, v) => X.set(id, nm, v);
-  const on = pin => B('dowee_on_line', { f: { PIN: pin } }), not = x => X.not(x), seen = () => B('dowee_line_seen'), read = () => B('dowee_read_line');
-  const err = () => X.arith('MINUS', B('dowee_line_pos'), 3);
-  const waitForStart = X.defn('waitForStart', seq(
-    X.print(XB.text('Press the button on pin 2, or type g, to start.')),
-    whileDo(B('logic_boolean', { f: { BOOL: 'TRUE' } }), seq(
-      X.ifs([[eq(B('dowee_dread', { v: { PIN: g('sb', 'startButton') } }), B('dowee_hilo', { f: { V: 'LOW' } })), brk()]]),
-      X.ifs([[and2(B('dowee_serial_has'), eq(B('dowee_serial_read', { f: { OP: 'read' } }), L('g'))), brk()]]))),
-    X.print(XB.text('Go!'))), 360);
-  const ts = () => g('ts', 'turnSpeed'), bs = () => g('bs', 'baseSpeed');
+  const g = (id, nm) => X.get(id, nm), set = (id, nm, v) => X.set(id, nm, v);
   return X.prog(
-    seq(set('kp', 'Kp', 70), set('ki', 'Ki', 0), set('kd', 'Kd', 1000), set('bs', 'baseSpeed', 240), set('ts', 'turnSpeed', 170), set('smp', 'sampleMs', 10),
-      set('sb', 'startButton', 2), set('ls', 'lostSide', L('s')),
-      B('dowee_pmode', { f: { MODE: 'INPUT_PULLUP' }, v: { PIN: g('sb', 'startButton') } }),
-      X.call('waitForStart'), B('dowee_calibrate')),
-    seq(read(),
-      // remember which edge sensor saw the line last
-      X.ifs([[and2(on('A0'), not(on('A4'))), set('ls', 'lostSide', L('l'))]]),
-      X.ifs([[and2(on('A4'), not(on('A0'))), set('ls', 'lostSide', L('r'))]]),
-      X.ifs([
-        // line lost: spin towards where it was last seen until a middle sensor finds it
-        [and2(eq(seen(), 0), X.cmp('NEQ', g('ls', 'lostSide'), L('s'))), seq(
-          X.ifs([[eq(g('ls', 'lostSide'), L('r')), X.motors(ts(), neg(ts()))]], X.motors(neg(ts()), ts())),
-          whileDo(and2(and2(not(on('A1')), not(on('A2'))), not(on('A3'))), read()),
-          set('le', 'lastError', err()))],
-        // a crossing (every sensor sees black): drive straight over it
-        [eq(seen(), 5), seq(X.motors(bs(), bs()), whileDo(eq(seen(), 5), read()))],
-        // the PID, every sampleMs milliseconds
-        [X.cmp('GTE', X.arith('MINUS', XB.millis(), g('lp', 'lastPid')), g('smp', 'sampleMs')), seq(
-          set('lp', 'lastPid', XB.millis()),
-          set('er', 'error', err()),
-          set('ig', 'integral', B('math_constrain', { v: { VALUE: X.arith('ADD', g('ig', 'integral'), g('er', 'error')), LOW: -40, HIGH: 40 } })),
-          set('tu', 'turn', X.arith('ADD', X.arith('ADD', X.arith('MULTIPLY', g('kp', 'Kp'), g('er', 'error')), X.arith('MULTIPLY', g('ki', 'Ki'), g('ig', 'integral'))),
-            X.arith('MULTIPLY', g('kd', 'Kd'), X.arith('MINUS', g('er', 'error'), g('le', 'lastError'))))),
-          set('le', 'lastError', g('er', 'error')),
-          X.motors(X.arith('ADD', bs(), g('tu', 'turn')), X.arith('MINUS', bs(), g('tu', 'turn'))))]])),
-    { vars: [['kp', 'Kp', 'float'], ['ki', 'Ki', 'float'], ['kd', 'Kd', 'float'], ['bs', 'baseSpeed', 'int'], ['ts', 'turnSpeed', 'int'], ['smp', 'sampleMs', 'int'], ['sb', 'startButton', 'int'],
-      ['le', 'lastError', 'float'], ['ig', 'integral', 'float'], ['ls', 'lostSide', 'int'], ['lp', 'lastPid', 'long'], ['er', 'error', 'float'], ['tu', 'turn', 'float']], extra: waitForStart });
+    seq(set('kp', 'Kp', 70), set('ki', 'Ki', 0), set('kd', 'Kd', 1000), set('bs', 'baseSpeed', 240), B('dowee_calibrate')),
+    seq(
+      set('er', 'error', X.arith('MINUS', B('dowee_line_pos'), 3)),
+      set('ig', 'integral', B('math_constrain', { v: { VALUE: X.arith('ADD', g('ig', 'integral'), g('er', 'error')), LOW: -40, HIGH: 40 } })),
+      set('tu', 'turn', X.arith('ADD', X.arith('ADD', X.arith('MULTIPLY', g('kp', 'Kp'), g('er', 'error')), X.arith('MULTIPLY', g('ki', 'Ki'), g('ig', 'integral'))),
+        X.arith('MULTIPLY', g('kd', 'Kd'), X.arith('MINUS', g('er', 'error'), g('le', 'lastError'))))),
+      set('le', 'lastError', g('er', 'error')),
+      X.motors(X.arith('ADD', g('bs', 'baseSpeed'), g('tu', 'turn')), X.arith('MINUS', g('bs', 'baseSpeed'), g('tu', 'turn'))),
+      B('dowee_wait_ms', { v: { MS: 10 } })),
+    { vars: [['kp', 'Kp', 'float'], ['ki', 'Ki', 'float'], ['kd', 'Kd', 'float'], ['bs', 'baseSpeed', 'int'], ['le', 'lastError', 'float'], ['ig', 'integral', 'float'], ['er', 'error', 'float'], ['tu', 'turn', 'float']] });
 }
 const BX = {
   rc: () => X.prog('', X.btRead(X.ifs([[X.bt('F'), X.move('F', 220)], [X.bt('B'), X.move('B', 220)], [X.bt('L'), X.move('SL', 130)], [X.bt('R'), X.move('SR', 130)], [X.bt('G'), X.move('TL', 220)], [X.bt('I'), X.move('TR', 220)], [X.bt('S'), X.stop()]]))),

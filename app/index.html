@@ -4534,21 +4534,15 @@ int threshold = 500;   // above this = the sensor sees the line (calibrate() wor
 int onLine[5];         // 1 = this sensor sees the line, 0 = it sees the white floor
 int seen = 0;          // how many sensors see the line
 float position = 3;    // where the line is: 1 (far left) .. 3 (middle) .. 5 (far right)`;
-const CALIBRATE_FN = `// Sweep left and right over the line for 2 seconds, so every sensor sees white and black.
+const CALIBRATE_FN = `// Sweep left and right over the line, so every sensor sees white and black.
 // Then the threshold is halfway between the average white and the average black.
 void calibrate() {
   digitalWrite(LED_BUILTIN, HIGH);
-  unsigned long start = millis();
-  while (millis() - start < 2000) {
-    unsigned long t = millis() - start;
-    if (t < 250 || (t >= 750 && t < 1250) || t >= 1750) drive(-120, 120);
-    else drive(120, -120);
-    for (int i = 0; i < 5; i++) {
-      int v = analogRead(A0 + i);
-      if (v < minV[i]) minV[i] = v;
-      if (v > maxV[i]) maxV[i] = v;
-    }
-  }
+  sweep(-120, 120, 250);   // turn left
+  sweep(120, -120, 500);   // turn right, across the line
+  sweep(-120, 120, 500);   // and back
+  sweep(120, -120, 500);
+  sweep(-120, 120, 250);   // end in the middle
   drive(0, 0);
   long whiteSum = 0;
   long blackSum = 0;
@@ -4567,6 +4561,19 @@ void calibrate() {
   Serial.println(threshold);
   digitalWrite(LED_BUILTIN, LOW);
   delay(300);
+}
+
+// Turn for some milliseconds while remembering each sensor's whitest (min) and blackest (max) reading.
+void sweep(int left, int right, int ms) {
+  drive(left, right);
+  unsigned long start = millis();
+  while (millis() - start < ms) {
+    for (int i = 0; i < 5; i++) {
+      int v = analogRead(A0 + i);
+      if (v < minV[i]) minV[i] = v;
+      if (v > maxV[i]) maxV[i] = v;
+    }
+  }
 }`;
 const READLINE_FN = `// Reads all 5 sensors: each one sees the line (1) or not (0).
 // The line's position is the average of the sensors that see it:
@@ -4584,51 +4591,31 @@ void readLine() {
 
 const EXAMPLES = {
   line: {
-    pid: { name: 'PID line follower (5 sensors)', code: `// PID line follower with calibration
-// Five IR sensors on A0 (left) to A4 (right). Higher reading = darker floor.
-// 1. Press the start button on pin 2 (or type g in the Serial monitor).
-// 2. calibrate(): Dowee sweeps over the line and works out the threshold between white and black.
-// 3. It follows the line with a PID worked out every 10 ms. If the line is lost, it spins
-//    towards where it was last seen. At a crossing, it drives straight over.
+    pid: { name: 'PID line follower (5 sensors)', code: `// PID line follower
+// 1. calibrate(): learn white and black, and put the threshold halfway between them.
+// 2. readLine(): which sensors see the line, and where it is: 1 (far left) .. 3 (middle) .. 5 (far right).
+// 3. The PID steers by how far the line is from the middle, every 10 ms.
 ${MOTOR_SETUP}
 
 // ---- Tune these in the Tune tab while the robot drives ----
-float Kp = 70;        // turn harder when far from the line (error 1 = one sensor off centre)
-float Ki = 0;         // the I part: 0 = off (Dowee's motors are matched, so it only adds wobble)
-float Kd = 1000;      // calms the wobble: the change in error over one 10 ms step, times Kd
+float Kp = 70;        // P: turn harder when the line is far from the middle
+float Ki = 0;         // I: 0 = off (Dowee's motors are matched, so it would only add wobble)
+float Kd = 1000;      // D: calms the wobble
 int baseSpeed = 240;  // cruising speed, 0-255
-int turnSpeed = 170;  // spin speed when the line is lost
-int sampleMs = 10;    // work out the PID every 10 ms
-
-const int startButton = 2;   // a button between pin 2 and GND: reads LOW while pressed
 
 ${LINE_GLOBALS}
 
 float lastError = 0;
 float integral = 0;
-char lostSide = 's';  // where the line was last seen at the edge: 'l', 'r', or 's' (not yet)
-unsigned long lastPid = 0;
 
 void setup() {
 ${PINMODES}
   pinMode(LED_BUILTIN, OUTPUT);
-  pinMode(startButton, INPUT_PULLUP);
   Serial.begin(9600);
-  waitForStart();
   calibrate();
 }
 
 ${DRIVE_FN}
-
-// Wait for the start button (pin 2 goes LOW) or the letter g in the Serial monitor.
-void waitForStart() {
-  Serial.println("Press the button on pin 2, or type g, to start.");
-  while (true) {
-    if (digitalRead(startButton) == LOW) break;
-    if (Serial.available() > 0 && Serial.read() == 'g') break;
-  }
-  Serial.println("Go!");
-}
 
 ${CALIBRATE_FN}
 
@@ -4636,36 +4623,12 @@ ${READLINE_FN}
 
 void loop() {
   readLine();
-
-  // Remember which edge sensor saw the line last
-  if (onLine[0] == 1 && onLine[4] == 0) lostSide = 'l';
-  if (onLine[4] == 1 && onLine[0] == 0) lostSide = 'r';
-
-  // Line lost: spin towards where it was last seen until a middle sensor finds it
-  if (seen == 0 && lostSide != 's') {
-    if (lostSide == 'r') drive(turnSpeed, -turnSpeed);
-    else drive(-turnSpeed, turnSpeed);
-    while (onLine[1] == 0 && onLine[2] == 0 && onLine[3] == 0) readLine();
-    lastError = position - 3;
-    return;
-  }
-
-  // A crossing (every sensor sees black): drive straight over it
-  if (seen == 5) {
-    drive(baseSpeed, baseSpeed);
-    while (seen == 5) readLine();
-    return;
-  }
-
-  // The PID, every sampleMs milliseconds
-  if (millis() - lastPid >= sampleMs) {
-    lastPid = millis();
-    float error = position - 3;            // + means the line is to the RIGHT
-    integral = constrain(integral + error, -40, 40);   // anti-windup
-    float turn = Kp * error + Ki * integral + Kd * (error - lastError);
-    lastError = error;
-    drive(baseSpeed + turn, baseSpeed - turn);
-  }
+  float error = position - 3;           // + means the line is to the RIGHT
+  integral = constrain(integral + error, -40, 40);
+  float turn = Kp * error + Ki * integral + Kd * (error - lastError);
+  lastError = error;
+  drive(baseSpeed + turn, baseSpeed - turn);
+  delay(10);                            // the same time every loop, so D measures the change over 10 ms
 }
 ` },
     bang: { name: 'Simple 2-sensor follower', code: `// Beginner line follower: uses only the two outer-middle sensors.
@@ -5499,65 +5462,36 @@ void loop() {
   else drive(baseSpeed, baseSpeed);
 }
 `;
-const PID3_CODE = PID_TOP('PID step 3: P, steer by how far away the line is', 'float Kp = 15;        // P gain: how hard to steer for each sensor of error\nint sampleMs = 10;    // work out the steering every 10 ms\n') + `
-unsigned long lastPid = 0;
-
+const PID3_CODE = PID_TOP('PID step 3: P, steer by how far away the line is', 'float Kp = 15;        // P gain: how hard to steer for each sensor of error\n') + `
 void loop() {
   readLine();
-  if (millis() - lastPid >= sampleMs) {
-    lastPid = millis();
-    float error = position - 3;   // -2 .. +2
+  float error = position - 3;   // -2 .. +2
 
-    // P = proportional: the farther the line, the harder Dowee steers.
-    // TODO 1: work out how hard to turn:  Kp * error
-    float turn = 0;
+  // P = proportional: the farther the line, the harder Dowee steers.
+  // TODO 1: work out how hard to turn:  Kp * error
+  float turn = 0;
 
-    // TODO 2: speed up one wheel and slow the other: left gets  baseSpeed + turn,  right gets  baseSpeed - turn
-    drive(baseSpeed, baseSpeed);
-  }
+  // TODO 2: speed up one wheel and slow the other: left gets  baseSpeed + turn,  right gets  baseSpeed - turn
+  drive(baseSpeed, baseSpeed);
+  delay(10);   // the same time every loop
 }
 `;
-const PID4_CODE = PID_TOP('PID step 4: D, calm the wiggle, then race', 'float Kp = 70;        // P gain\nfloat Kd = 1000;      // D gain: brakes the turn before it overshoots\nint turnSpeed = 170;  // spin speed when the line is lost\nint sampleMs = 10;    // work out the steering every 10 ms\n', { speed: 240 }) + `
-float lastError = 0;
-char lostSide = 's';  // where the line was last seen at the edge: 'l', 'r', or 's' (not yet)
-unsigned long lastPid = 0;
+const PID4_CODE = PID_TOP('PID step 4: D, calm the wiggle, then race', 'float Kp = 70;        // P gain\nfloat Kd = 1000;      // D gain: brakes the turn before it overshoots\n', { speed: 240 }) + `
+float lastError = 0;   // the error from the last loop, 10 ms ago
 
 void loop() {
   readLine();
+  float error = position - 3;
 
-  // Remember which edge sensor saw the line last
-  if (onLine[0] == 1 && onLine[4] == 0) lostSide = 'l';
-  if (onLine[4] == 1 && onLine[0] == 0) lostSide = 'r';
+  // D = derivative: how much did the error change since the last loop?
+  float change = error - lastError;
 
-  // Line lost: spin towards where it was last seen until a middle sensor finds it
-  if (seen == 0 && lostSide != 's') {
-    if (lostSide == 'r') drive(turnSpeed, -turnSpeed);
-    else drive(-turnSpeed, turnSpeed);
-    while (onLine[1] == 0 && onLine[2] == 0 && onLine[3] == 0) readLine();
-    lastError = position - 3;
-    return;
-  }
+  float turn = Kp * error;   // the P part, from PID 3
+  // TODO: add the D part to turn:  Kd * change
 
-  // A crossing (every sensor sees black): drive straight over it
-  if (seen == 5) {
-    drive(baseSpeed, baseSpeed);
-    while (seen == 5) readLine();
-    return;
-  }
-
-  if (millis() - lastPid >= sampleMs) {
-    lastPid = millis();
-    float error = position - 3;
-
-    // D = derivative: how much did the error change in the last 10 ms?
-    float change = error - lastError;
-
-    float turn = Kp * error;   // the P part, from PID 3
-    // TODO: add the D part to turn:  Kd * change
-
-    lastError = error;         // remember this error for next time
-    drive(baseSpeed + turn, baseSpeed - turn);
-  }
+  lastError = error;         // remember this error for next time
+  drive(baseSpeed + turn, baseSpeed - turn);
+  delay(10);                 // the same time every loop, so change is always "in 10 ms"
 }
 `;
 // Did calibrate() learn white and black, and put the threshold between them?
@@ -5579,12 +5513,12 @@ const PID_LESSONS = [
     hints: ['If only the middle sensor (number 3) sees the line, the position is 3 and the error is 0. If sensors 4 and 5 see it, the position is 4.5.', '<code class="k">onLine[i] = analogRead(A0 + i) &gt; threshold ? 1 : 0;</code> then <code class="k">seen += onLine[i];</code> and <code class="k">sum += onLine[i] * (i + 1);</code>', 'After the loop: <code class="k">if (seen &gt; 0) position = (float)sum / seen;</code>'],
     goal: 'Complete one lap of the Oval', check: W => W.state.laps && W.state.laps.length >= 1 },
   { id: 'pid3', title: 'PID 3: P, steer smoothly', level: 'PID line follower', arena: 'line', variant: 'oval', code: PID3_CODE,
-    intro: 'Step 2 steered in jumps: hard left, straight or hard right. The <b>P</b> part steers by <i>how much</i>: a little off means a little turn, far off means a big turn. <code class="k">turn = Kp * error</code>. It is worked out every 10 ms, so it acts the same however fast the loop runs.',
+    intro: 'Step 2 steered in jumps: hard left, straight or hard right. The <b>P</b> part steers by <i>how much</i>: a little off means a little turn, far off means a big turn. <code class="k">turn = Kp * error</code>.',
     steps: ['Fill in the two <b>TODO</b>s.', 'Run it on the Oval with <b>Trail</b> on: Dowee follows the line, but it wiggles.', 'Open the <b>Tune</b> tab and move <code class="k">Kp</code> and <code class="k">baseSpeed</code> while it drives.'],
     hints: ['<code class="k">float turn = Kp * error;</code>', 'Line on the right means the error is positive, so the left wheel must go faster: <code class="k">drive(baseSpeed + turn, baseSpeed - turn);</code>', 'If Dowee wiggles a lot, make Kp smaller. If it is slow to turn, make it bigger. Without D (next step), a big Kp swings across the line.'],
     goal: 'Lap the Oval in under 17 seconds', check: W => W.state.laps && W.state.laps.some(l => l.time < 17) },
   { id: 'pid', title: 'PID 4: D, calm the wiggle, then race', level: 'PID line follower', arena: 'line', variant: 'snake', code: PID4_CODE,
-    intro: 'With P alone, a fast Dowee overshoots: it turns towards the line, crosses it and has to turn back. The <b>D</b> part looks at how fast the error is changing and brakes the turn early, like easing off the steering wheel before you reach the bend. This program also finds a lost line and drives over crossings, so you can race.',
+    intro: 'With P alone, a fast Dowee overshoots: it turns towards the line, crosses it and has to turn back. The <b>D</b> part looks at how fast the error is changing and brakes the turn early, like easing off the steering wheel before you reach the bend. Then race! If the line is lost, the position stays where it was last, so Dowee keeps turning that way. At a crossing, all five sensors see black, the position is 3, and Dowee drives straight over.',
     steps: ['Run it first: with P only at this speed, Dowee wobbles off the Snake.', 'Fill in the <b>TODO</b>: add <code class="k">Kd * change</code> to <code class="k">turn</code>.', 'Run again with <b>Trail</b> on, then tune Kp, Kd and baseSpeed in the <b>Tune</b> tab for the fastest lap.'],
     hints: ['<code class="k">change</code> is big when the line moves away fast. That is when Dowee should brake its turn.', 'One line does both parts: <code class="k">float turn = Kp * error + Kd * change;</code>', 'Keep <code class="k">lastError = error;</code> after the turn, so next time <code class="k">change</code> is right.'],
     goal: 'Lap the Snake in under 12 seconds', check: W => W.state.laps && W.state.laps.some(l => l.time < 12) },
@@ -5629,15 +5563,13 @@ float Kp = ${kp};       // P: turn harder when the line is far away
 float Ki = ${ki};       // I: fixes a robot that always drifts to one side
 float Kd = ${kd};     // D: brakes the turn before it overshoots
 int baseSpeed = ${speed};  // cruising speed, 0-255
-int sampleMs = 10;    // work out the steering every 10 ms
 float iLimit = 40;    // anti-windup: the biggest the integral may get
 
 ${LINE_GLOBALS}
 
 float error = 0;      // where the line is now: -2 (far left) .. 0 .. +2 (far right)
 float lastError = 0;  // where it was 10 ms ago
-float integral = 0;   // all the errors added up
-unsigned long lastPid = 0;`;
+float integral = 0;   // all the errors added up`;
 const PID_SETUP = `void setup() {
 ${PINMODES}
   pinMode(LED_BUILTIN, OUTPUT);
@@ -5664,15 +5596,13 @@ ${aswap(aswap(aswap(READLINE_FN, '    onLine[i] = analogRead(A0 + i) > threshold
 
 void loop() {
   readLine();
-  if (millis() - lastPid >= sampleMs) {
-    lastPid = millis();
-    error = {{6}};
-    float change = error - lastError;
-    integral = {{7}};
-    float turn = {{8}};
-    drive({{9}});
-    {{10}};
-  }
+  error = {{6}};
+  float change = error - lastError;
+  integral = {{7}};
+  float turn = {{8}};
+  drive({{9}});
+  {{10}};
+  delay(10);   // the same time every loop
 }
 `;
 const PID_BLANKS = [
@@ -5748,19 +5678,17 @@ void readLine() {
 
 void loop() {
   readLine();
-  if (millis() - lastPid >= sampleMs) {
-    lastPid = millis();
-    error = position - 3;
+  error = position - 3;
 
-    // Simple steering for now, so you can test step 2. In STEP 3 you replace it with P and D.
-    // STEP 4: add I, with an anti-windup limit.
-    float turn = 0;
-    if (error > 0.5) turn = 50;
-    if (error < -0.5) turn = -50;
+  // Simple steering for now, so you can test step 2. In STEP 3 you replace it with P and D.
+  // STEP 4: add I, with an anti-windup limit.
+  float turn = 0;
+  if (error > 0.5) turn = 50;
+  if (error < -0.5) turn = -50;
 
-    lastError = error;
-    drive(baseSpeed + turn, baseSpeed - turn);
-  }
+  lastError = error;
+  drive(baseSpeed + turn, baseSpeed - turn);
+  delay(10);   // the same time every loop
 }
 `;
 // Guide steps. check(W, memo) runs about 5 times a second while the program runs; memo starts empty each run.
@@ -5963,8 +5891,8 @@ const PRIMM = {
   pid: {
     predict: { q: 'This step starts with P only, at speed 240. What will Dowee do on the Snake?', options: ['Swing across the line again and again', 'Race smoothly', 'Not move at all'], answer: 0, why: 'A strong P at high speed turns hard towards the line, crosses it and has to turn back. Nothing brakes the turn yet.' },
     investigate: [
-      { q: 'When is <code class="k">change</code> (error − lastError) big?', options: ['When the line moves away fast', 'When Dowee is exactly on the line', 'When Kd is big'], answer: 0, why: 'change is how much the error grew in the last 10 ms. D uses it to brake the turn before Dowee overshoots.' },
-      { q: 'What does Dowee do when no sensor sees the line?', options: ['Spins towards where it last saw the line', 'Stops', 'Drives straight on'], answer: 0, why: '<code class="k">lostSide</code> remembers which edge sensor saw the line last, so Dowee spins back that way.' },
+      { q: 'When is <code class="k">change</code> (error − lastError) big?', options: ['When the line moves away fast', 'When Dowee is exactly on the line', 'When Kd is big'], answer: 0, why: 'change is how much the error grew since the last loop, 10 ms ago. D uses it to brake the turn before Dowee overshoots.' },
+      { q: 'What does Dowee do when no sensor sees the line?', options: ['Keeps turning the way it last saw the line', 'Stops', 'Drives straight on'], answer: 0, why: '<code class="k">readLine()</code> keeps the last position when no sensor sees the line, so the error stays big and Dowee keeps turning back towards it.' },
     ],
     modify: [
       { text: 'Add the D part so Dowee laps the Snake with less than 15 mm of wiggle.', check: W => W.state.laps && W.state.laps.some(l => l.rms < 15) },
@@ -6242,51 +6170,21 @@ const FULL = {
       XB.ms(30)), { vars: [['sd', 'safeDistance', 'int'], ['cr', 'cruise', 'int'], ['dl', 'd', 'long']] });
   },
 };
-// The PID line follower with calibration: the same program as the text example (line/pid), made of blocks.
-// "calibrate the line sensors", "line position" and "how many sensors see the line" write the same code as the text.
+// The PID line follower: the same program as the text example (line/pid), made of blocks.
+// "calibrate the line sensors" and "line position" write the same code as the text.
 function pidBlocks() {
-  const g = (id, nm) => X.get(id, nm);
-  const L = c => B('dowee_char', { f: { L: c } }), eq = (a, b) => X.cmp('EQ', a, b), and2 = (a, b) => XB.and(a, b);
-  const whileDo = (cond, body) => B('controls_whileUntil', { f: { MODE: 'WHILE' }, v: { BOOL: cond }, s: body ? { DO: body } : {} });
-  const brk = () => '<block type="controls_flow_statements"><field name="FLOW">BREAK</field></block>';
-  const set = (id, nm, v) => X.set(id, nm, v);
-  const on = pin => B('dowee_on_line', { f: { PIN: pin } }), not = x => X.not(x), seen = () => B('dowee_line_seen'), read = () => B('dowee_read_line');
-  const err = () => X.arith('MINUS', B('dowee_line_pos'), 3);
-  const waitForStart = X.defn('waitForStart', seq(
-    X.print(XB.text('Press the button on pin 2, or type g, to start.')),
-    whileDo(B('logic_boolean', { f: { BOOL: 'TRUE' } }), seq(
-      X.ifs([[eq(B('dowee_dread', { v: { PIN: g('sb', 'startButton') } }), B('dowee_hilo', { f: { V: 'LOW' } })), brk()]]),
-      X.ifs([[and2(B('dowee_serial_has'), eq(B('dowee_serial_read', { f: { OP: 'read' } }), L('g'))), brk()]]))),
-    X.print(XB.text('Go!'))), 360);
-  const ts = () => g('ts', 'turnSpeed'), bs = () => g('bs', 'baseSpeed');
+  const g = (id, nm) => X.get(id, nm), set = (id, nm, v) => X.set(id, nm, v);
   return X.prog(
-    seq(set('kp', 'Kp', 70), set('ki', 'Ki', 0), set('kd', 'Kd', 1000), set('bs', 'baseSpeed', 240), set('ts', 'turnSpeed', 170), set('smp', 'sampleMs', 10),
-      set('sb', 'startButton', 2), set('ls', 'lostSide', L('s')),
-      B('dowee_pmode', { f: { MODE: 'INPUT_PULLUP' }, v: { PIN: g('sb', 'startButton') } }),
-      X.call('waitForStart'), B('dowee_calibrate')),
-    seq(read(),
-      // remember which edge sensor saw the line last
-      X.ifs([[and2(on('A0'), not(on('A4'))), set('ls', 'lostSide', L('l'))]]),
-      X.ifs([[and2(on('A4'), not(on('A0'))), set('ls', 'lostSide', L('r'))]]),
-      X.ifs([
-        // line lost: spin towards where it was last seen until a middle sensor finds it
-        [and2(eq(seen(), 0), X.cmp('NEQ', g('ls', 'lostSide'), L('s'))), seq(
-          X.ifs([[eq(g('ls', 'lostSide'), L('r')), X.motors(ts(), neg(ts()))]], X.motors(neg(ts()), ts())),
-          whileDo(and2(and2(not(on('A1')), not(on('A2'))), not(on('A3'))), read()),
-          set('le', 'lastError', err()))],
-        // a crossing (every sensor sees black): drive straight over it
-        [eq(seen(), 5), seq(X.motors(bs(), bs()), whileDo(eq(seen(), 5), read()))],
-        // the PID, every sampleMs milliseconds
-        [X.cmp('GTE', X.arith('MINUS', XB.millis(), g('lp', 'lastPid')), g('smp', 'sampleMs')), seq(
-          set('lp', 'lastPid', XB.millis()),
-          set('er', 'error', err()),
-          set('ig', 'integral', B('math_constrain', { v: { VALUE: X.arith('ADD', g('ig', 'integral'), g('er', 'error')), LOW: -40, HIGH: 40 } })),
-          set('tu', 'turn', X.arith('ADD', X.arith('ADD', X.arith('MULTIPLY', g('kp', 'Kp'), g('er', 'error')), X.arith('MULTIPLY', g('ki', 'Ki'), g('ig', 'integral'))),
-            X.arith('MULTIPLY', g('kd', 'Kd'), X.arith('MINUS', g('er', 'error'), g('le', 'lastError'))))),
-          set('le', 'lastError', g('er', 'error')),
-          X.motors(X.arith('ADD', bs(), g('tu', 'turn')), X.arith('MINUS', bs(), g('tu', 'turn'))))]])),
-    { vars: [['kp', 'Kp', 'float'], ['ki', 'Ki', 'float'], ['kd', 'Kd', 'float'], ['bs', 'baseSpeed', 'int'], ['ts', 'turnSpeed', 'int'], ['smp', 'sampleMs', 'int'], ['sb', 'startButton', 'int'],
-      ['le', 'lastError', 'float'], ['ig', 'integral', 'float'], ['ls', 'lostSide', 'int'], ['lp', 'lastPid', 'long'], ['er', 'error', 'float'], ['tu', 'turn', 'float']], extra: waitForStart });
+    seq(set('kp', 'Kp', 70), set('ki', 'Ki', 0), set('kd', 'Kd', 1000), set('bs', 'baseSpeed', 240), B('dowee_calibrate')),
+    seq(
+      set('er', 'error', X.arith('MINUS', B('dowee_line_pos'), 3)),
+      set('ig', 'integral', B('math_constrain', { v: { VALUE: X.arith('ADD', g('ig', 'integral'), g('er', 'error')), LOW: -40, HIGH: 40 } })),
+      set('tu', 'turn', X.arith('ADD', X.arith('ADD', X.arith('MULTIPLY', g('kp', 'Kp'), g('er', 'error')), X.arith('MULTIPLY', g('ki', 'Ki'), g('ig', 'integral'))),
+        X.arith('MULTIPLY', g('kd', 'Kd'), X.arith('MINUS', g('er', 'error'), g('le', 'lastError'))))),
+      set('le', 'lastError', g('er', 'error')),
+      X.motors(X.arith('ADD', g('bs', 'baseSpeed'), g('tu', 'turn')), X.arith('MINUS', g('bs', 'baseSpeed'), g('tu', 'turn'))),
+      B('dowee_wait_ms', { v: { MS: 10 } })),
+    { vars: [['kp', 'Kp', 'float'], ['ki', 'Ki', 'float'], ['kd', 'Kd', 'float'], ['bs', 'baseSpeed', 'int'], ['le', 'lastError', 'float'], ['ig', 'integral', 'float'], ['er', 'error', 'float'], ['tu', 'turn', 'float']] });
 }
 const BX = {
   rc: () => X.prog('', X.btRead(X.ifs([[X.bt('F'), X.move('F', 220)], [X.bt('B'), X.move('B', 220)], [X.bt('L'), X.move('SL', 130)], [X.bt('R'), X.move('SR', 130)], [X.bt('G'), X.move('TL', 220)], [X.bt('I'), X.move('TR', 220)], [X.bt('S'), X.stop()]]))),

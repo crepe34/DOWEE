@@ -17,15 +17,13 @@ float Kp = ${kp};       // P: turn harder when the line is far away
 float Ki = ${ki};       // I: fixes a robot that always drifts to one side
 float Kd = ${kd};     // D: brakes the turn before it overshoots
 int baseSpeed = ${speed};  // cruising speed, 0-255
-int sampleMs = 10;    // work out the steering every 10 ms
 float iLimit = 40;    // anti-windup: the biggest the integral may get
 
 ${LINE_GLOBALS}
 
 float error = 0;      // where the line is now: -2 (far left) .. 0 .. +2 (far right)
 float lastError = 0;  // where it was 10 ms ago
-float integral = 0;   // all the errors added up
-unsigned long lastPid = 0;`;
+float integral = 0;   // all the errors added up`;
 const PID_SETUP = `void setup() {
 ${PINMODES}
   pinMode(LED_BUILTIN, OUTPUT);
@@ -52,15 +50,13 @@ ${aswap(aswap(aswap(READLINE_FN, '    onLine[i] = analogRead(A0 + i) > threshold
 
 void loop() {
   readLine();
-  if (millis() - lastPid >= sampleMs) {
-    lastPid = millis();
-    error = {{6}};
-    float change = error - lastError;
-    integral = {{7}};
-    float turn = {{8}};
-    drive({{9}});
-    {{10}};
-  }
+  error = {{6}};
+  float change = error - lastError;
+  integral = {{7}};
+  float turn = {{8}};
+  drive({{9}});
+  {{10}};
+  delay(10);   // the same time every loop
 }
 `;
 const PID_BLANKS = [
@@ -136,19 +132,17 @@ void readLine() {
 
 void loop() {
   readLine();
-  if (millis() - lastPid >= sampleMs) {
-    lastPid = millis();
-    error = position - 3;
+  error = position - 3;
 
-    // Simple steering for now, so you can test step 2. In STEP 3 you replace it with P and D.
-    // STEP 4: add I, with an anti-windup limit.
-    float turn = 0;
-    if (error > 0.5) turn = 50;
-    if (error < -0.5) turn = -50;
+  // Simple steering for now, so you can test step 2. In STEP 3 you replace it with P and D.
+  // STEP 4: add I, with an anti-windup limit.
+  float turn = 0;
+  if (error > 0.5) turn = 50;
+  if (error < -0.5) turn = -50;
 
-    lastError = error;
-    drive(baseSpeed + turn, baseSpeed - turn);
-  }
+  lastError = error;
+  drive(baseSpeed + turn, baseSpeed - turn);
+  delay(10);   // the same time every loop
 }
 `;
 // Guide steps. check(W, memo) runs about 5 times a second while the program runs; memo starts empty each run.
