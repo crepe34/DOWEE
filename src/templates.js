@@ -79,7 +79,7 @@ const TEMPLATES = {
 ${MOTOR_SETUP}
 
 int speed = 140;   // cruising speed, 0-255
-int black = 500;   // above this number = the sensor sees the black line
+int threshold = 500;   // halfway between white (about 100) and black (about 950): above it = the sensor sees the line
 
 void setup() {
 ${PINMODES}
@@ -93,7 +93,7 @@ void loop() {
   int middle = analogRead(A2);   // centre sensor
   int right = analogRead(A3);    // right-middle sensor
 
-  // TODO 1: if the MIDDLE sensor sees black (middle > black), drive straight.
+  // TODO 1: if the MIDDLE sensor sees black (middle > threshold), drive straight.
 
   // TODO 2: else if the LEFT sensor sees black, the line is on the left: turn left.
   //         (Make the left wheel slower than the right one.)
@@ -108,7 +108,7 @@ void loop() {
       'Open the <b>Sensors &amp; pins</b> tab while Dowee sits on the line. Which sensors show a big number?',
       'A line follower is a chain of <code class="k">if</code> … <code class="k">else if</code> … <code class="k">else</code>: check the middle first, then the left, then the right.',
       'To turn <b>left</b>, the left wheel goes slower than the right wheel, for example <code class="k">drive(0, speed)</code>.',
-      '<pre>if (middle &gt; black) {\n  drive(speed, speed);\n} else if (left &gt; black) {\n  drive(0, speed);\n} else if (right &gt; black) {\n  drive(speed, 0);\n}</pre>',
+      '<pre>if (middle &gt; threshold) {\n  drive(speed, speed);\n} else if (left &gt; threshold) {\n  drive(0, speed);\n} else if (right &gt; threshold) {\n  drive(speed, 0);\n}</pre>',
     ],
     missions: [
       { text: 'Finish one lap of the Oval', variant: 'oval', goal: { type: 'laps', n: 1 } },

@@ -63,8 +63,12 @@ function defineDoweeBlocks() {
     // Sensors
     { type: 'dowee_sensor', message0: 'line sensor %1', args0: [{ type: 'field_dropdown', name: 'PIN', options: SENSOR_OPTS }], output: 'Number', colour: C.sense, tooltip: 'Black ≈ 950, white ≈ 100.' },
     { type: 'dowee_sensor_n', message0: 'line sensor number %1', args0: [{ type: 'input_value', name: 'N', check: 'Number' }], inputsInline: true, output: 'Number', colour: C.sense, tooltip: 'Sensor 1 (far left) to 5 (far right). Handy in a count loop.' },
-    { type: 'dowee_black', message0: 'sensor %1 sees black', args0: [{ type: 'field_dropdown', name: 'PIN', options: SENSOR_OPTS }], output: 'Boolean', colour: C.sense, tooltip: 'True when the reading is above BLACK (500). Change BLACK in the Tune tab.' },
-    { type: 'dowee_line_pos', message0: 'line position', output: 'Number', colour: C.sense, tooltip: '-2000 = line under the far-left sensor, 0 = in the middle, 2000 = far right.' },
+    { type: 'dowee_black', message0: 'sensor %1 sees black', args0: [{ type: 'field_dropdown', name: 'PIN', options: SENSOR_OPTS }], output: 'Boolean', colour: C.sense, tooltip: 'True when the reading is above the threshold: 500 (halfway between white and black), or what "calibrate the line sensors" worked out. Change it in the Tune tab.' },
+    st({ type: 'dowee_calibrate', message0: 'calibrate the line sensors', tooltip: 'Sweeps left and right over the line for 2 seconds, learns each sensor\'s white and black, and sets the threshold halfway between the average white and the average black. Put it in "when Dowee starts", with Dowee on the line.' }, C.sense),
+    { type: 'dowee_line_pos', message0: 'line position (1 to 5)', output: 'Number', colour: C.sense, tooltip: 'The average of the sensors that see the line: 1 = far left, 3 = middle, 5 = far right. If no sensor sees it, it stays where it was last. (It used to give -2000 to 2000: old programs need new numbers.)' },
+    { type: 'dowee_line_seen', message0: 'how many sensors see the line', output: 'Number', colour: C.sense, tooltip: '0 = the line is lost, 5 = a crossing (every sensor sees black).' },
+    st({ type: 'dowee_read_line', message0: 'read the line sensors', tooltip: 'readLine(): reads all 5 sensors once. When your program has this block, "line position", "how many sensors see the line" and "sensor … is on the line" give the values from the last read, like position, seen and onLine[] in text code. Without it, they read the sensors themselves.' }, C.sense),
+    { type: 'dowee_on_line', message0: 'sensor %1 is on the line', args0: [{ type: 'field_dropdown', name: 'PIN', options: SENSOR_OPTS }], output: 'Boolean', colour: C.sense, tooltip: 'onLine[]: true when this sensor read above the threshold. With "read the line sensors" in your program, it uses the last read.' },
     { type: 'dowee_distance', message0: 'distance in cm', output: 'Number', colour: C.sense, tooltip: 'From the ultrasonic sensor. 999 means nothing is in front.' },
     st({ type: 'dowee_bt_read', message0: 'read Bluetooth command', tooltip: 'Gets the newest letter from the remote control.' }, C.sense),
     { type: 'dowee_bt_is', message0: 'Bluetooth command is %1', args0: [{ type: 'field_dropdown', name: 'CMD', options: [['F forward', 'F'], ['B back', 'B'], ['L left', 'L'], ['R right', 'R'], ['S stop', 'S'], ['G forward-left', 'G'], ['I forward-right', 'I'], ['H back-left', 'H'], ['J back-right', 'J']] }], output: 'Boolean', colour: C.sense },
@@ -144,7 +148,7 @@ function defineDoweeBlocks() {
 // C operator precedence (smaller binds tighter), as Blockly orders.
 // Whole numbers only: Blockly rounds orders down. They are spaced by 2 so ±1 can say 'same level is fine' (left side) or 'same level needs brackets' (right side of - * /).
 const O = { ATOMIC: 0, UNARY: 4, MULT: 10, ADD: 12, SHIFT: 14, REL: 16, EQ: 18, BAND: 20, BXOR: 22, BOR: 24, AND: 26, OR: 28, COND: 30, NONE: 99 };
-const C_RESERVED = new Set([...TYPE_WORDS, ...KEYWORDS, ...Object.keys(BUILTINS), ...Object.keys(CONSTS), 'drive', 'readDistanceCm', 'readLinePosition', 'setup', 'loop', 'Serial', 'String', 'btCommand', 'BLACK', 'ENA', 'ENB', 'IN1', 'IN2', 'IN3', 'IN4', 'TRIG', 'ECHO', 'LIST_SIZE']);
+const C_RESERVED = new Set([...TYPE_WORDS, ...KEYWORDS, ...Object.keys(BUILTINS), ...Object.keys(CONSTS), 'drive', 'readDistanceCm', 'readLine', 'linePosition', 'sensorsOnLine', 'calibrate', 'minV', 'maxV', 'threshold', 'onLine', 'seen', 'position', 'setup', 'loop', 'Serial', 'String', 'btCommand', 'BLACK', 'ENA', 'ENB', 'IN1', 'IN2', 'IN3', 'IN4', 'TRIG', 'ECHO', 'LIST_SIZE']);
 const LIST_SIZE = 20;
 const isWhole = s => /^-?\d+$/.test(s);
 const isNum = s => /^-?\d+(\.\d+)?$/.test(s);
@@ -195,8 +199,14 @@ function makeGenerator() {
   F.dowee_notone = b => `noTone(${b.getFieldValue('PIN')});\n`;
   F.dowee_sensor = b => [`analogRead(${b.getFieldValue('PIN')})`, O.ATOMIC];
   F.dowee_sensor_n = b => [`analogRead(A0 + ${v(b, 'N', O.ADD, '1')} - 1)`, O.ATOMIC];
-  F.dowee_black = b => { g.black = true; return [`analogRead(${b.getFieldValue('PIN')}) > BLACK`, O.REL]; };
-  F.dowee_line_pos = () => { g.used.add('linepos'); return ['readLinePosition()', O.ATOMIC]; };
+  // The line blocks use the same code as the text programs: LINE_GLOBALS, CALIBRATE_FN and READLINE_FN (examples.js).
+  F.dowee_black = b => { g.black = true; return [`analogRead(${b.getFieldValue('PIN')}) > threshold`, O.REL]; };
+  F.dowee_calibrate = () => { g.used.add('calibrate'); g.pins.led = true; g.serial = true; return 'calibrate();\n'; };
+  // With a "read the line sensors" block in the program, these give the last read (like the text code); without it they read now.
+  F.dowee_read_line = () => { g.used.add('linepos'); return 'readLine();\n'; };
+  F.dowee_line_pos = () => { g.used.add('linepos'); return g.manualRead ? ['position', O.ATOMIC] : ['linePosition()', O.ATOMIC]; };
+  F.dowee_line_seen = () => { g.used.add('linepos'); return g.manualRead ? ['seen', O.ATOMIC] : ['sensorsOnLine()', O.ATOMIC]; };
+  F.dowee_on_line = b => { const p = b.getFieldValue('PIN'); if (g.manualRead) { g.used.add('linepos'); return [`onLine[${+p.slice(1)}] == 1`, O.EQ]; } g.black = true; return [`analogRead(${p}) > threshold`, O.REL]; };
   F.dowee_distance = () => { g.used.add('distance'); return ['readDistanceCm()', O.ATOMIC]; };
   F.dowee_bt_read = () => { g.used.add('bt'); g.serial = true; return 'if (Serial.available() > 0) {\n  btCommand = Serial.read();\n}\n'; };
   F.dowee_bt_is = b => { g.used.add('bt'); return [`btCommand == '${b.getFieldValue('CMD')}'`, O.EQ]; };
@@ -425,16 +435,17 @@ function inferTypes(g, ws) {
     // map and constrain: the answer fits the range they are given (map(v, 0, 1023, 0, 255) is a whole number)
     if (t === 'dowee_map') { const r = wider(k('TL'), k('TH')); return r === 'float' || r === 'long' ? 'long' : 'int'; }
     if (t === 'math_constrain') { const v0 = k('VALUE'), r = wider(k('LOW'), k('HIGH')); return v0 === 'float' || r === 'float' ? 'float' : r === 'bool' ? 'int' : r; }
-    if (t === 'math_round' || t === 'math_modulo' || t === 'dowee_intdiv' || t === 'math_random_int' || t === 'dowee_map' || t === 'dowee_sensor' || t === 'dowee_sensor_n' || t === 'dowee_analog_read' || t === 'dowee_line_pos' || t === 'dowee_distance' || t === 'dowee_serial_num' || t === 'dowee_list_get') return t === 'math_modulo' || t === 'dowee_intdiv' || t === 'dowee_distance' || t === 'math_random_int' || t === 'dowee_map' ? 'long' : 'int';
+    if (t === 'math_round' || t === 'math_modulo' || t === 'dowee_intdiv' || t === 'math_random_int' || t === 'dowee_map' || t === 'dowee_sensor' || t === 'dowee_sensor_n' || t === 'dowee_analog_read' || t === 'dowee_distance' || t === 'dowee_serial_num' || t === 'dowee_list_get') return t === 'math_modulo' || t === 'dowee_intdiv' || t === 'dowee_distance' || t === 'math_random_int' || t === 'dowee_map' ? 'long' : 'int';
     if (t === 'math_constrain') return wider(k('VALUE'), wider(k('LOW'), k('HIGH')));
     if (t === 'dowee_minmax') return wider(k('A'), k('B'));
     if (t === 'dowee_millis' || t === 'dowee_pulse_in' || t === 'dowee_micros') return 'long';
     if (/^(text|text_join|dowee_num_text|dowee_serial_text|dowee_text_char|dowee_text_sub)$/.test(t)) return 'String';
     if (/^dowee_(trig|atan2|atan|const)$/.test(t) || (t === 'dowee_serial_read' && b.getFieldValue('OP') === 'parseFloat') || (t === 'dowee_text_num' && b.getFieldValue('OP') === 'toFloat')) return 'float';
+    if (t === 'dowee_line_pos') return 'float';
     if (t === 'dowee_sq') return k('A');
     if (t === 'dowee_isnan' || t === 'dowee_text_compare') return 'bool';
     if (t === 'dowee_time') return 'float';
-    if (/^logic_|dowee_black|dowee_bt_is|dowee_pin_read|dowee_serial_has/.test(t)) return 'bool';
+    if (/^logic_|dowee_black|dowee_on_line|dowee_bt_is|dowee_pin_read|dowee_serial_has/.test(t)) return 'bool';
     if (t === 'variables_get' || t === 'dowee_var_get') return vtype.get(b.getFieldValue('VAR')) || 'int';
     if (t === 'procedures_callreturn') return ret.get(b.getFieldValue('NAME')) || 'float';
     return 'int';
@@ -472,7 +483,7 @@ function inferTypes(g, ws) {
 
 const HELPERS = {
   distance: `long readDistanceCm() {\n  digitalWrite(TRIG, LOW);\n  delayMicroseconds(2);\n  digitalWrite(TRIG, HIGH);\n  delayMicroseconds(10);\n  digitalWrite(TRIG, LOW);\n  long duration = pulseIn(ECHO, HIGH, 30000);\n  if (duration == 0) return 999;   // nothing seen\n  return duration * 0.034 / 2;\n}`,
-  linepos: `// Where is the line? -2000 = under the far-left sensor, 0 = middle, 2000 = far right.\nint readLinePosition() {\n  long weighted = 0, total = 0;\n  for (int k = 0; k < 5; k++) {\n    int v = analogRead(A0 + k) - 100;   // white reads about 100\n    if (v < 0) v = 0;\n    weighted += (long)v * (k - 2) * 1000;\n    total += v;\n  }\n  if (total == 0) return 0;\n  return weighted / total;\n}`,
+  linepos: READLINE_FN + `\n\n// Read the sensors, then: where is the line? 1 (far left) .. 3 (middle) .. 5 (far right)\nfloat linePosition() {\n  readLine();\n  return position;\n}\n\n// Read the sensors, then: how many see the line? 0 = lost, 5 = a crossing\nint sensorsOnLine() {\n  readLine();\n  return seen;\n}`,
 };
 // Turns a workspace into an Arduino sketch. Also fills BK.lineMap (line number → block id) and puts
 // warnings on blocks that can't run (not under a hat, a second "when Dowee starts").
@@ -480,6 +491,7 @@ function blocksToArduino(ws, opts = {}) {
   if (!BK.gen) BK.gen = makeGenerator();
   const g = BK.gen; g.init(ws);
   g.used = new Set(); g.globals = []; g.defs = []; g.pins = { out: new Set(), in: new Set(), led: false }; g.serial = false; g.baud = '9600'; g.black = false; g.timerN = 0;
+  g.manualRead = ws.getAllBlocks(false).some(b => b.type === 'dowee_read_line' && b.isEnabled());
   g.names = makeNames(ws); g.freshName = g.names.fresh;
   const procNames = new Map(); g.procName = raw => { if (!procNames.has(raw)) procNames.set(raw, g.names.clean(raw)); return procNames.get(raw); };
   inferTypes(g, ws);
@@ -505,7 +517,8 @@ function blocksToArduino(ws, opts = {}) {
     return `${t} ${e.c} = ${t === 'bool' ? 'false' : t === 'String' ? '""' : '0'};`;
   }).filter(Boolean);
   const dist = g.used.has('distance'), bt = g.used.has('bt'), lists = g.names.all().some(e => e.type === 'list' || e.type === 'flist');
-  const motors = /\bdrive\(/.test(setupBody + loopBody + g.defs.join('\n'));
+  const lineAll = g.used.has('calibrate') || g.used.has('linepos');   // the full line-sensor code (globals, readLine, calibrate)
+  const motors = /\bdrive\(/.test(setupBody + loopBody + g.defs.join('\n')) || g.used.has('calibrate');
   const serial = g.serial || bt;
   const setupLines = [
     motors ? PINMODES : '',
@@ -519,14 +532,15 @@ function blocksToArduino(ws, opts = {}) {
     '// copy it into the Arduino IDE to run it on the real robot.',
     motors ? MOTOR_SETUP : '',
     dist ? 'const int TRIG = 11;\nconst int ECHO = 12;' : '',
-    g.black ? 'const int BLACK = 500;   // a line sensor above this sees black' : '',
+    lineAll ? LINE_GLOBALS : g.black ? 'int threshold = 500;   // halfway between white (about 100) and black (about 950): above it = the sensor sees the line' : '',
     lists ? `const int LIST_SIZE = ${LIST_SIZE};` : '',
     bt ? "char btCommand = 'S';   // last letter from the Bluetooth remote" : '',
     ...decl, ...g.globals,
     '',
     motors ? DRIVE_FN : '',
     dist ? '\n' + HELPERS.distance : '',
-    g.used.has('linepos') ? '\n' + HELPERS.linepos : '',
+    g.used.has('calibrate') ? '\n' + CALIBRATE_FN : '',
+    g.used.has('linepos') ? '\n' + (g.manualRead ? READLINE_FN : HELPERS.linepos) : '',
     ...g.defs.map(d => '\n' + d),
     '',
     `/*@B'${startId || ''}'@*/`,
@@ -567,8 +581,8 @@ const TOOLBOX = level => {
     cat('Start', C.start, [blk('dowee_start'), blk('dowee_forever')]),
     cat('Move', C.move, [blk('dowee_move', { inputs: { SPEED: num(150) } }), blk('dowee_stop'), blk('dowee_wait', { inputs: { SEC: num(1) } }),
       ...(full ? [blk('dowee_drive_for', { inputs: { SPEED: num(150), SEC: num(1) } })] : []), blk('dowee_motors', { inputs: { L: num(150), R: num(150) } })]),
-    cat('Sensors', C.sense, [blk('dowee_black', { fields: { PIN: 'A2' } }), blk('dowee_distance'), blk('dowee_bt_read'), blk('dowee_bt_is'),
-      ...(full ? [blk('dowee_sensor', { fields: { PIN: 'A2' } }), blk('dowee_sensor_n', { inputs: { N: num(3) } }), blk('dowee_line_pos'), blk('dowee_time')] : [])]),
+    cat('Sensors', C.sense, [blk('dowee_black', { fields: { PIN: 'A2' } }), blk('dowee_calibrate'), blk('dowee_distance'), blk('dowee_bt_read'), blk('dowee_bt_is'),
+      ...(full ? [blk('dowee_sensor', { fields: { PIN: 'A2' } }), blk('dowee_sensor_n', { inputs: { N: num(3) } }), blk('dowee_line_pos'), blk('dowee_line_seen'), blk('dowee_read_line'), blk('dowee_on_line', { fields: { PIN: 'A2' } }), blk('dowee_time')] : [])]),
     cat('Light & sound', C.light, [blk('dowee_led'), ...(full ? [blk('dowee_led_toggle'), blk('dowee_tone', { inputs: { HZ: num(440), MS: num(200) } }), blk('dowee_notone')] : []),
       blk('dowee_print', { inputs: { V: { shadow: { type: 'text', fields: { TEXT: 'Hello!' } } } } })]),
     cat('Control', C.control, [blk('controls_if'), blk('controls_if', { extraState: { hasElse: true } }), blk('controls_repeat_ext', { inputs: { TIMES: num(4) } }), blk('dowee_wait', { inputs: { SEC: num(1) } }),

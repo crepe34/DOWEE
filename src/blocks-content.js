@@ -32,7 +32,7 @@ const X = {
   // the type of every variable id used below (block fields must carry it)
   vt: new Map([['vc', 'int'], ['vb', 'int'], ['ve', 'int'], ['vt', 'float'], ['vd', 'int'], ['vs', 'int'],
     ['kp', 'float'], ['kd', 'float'], ['bs', 'int'], ['le', 'float'], ['er', 'float'], ['tu', 'float'], ['mn', 'list'], ['mx', 'list'], ['vv', 'int'], ['st', 'long'], ['tt', 'long'], ['ww', 'int'], ['to', 'int'],
-    ['ts', 'int'], ['tm', 'int'], ['cm', 'int'], ['tx', 'String'], ['sp', 'int'],
+    ['ts', 'int'], ['tm', 'int'], ['cm', 'int'], ['tx', 'String'], ['sp', 'int'], ['pe', 'float'],
     ['ki', 'float'], ['smp', 'int'], ['sb', 'int'], ['ol', 'list'], ['sn', 'int'], ['ps', 'float'], ['ig', 'float'], ['ls', 'int'], ['lp', 'long'], ['wl', 'long'], ['tl', 'long'],
     ['lf', 'int'], ['rt', 'int'], ['el', 'int'], ['ar', 'int'], ['ss', 'int'], ['dl', 'long'], ['sd', 'int'], ['cr', 'int'], ['dt', 'int'], ['ch', 'int']]),
   vars: list => (list.length ? `<variables>${list.map(([id, name, type]) => `<variable type="${type || ''}" id="${id}">${name}</variable>`).join('')}</variables>` : ''),
@@ -91,12 +91,12 @@ const FULL = {
   // lab/meter: drive for driveTime ms at speed, then stop and say "Done!"
   meter: () => X.prog(seq(X.set('sp', 'speed', 180), X.set('dt', 'driveTime', 1500), X.led('HIGH'), X.motors(X.get('sp', 'speed'), X.get('sp', 'speed')),
     B('dowee_wait_ms', { v: { MS: X.get('dt', 'driveTime') } }), X.stop(), X.led('LOW'), X.print(XB.text('Done!'))), '', { vars: [['sp', 'speed', 'int'], ['dt', 'driveTime', 'int']] }),
-  // line/bang: digitalRead of the two middle sensors
+  // line/bang: the two middle sensors against the threshold
   bang: () => {
-    const hl = v => B('dowee_hilo', { f: { V: v } }), eq = (id, nm, v) => X.cmp('EQ', X.get(id, nm), hl(v)), sp = () => X.get('sp', 'speed');
+    const sees = pin => B('logic_ternary', { v: { IF: X.black(pin), THEN: 1, ELSE: 0 } }), eq = (id, nm, v) => X.cmp('EQ', X.get(id, nm), v), sp = () => X.get('sp', 'speed');
     return X.prog(X.set('sp', 'speed', 150), seq(
-      X.set('lf', 'left', B('dowee_dread', { v: { PIN: XB.pin('A1') } })), X.set('rt', 'right', B('dowee_dread', { v: { PIN: XB.pin('A3') } })),
-      X.ifs([[and2(eq('lf', 'left', 'HIGH'), eq('rt', 'right', 'LOW')), X.motors(0, sp())], [and2(eq('rt', 'right', 'HIGH'), eq('lf', 'left', 'LOW')), X.motors(sp(), 0)]], X.motors(sp(), sp()))),
+      X.set('lf', 'left', sees('A1')), X.set('rt', 'right', sees('A3')),
+      X.ifs([[and2(eq('lf', 'left', 1), eq('rt', 'right', 0)), X.motors(0, sp())], [and2(eq('rt', 'right', 1), eq('lf', 'left', 0)), X.motors(sp(), 0)]], X.motors(sp(), sp()))),
       { vars: [['sp', 'speed', 'int'], ['lf', 'left', 'int'], ['rt', 'right', 'int']] });
   },
   // race/rc and soccer/rc: switch on the letter, speed keys 0-9 and q
@@ -139,68 +139,39 @@ const FULL = {
   },
 };
 // The PID line follower with calibration: the same program as the text example (line/pid), made of blocks.
+// "calibrate the line sensors", "line position" and "how many sensors see the line" write the same code as the text.
 function pidBlocks() {
-  const g = (id, nm) => X.get(id, nm), i = g('i', 'i'), n = g('pn', 'n');
-  const mn = k => XB.item('mn', 'minV', k), mx = k => XB.item('mx', 'maxV', k), on = k => XB.item('ol', 'onLine', k);
+  const g = (id, nm) => X.get(id, nm);
   const L = c => B('dowee_char', { f: { L: c } }), eq = (a, b) => X.cmp('EQ', a, b), and2 = (a, b) => XB.and(a, b);
-  const whileDo = (cond, body) => B('controls_whileUntil', { f: { MODE: 'WHILE' }, v: { BOOL: cond }, s: { DO: body } });
+  const whileDo = (cond, body) => B('controls_whileUntil', { f: { MODE: 'WHILE' }, v: { BOOL: cond }, s: body ? { DO: body } : {} });
   const brk = () => '<block type="controls_flow_statements"><field name="FLOW">BREAK</field></block>';
-  const set = (id, nm, v) => X.set(id, nm, v), change = (id, nm, d) => B('dowee_var_change', { f: { VAR: X.f(id, nm) }, v: { DELTA: d } });
-  const err = () => X.arith('MINUS', g('ps', 'position'), 3);
+  const set = (id, nm, v) => X.set(id, nm, v);
+  const on = pin => B('dowee_on_line', { f: { PIN: pin } }), not = x => X.not(x), seen = () => B('dowee_line_seen'), read = () => B('dowee_read_line');
+  const err = () => X.arith('MINUS', B('dowee_line_pos'), 3);
   const waitForStart = X.defn('waitForStart', seq(
     X.print(XB.text('Press the button on pin 2, or type g, to start.')),
     whileDo(B('logic_boolean', { f: { BOOL: 'TRUE' } }), seq(
       X.ifs([[eq(B('dowee_dread', { v: { PIN: g('sb', 'startButton') } }), B('dowee_hilo', { f: { V: 'LOW' } })), brk()]]),
       X.ifs([[and2(B('dowee_serial_has'), eq(B('dowee_serial_read', { f: { OP: 'read' } }), L('g'))), brk()]]))),
     X.print(XB.text('Go!'))), 360);
-  const calibrate = X.defn('calibrate', seq(
-    XB.forI('i', 1, 5, seq(XB.setItem('mn', 'minV', i, 1023), XB.setItem('mx', 'maxV', i, 0))),
-    X.led('HIGH'),
-    set('st', 'start', XB.millis()),
-    whileDo(X.lt(X.arith('MINUS', XB.millis(), g('st', 'start')), 2000), seq(
-      set('tt', 't', X.arith('MINUS', XB.millis(), g('st', 'start'))),
-      X.ifs([[X.or(X.or(X.lt(g('tt', 't'), 250), and2(X.cmp('GTE', g('tt', 't'), 750), X.lt(g('tt', 't'), 1250))), X.cmp('GTE', g('tt', 't'), 1750)), X.motors(-120, 120)]], X.motors(120, -120)),
-      XB.forI('i', 1, 5, seq(
-        set('vv', 'v', XB.sensorN(i)),
-        X.ifs([[X.lt(g('vv', 'v'), mn(i)), XB.setItem('mn', 'minV', i, g('vv', 'v'))]]),
-        X.ifs([[X.cmp('GT', g('vv', 'v'), mx(i)), XB.setItem('mx', 'maxV', i, g('vv', 'v'))]]))))),
-    X.stop(),
-    // a sensor that never saw the line gets a range of 100; then show each sensor's range in the Serial monitor
-    XB.forI('i', 1, 5, seq(X.ifs([[X.lt(X.arith('MINUS', mx(i), mn(i)), 100), XB.setItem('mx', 'maxV', i, X.arith('ADD', mn(i), 100))]]),
-      XB.print(mn(i)), XB.print(XB.text('-')), XB.print(mx(i)), X.ifs([[X.lt(i, 5), XB.print(XB.text('  '))]], X.print(XB.text(''))))),
-    X.led('LOW'),
-    XB.ms(300)), 700);
-  // one sensor scaled to 0 (white) .. 1000 (black)
-  const readSensor = XB.defr('readSensor', [['pn', 'n']], '', B('math_constrain', { v: { VALUE: B('dowee_map', { v: { V: XB.sensorN(n), FL: mn(n), FH: mx(n), TL: 0, TH: 1000 } }), LOW: 0, HIGH: 1000 } }), 1300);
-  // which sensors see the line, and where the line is (1 far left .. 3 middle .. 5 far right)
-  const readLine = X.defn('readLine', seq(
-    set('wl', 'weighted', 0), set('tl', 'total', 0), set('sn', 'seen', 0),
-    XB.forI('i', 1, 5, seq(
-      set('vv', 'v', XB.callr('readSensor', [['n', i]])),
-      XB.setItem('ol', 'onLine', i, B('logic_ternary', { v: { IF: X.cmp('GT', g('vv', 'v'), 500), THEN: 1, ELSE: 0 } })),
-      change('sn', 'seen', on(i)),
-      X.ifs([[X.lt(g('vv', 'v'), 100), set('vv', 'v', 0)]]),
-      change('wl', 'weighted', X.arith('MULTIPLY', g('vv', 'v'), i)),
-      change('tl', 'total', g('vv', 'v')))),
-    X.ifs([[X.cmp('GT', g('sn', 'seen'), 0), set('ps', 'position', X.arith('DIVIDE', g('wl', 'weighted'), g('tl', 'total')))]])), 1420);
   const ts = () => g('ts', 'turnSpeed'), bs = () => g('bs', 'baseSpeed');
   return X.prog(
-    seq(set('kp', 'Kp', 120), set('ki', 'Ki', 0), set('kd', 'Kd', 1300), set('bs', 'baseSpeed', 240), set('ts', 'turnSpeed', 170), set('smp', 'sampleMs', 10),
-      set('sb', 'startButton', 2), set('ps', 'position', 3), set('ls', 'lostSide', L('s')),
+    seq(set('kp', 'Kp', 70), set('ki', 'Ki', 0), set('kd', 'Kd', 1000), set('bs', 'baseSpeed', 240), set('ts', 'turnSpeed', 170), set('smp', 'sampleMs', 10),
+      set('sb', 'startButton', 2), set('ls', 'lostSide', L('s')),
       B('dowee_pmode', { f: { MODE: 'INPUT_PULLUP' }, v: { PIN: g('sb', 'startButton') } }),
-      X.call('waitForStart'), X.call('calibrate')),
-    seq(X.call('readLine'),
+      X.call('waitForStart'), B('dowee_calibrate')),
+    seq(read(),
       // remember which edge sensor saw the line last
-      X.ifs([[and2(eq(on(1), 1), eq(on(5), 0)), set('ls', 'lostSide', L('l'))]]),
-      X.ifs([[and2(eq(on(5), 1), eq(on(1), 0)), set('ls', 'lostSide', L('r'))]]),
+      X.ifs([[and2(on('A0'), not(on('A4'))), set('ls', 'lostSide', L('l'))]]),
+      X.ifs([[and2(on('A4'), not(on('A0'))), set('ls', 'lostSide', L('r'))]]),
       X.ifs([
         // line lost: spin towards where it was last seen until a middle sensor finds it
-        [and2(eq(g('sn', 'seen'), 0), X.cmp('NEQ', g('ls', 'lostSide'), L('s'))), seq(
+        [and2(eq(seen(), 0), X.cmp('NEQ', g('ls', 'lostSide'), L('s'))), seq(
           X.ifs([[eq(g('ls', 'lostSide'), L('r')), X.motors(ts(), neg(ts()))]], X.motors(neg(ts()), ts())),
-          whileDo(and2(and2(eq(on(2), 0), eq(on(3), 0)), eq(on(4), 0)), X.call('readLine')),
+          whileDo(and2(and2(not(on('A1')), not(on('A2'))), not(on('A3'))), read()),
           set('le', 'lastError', err()))],
         // a crossing (every sensor sees black): drive straight over it
-        [eq(g('sn', 'seen'), 5), seq(X.motors(bs(), bs()), whileDo(eq(g('sn', 'seen'), 5), X.call('readLine')))],
+        [eq(seen(), 5), seq(X.motors(bs(), bs()), whileDo(eq(seen(), 5), read()))],
         // the PID, every sampleMs milliseconds
         [X.cmp('GTE', X.arith('MINUS', XB.millis(), g('lp', 'lastPid')), g('smp', 'sampleMs')), seq(
           set('lp', 'lastPid', XB.millis()),
@@ -211,9 +182,7 @@ function pidBlocks() {
           set('le', 'lastError', g('er', 'error')),
           X.motors(X.arith('ADD', bs(), g('tu', 'turn')), X.arith('MINUS', bs(), g('tu', 'turn'))))]])),
     { vars: [['kp', 'Kp', 'float'], ['ki', 'Ki', 'float'], ['kd', 'Kd', 'float'], ['bs', 'baseSpeed', 'int'], ['ts', 'turnSpeed', 'int'], ['smp', 'sampleMs', 'int'], ['sb', 'startButton', 'int'],
-      ['mn', 'minV', 'list'], ['mx', 'maxV', 'list'], ['ol', 'onLine', 'list'], ['sn', 'seen', 'int'], ['ps', 'position', 'float'], ['le', 'lastError', 'float'], ['ig', 'integral', 'float'],
-      ['ls', 'lostSide', 'int'], ['lp', 'lastPid', 'long'], ['er', 'error', 'float'], ['tu', 'turn', 'float'], ['i', 'i', ''], ['vv', 'v', 'int'], ['st', 'start', 'long'], ['tt', 't', 'long'],
-      ['wl', 'weighted', 'long'], ['tl', 'total', 'long'], ['pn', 'n', '']], extra: waitForStart + calibrate + readSensor + readLine });
+      ['le', 'lastError', 'float'], ['ig', 'integral', 'float'], ['ls', 'lostSide', 'int'], ['lp', 'lastPid', 'long'], ['er', 'error', 'float'], ['tu', 'turn', 'float']], extra: waitForStart });
 }
 const BX = {
   rc: () => X.prog('', X.btRead(X.ifs([[X.bt('F'), X.move('F', 220)], [X.bt('B'), X.move('B', 220)], [X.bt('L'), X.move('SL', 130)], [X.bt('R'), X.move('SR', 130)], [X.bt('G'), X.move('TL', 220)], [X.bt('I'), X.move('TR', 220)], [X.bt('S'), X.stop()]]))),
@@ -242,7 +211,11 @@ const BLOCK_EXAMPLES = {
     follow2: { name: 'Follow the line with 2 sensors (simple)', starter: true, xml: () => BX.follow2() },
     bang: { name: 'Simple 2-sensor follower', xml: FULL.bang },
     follow3: { name: 'Smoother: 3 sensors', xml: () => X.prog('', X.ifs([[X.black('A2'), X.move('F', 170)], [X.black('A1'), X.move('TL', 150)], [X.black('A3'), X.move('TR', 150)]])) },
-    pfollow: { name: 'Steer by line position (P control)', xml: () => X.prog(X.set('vb', 'baseSpeed', 140), X.set('ve', 'error', X.linePos(), X.set('vt', 'turn', X.arith('MULTIPLY', X.get('ve', 'error'), 0.02), X.motors(X.arith('ADD', X.get('vb', 'baseSpeed'), X.get('vt', 'turn')), X.arith('MINUS', X.get('vb', 'baseSpeed'), X.get('vt', 'turn'))))), { vars: [['vb', 'baseSpeed', 'int'], ['ve', 'error', 'int'], ['vt', 'turn', 'float']] }) },
+    pfollow: { name: 'Steer by line position (P control)', xml: () => X.prog(X.set('vb', 'baseSpeed', 150), seq(
+      X.set('pe', 'error', X.arith('MINUS', X.linePos(), 3)),
+      X.set('vt', 'turn', X.arith('MULTIPLY', X.get('pe', 'error'), 15)),
+      X.motors(X.arith('ADD', X.get('vb', 'baseSpeed'), X.get('vt', 'turn')), X.arith('MINUS', X.get('vb', 'baseSpeed'), X.get('vt', 'turn'))),
+      B('dowee_wait_ms', { v: { MS: 10 } })), { vars: [['vb', 'baseSpeed', 'int'], ['pe', 'error', 'float'], ['vt', 'turn', 'float']] }) },
     pid: { name: 'PID line follower with calibration', xml: pidBlocks },
     print: { name: 'Print sensor values (for the Plotter)', xml: () => X.prog('', seq(
       XB.forI('i', 1, 5, seq(XB.print(XB.sensorN(X.get('i', 'i'))), X.ifs([[X.lt(X.get('i', 'i'), 5), XB.print(XB.text(','))]]))),

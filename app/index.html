@@ -4522,33 +4522,20 @@ const PINMODES = `  pinMode(IN1, OUTPUT);
   pinMode(IN3, OUTPUT);
   pinMode(IN4, OUTPUT);`;
 
-// The PID 4 lesson ("Calibrate and race") builds on PID steps 1-3, which use this program:
-// error from -2000 to 2000, P and D every loop. The sample above it moved on; the lesson keeps this one.
-const PID_LESSON_CODE = `// PID line follower with sensor calibration
-// Five IR sensors on A0 (left) to A4 (right). Higher reading = darker floor.
-// Real sensors all read a bit differently, so Dowee first sweeps over the line
-// and learns the darkest and brightest value each sensor sees.
-${MOTOR_SETUP}
-
-// ---- Tune these in the Tune tab while the robot drives ----
-float Kp = 0.08;      // turn harder when far from the line
-float Kd = 1.5;       // calms down the wiggle
-int baseSpeed = 150;  // cruising speed, 0-255
-
-int minV[5] = {1023, 1023, 1023, 1023, 1023};
-int maxV[5] = {0, 0, 0, 0, 0};
-int lastError = 0;
-
-void setup() {
-${PINMODES}
-  pinMode(LED_BUILTIN, OUTPUT);
-  Serial.begin(9600);
-  calibrate();
-}
-
-${DRIVE_FN}
-
-// Sweep left and right over the line for 2 seconds, remembering min and max.
+// ---- The DOWEE way to read the line (shared by the PID sample, the PID lessons and the blocks) ----
+// 1. calibrate(): sweep over the line, remember each sensor's white (min) and black (max) reading,
+//    then threshold = halfway between the average white and the average black.
+// 2. readLine(): every sensor is on the line (1) or not (0); the line's position is the average
+//    of the sensors that see it: 1 (far left) .. 3 (middle) .. 5 (far right).
+const LINE_GLOBALS = `// ---- The line sensors ----
+int minV[5] = {1023, 1023, 1023, 1023, 1023};   // each sensor's white reading (its smallest)
+int maxV[5] = {0, 0, 0, 0, 0};                  // each sensor's black reading (its biggest)
+int threshold = 500;   // above this = the sensor sees the line (calibrate() works out the real one)
+int onLine[5];         // 1 = this sensor sees the line, 0 = it sees the white floor
+int seen = 0;          // how many sensors see the line
+float position = 3;    // where the line is: 1 (far left) .. 3 (middle) .. 5 (far right)`;
+const CALIBRATE_FN = `// Sweep left and right over the line for 2 seconds, so every sensor sees white and black.
+// Then the threshold is halfway between the average white and the average black.
 void calibrate() {
   digitalWrite(LED_BUILTIN, HIGH);
   unsigned long start = millis();
@@ -4563,72 +4550,59 @@ void calibrate() {
     }
   }
   drive(0, 0);
+  long whiteSum = 0;
+  long blackSum = 0;
   for (int i = 0; i < 5; i++) {
-    if (maxV[i] - minV[i] < 100) maxV[i] = minV[i] + 100;   // sensor never saw the line
-    Serial.print(minV[i]);
-    Serial.print("-");
-    Serial.print(maxV[i]);
-    Serial.print(i < 4 ? "  " : "\\n");
+    whiteSum += minV[i];
+    blackSum += maxV[i];
   }
+  int avgWhite = whiteSum / 5;
+  int avgBlack = blackSum / 5;
+  threshold = (avgWhite + avgBlack) / 2;
+  Serial.print("white ");
+  Serial.print(avgWhite);
+  Serial.print("  black ");
+  Serial.print(avgBlack);
+  Serial.print("  threshold ");
+  Serial.println(threshold);
   digitalWrite(LED_BUILTIN, LOW);
   delay(300);
-}
-
-// One sensor scaled to 0 (white) .. 1000 (black)
-int readSensor(int i) {
-  long v = map(analogRead(A0 + i), minV[i], maxV[i], 0, 1000);
-  return constrain(v, 0, 1000);
-}
-
-// Where is the line? -2000 (far left) .. 0 (center) .. 2000 (far right)
-int readLine() {
-  long weighted = 0;
-  long total = 0;
+}`;
+const READLINE_FN = `// Reads all 5 sensors: each one sees the line (1) or not (0).
+// The line's position is the average of the sensors that see it:
+// only sensor 1 gives 1, sensors 2 and 3 give 2.5, only the middle one gives 3.
+void readLine() {
+  int sum = 0;
+  seen = 0;
   for (int i = 0; i < 5; i++) {
-    int v = readSensor(i);
-    if (v < 100) v = 0;                 // ignore small noise
-    weighted += (long)v * (i - 2) * 1000;
-    total += v;
+    onLine[i] = analogRead(A0 + i) > threshold ? 1 : 0;
+    seen += onLine[i];
+    sum += onLine[i] * (i + 1);
   }
-  if (total < 300) {                    // line lost: keep turning the way we last saw it
-    return lastError > 0 ? 2000 : -2000;
-  }
-  return weighted / total;
-}
+  if (seen > 0) position = (float)sum / seen;   // no line: keep the last position
+}`;
 
-void loop() {
-  int error = readLine();               // + means the line is to the RIGHT
-  int turn = Kp * error + Kd * (error - lastError);
-  lastError = error;
-  drive(baseSpeed + turn, baseSpeed - turn);
-  delay(2);
-}
-`;
 const EXAMPLES = {
   line: {
     pid: { name: 'PID line follower (5 sensors)', code: `// PID line follower with calibration
 // Five IR sensors on A0 (left) to A4 (right). Higher reading = darker floor.
 // 1. Press the start button on pin 2 (or type g in the Serial monitor).
-// 2. Dowee sweeps over the line and learns the darkest and brightest value each sensor sees.
+// 2. calibrate(): Dowee sweeps over the line and works out the threshold between white and black.
 // 3. It follows the line with a PID worked out every 10 ms. If the line is lost, it spins
 //    towards where it was last seen. At a crossing, it drives straight over.
 ${MOTOR_SETUP}
 
 // ---- Tune these in the Tune tab while the robot drives ----
-float Kp = 120;       // turn harder when far from the line (error 1 = one sensor off centre)
+float Kp = 70;        // turn harder when far from the line (error 1 = one sensor off centre)
 float Ki = 0;         // the I part: 0 = off (Dowee's motors are matched, so it only adds wobble)
-float Kd = 1300;      // calms the wobble: the change in error over one 10 ms step, times Kd
+float Kd = 1000;      // calms the wobble: the change in error over one 10 ms step, times Kd
 int baseSpeed = 240;  // cruising speed, 0-255
 int turnSpeed = 170;  // spin speed when the line is lost
 int sampleMs = 10;    // work out the PID every 10 ms
 
 const int startButton = 2;   // a button between pin 2 and GND: reads LOW while pressed
 
-int minV[5] = {1023, 1023, 1023, 1023, 1023};
-int maxV[5] = {0, 0, 0, 0, 0};
-int onLine[5];        // 1 = this sensor sees the line
-int seen = 0;         // how many sensors see the line
-float position = 3;   // where the line is: 1 (far left) .. 3 (middle) .. 5 (far right)
+${LINE_GLOBALS}
 
 float lastError = 0;
 float integral = 0;
@@ -4656,54 +4630,9 @@ void waitForStart() {
   Serial.println("Go!");
 }
 
-// Sweep left and right over the line for 2 seconds, remembering min and max.
-void calibrate() {
-  digitalWrite(LED_BUILTIN, HIGH);
-  unsigned long start = millis();
-  while (millis() - start < 2000) {
-    unsigned long t = millis() - start;
-    if (t < 250 || (t >= 750 && t < 1250) || t >= 1750) drive(-120, 120);
-    else drive(120, -120);
-    for (int i = 0; i < 5; i++) {
-      int v = analogRead(A0 + i);
-      if (v < minV[i]) minV[i] = v;
-      if (v > maxV[i]) maxV[i] = v;
-    }
-  }
-  drive(0, 0);
-  for (int i = 0; i < 5; i++) {
-    if (maxV[i] - minV[i] < 100) maxV[i] = minV[i] + 100;   // sensor never saw the line
-    Serial.print(minV[i]);
-    Serial.print("-");
-    Serial.print(maxV[i]);
-    Serial.print(i < 4 ? "  " : "\\n");
-  }
-  digitalWrite(LED_BUILTIN, LOW);
-  delay(300);
-}
+${CALIBRATE_FN}
 
-// One sensor scaled to 0 (white) .. 1000 (black)
-int readSensor(int i) {
-  long v = map(analogRead(A0 + i), minV[i], maxV[i], 0, 1000);
-  return constrain(v, 0, 1000);
-}
-
-// Reads all 5 sensors: which ones see the line, and where the line is
-// (with fractions in between sensors, like 2.6).
-void readLine() {
-  long weighted = 0;
-  long total = 0;
-  seen = 0;
-  for (int i = 0; i < 5; i++) {
-    int v = readSensor(i);
-    onLine[i] = v > 500 ? 1 : 0;
-    seen += onLine[i];
-    if (v < 100) v = 0;                 // ignore small noise
-    weighted += (long)v * (i + 1);
-    total += v;
-  }
-  if (seen > 0) position = (float)weighted / total;   // no line: keep the last position
-}
+${READLINE_FN}
 
 void loop() {
   readLine();
@@ -4740,10 +4669,11 @@ void loop() {
 }
 ` },
     bang: { name: 'Simple 2-sensor follower', code: `// Beginner line follower: uses only the two outer-middle sensors.
-// A1 = left-middle, A3 = right-middle. HIGH = sees the black line.
+// A1 = left-middle, A3 = right-middle. A reading above the threshold = the sensor sees the black line.
 ${MOTOR_SETUP}
 
 int speed = 150;
+int threshold = 500;   // halfway between white (about 100) and black (about 950)
 
 void setup() {
 ${PINMODES}
@@ -4752,12 +4682,12 @@ ${PINMODES}
 ${DRIVE_FN}
 
 void loop() {
-  int left = digitalRead(A1);
-  int right = digitalRead(A3);
+  int left = analogRead(A1) > threshold ? 1 : 0;    // 1 = sees the line
+  int right = analogRead(A3) > threshold ? 1 : 0;
 
-  if (left == HIGH && right == LOW) {
+  if (left == 1 && right == 0) {
     drive(0, speed);          // line is on the left: turn left
-  } else if (right == HIGH && left == LOW) {
+  } else if (right == 1 && left == 0) {
     drive(speed, 0);          // line is on the right: turn right
   } else {
     drive(speed, speed);      // go straight
@@ -4985,7 +4915,7 @@ void loop() {
 };
 EXAMPLES.soccer.rc = { ...EXAMPLES.race.rc, name: 'Bluetooth RC (soccer)' };
 const DEFAULT_EXAMPLE = { line: 'pid', race: 'rc', soccer: 'rc', sumo: 'basic', maze: 'avoid', lab: 'meter' };
-if (typeof module !== 'undefined') { module.exports.EXAMPLES = EXAMPLES; module.exports.PID_LESSON_CODE = PID_LESSON_CODE; }
+if (typeof module !== 'undefined') Object.assign(module.exports, { EXAMPLES, LINE_GLOBALS, CALIBRATE_FN, READLINE_FN });
 
 /* =====================================================================
    Student templates: the starting program for each playground when a
@@ -5068,7 +4998,7 @@ const TEMPLATES = {
 ${MOTOR_SETUP}
 
 int speed = 140;   // cruising speed, 0-255
-int black = 500;   // above this number = the sensor sees the black line
+int threshold = 500;   // halfway between white (about 100) and black (about 950): above it = the sensor sees the line
 
 void setup() {
 ${PINMODES}
@@ -5082,7 +5012,7 @@ void loop() {
   int middle = analogRead(A2);   // centre sensor
   int right = analogRead(A3);    // right-middle sensor
 
-  // TODO 1: if the MIDDLE sensor sees black (middle > black), drive straight.
+  // TODO 1: if the MIDDLE sensor sees black (middle > threshold), drive straight.
 
   // TODO 2: else if the LEFT sensor sees black, the line is on the left: turn left.
   //         (Make the left wheel slower than the right one.)
@@ -5097,7 +5027,7 @@ void loop() {
       'Open the <b>Sensors &amp; pins</b> tab while Dowee sits on the line. Which sensors show a big number?',
       'A line follower is a chain of <code class="k">if</code> … <code class="k">else if</code> … <code class="k">else</code>: check the middle first, then the left, then the right.',
       'To turn <b>left</b>, the left wheel goes slower than the right wheel, for example <code class="k">drive(0, speed)</code>.',
-      '<pre>if (middle &gt; black) {\n  drive(speed, speed);\n} else if (left &gt; black) {\n  drive(0, speed);\n} else if (right &gt; black) {\n  drive(speed, 0);\n}</pre>',
+      '<pre>if (middle &gt; threshold) {\n  drive(speed, speed);\n} else if (left &gt; threshold) {\n  drive(0, speed);\n} else if (right &gt; threshold) {\n  drive(speed, 0);\n}</pre>',
     ],
     missions: [
       { text: 'Finish one lap of the Oval', variant: 'oval', goal: { type: 'laps', n: 1 } },
@@ -5325,10 +5255,11 @@ ${fix.driveFn || DRIVE_FN}
 void loop() {
 }
 `;
-const bangWith = (loopBody, extra) => `// 2-sensor line follower. A1 = left-middle, A3 = right-middle. HIGH = sees the black line.
+const bangWith = (loopBody, extra) => `// 2-sensor line follower. A1 = left-middle, A3 = right-middle. Above the threshold = sees the black line.
 ${MOTOR_SETUP}
 
 int speed = 150;
+int threshold = 500;   // halfway between white (about 100) and black (about 950)
 
 void setup() {
 ${PINMODES}
@@ -5337,15 +5268,15 @@ ${PINMODES}
 ${DRIVE_FN}
 
 void loop() {
-  int left = digitalRead(A1);
-  int right = digitalRead(A3);
+  int left = analogRead(A1) > threshold ? 1 : 0;    // 1 = sees the line
+  int right = analogRead(A3) > threshold ? 1 : 0;
 ${loopBody}${extra || ''}
 }
 `;
 const BANG_OK = `
-  if (left == HIGH && right == LOW) {
+  if (left == 1 && right == 0) {
     drive(0, speed);          // line on the left: turn left
-  } else if (right == HIGH && left == LOW) {
+  } else if (right == 1 && left == 0) {
     drive(speed, 0);          // line on the right: turn right
   } else {
     drive(speed, speed);      // go straight
@@ -5376,8 +5307,8 @@ const CHALLENGES = [
     goal: 'Complete one full lap', check: lapOnce },
   { id: 'bug-equals', title: 'Bug: one = or two?', arena: 'line', variant: 'oval',
     intro: 'Dowee keeps going round in circles. In C, <code class="k">=</code> and <code class="k">==</code> mean very different things. Find the wrong one.',
-    code: bangWith(BANG_OK.replace('if (left == HIGH && right == LOW)', 'if (left = HIGH)')),
-    hints: ['Look closely at every <code class="k">if</code>.', '<code class="k">=</code> puts a value into a variable. <code class="k">==</code> asks "are these equal?".', 'The first <code class="k">if</code> says <code class="k">left = HIGH</code>, which makes left HIGH every time. Make it <code class="k">left == HIGH</code>.'],
+    code: bangWith(BANG_OK.replace('if (left == 1 && right == 0)', 'if (left = 1)')),
+    hints: ['Look closely at every <code class="k">if</code>.', '<code class="k">=</code> puts a value into a variable. <code class="k">==</code> asks "are these equal?".', 'The first <code class="k">if</code> says <code class="k">left = 1</code>, which makes left 1 every time. Make it <code class="k">left == 1</code>.'],
     goal: 'Complete one full lap', check: lapOnce },
   { id: 'bug-sleepy', title: 'Bug: the sleepy follower', arena: 'line', variant: 'oval',
     intro: 'This follower has the right idea, but it misses the turns. It only looks at the line every now and then.',
@@ -5390,7 +5321,7 @@ const CHALLENGES = [
 ${MOTOR_SETUP}
 
 int speed = 140;
-int black = 500;
+int threshold = 500;   // halfway between white (about 100) and black (about 950)
 
 void setup() {
 ${PINMODES}
@@ -5404,16 +5335,16 @@ void loop() {
   int middle = analogRead(A2);
   int right = analogRead(A3);
 
-  if (middle < black) {
+  if (middle < threshold) {
     drive(speed, speed);
-  } else if (left < black) {
+  } else if (left < threshold) {
     drive(0, speed);
-  } else if (right < black) {
+  } else if (right < threshold) {
     drive(speed, 0);
   }
 }
 `,
-    hints: ['Open <b>Sensors &amp; pins</b>: what number does a sensor on the black line show?', '"Sees black" means the number is <b>bigger</b> than <code class="k">black</code>.', 'Change all three <code class="k">&lt;</code> to <code class="k">&gt;</code>.'],
+    hints: ['Open <b>Sensors &amp; pins</b>: what number does a sensor on the black line show?', '"Sees black" means the number is <b>bigger</b> than <code class="k">threshold</code>.', 'Change all three <code class="k">&lt;</code> to <code class="k">&gt;</code>.'],
     goal: 'Complete one full lap', check: lapOnce },
   { id: 'bug-rc', title: 'Bug: forward is broken', arena: 'race', variant: 'none',
     intro: 'Every key works except <b>forward</b>. Look carefully at the letter the program waits for.',
@@ -5487,10 +5418,6 @@ const LESSONS = [
     intro: 'The simplest line follower: if the line is on the left, turn left. If it is on the right, turn right. Otherwise go straight.',
     steps: ['Run it. The robot wiggles around the oval.', 'Make <code class="k">speed</code> bigger. At some point it misses the turn — why?', 'Turn on <b>Trail</b> to see the path it really drove.'],
     goal: 'Complete one full lap', check: W => W.state.laps && W.state.laps.length >= 1 },
-  { id: 'pid', title: 'PID 4: Calibrate and race', level: 'PID line follower', arena: 'line', variant: 'snake', code: PID_LESSON_CODE,
-    intro: 'You can write P and D now. Real sensors all read a bit differently, so a racing follower first <b>calibrates</b>: it sweeps over the line and learns the darkest and brightest value of each sensor. Then it is time to tune for speed.',
-    steps: ['Run it. First Dowee sweeps left and right for 2 seconds: it is <b>calibrating</b>, learning what black and white look like for each of its sensors. The Serial monitor shows what it learned.', 'Open the <b>Tune</b> tab. Move the sliders <b>while the robot drives</b>.', 'Set <code class="k">Kd</code> to 0. What happens to the wiggle? Put it back.', 'Raise <code class="k">baseSpeed</code> and adjust Kp and Kd. Every lap is logged so you can compare.', 'When you are happy, press <b>Write values into code</b>.'],
-    goal: 'Lap the Snake track in under 15 seconds', check: W => W.state.laps && W.state.laps.some(l => l.time < 15) },
   { id: 'rc', title: 'Bluetooth RC driver', level: 'Remote control', arena: 'race', variant: 'none', example: 'rc',
     intro: 'A phone app sends letters over Bluetooth: F for forward, L for left, S for stop. The robot reads them with Serial.read().',
     steps: ['Run it, then drive with <b>W A S D</b>, the arrow keys, a gamepad, or the on-screen pad.', 'Watch the Serial monitor: it shows every letter the controller sends.', 'Change the <code class="k">\'L\'</code> and <code class="k">\'R\'</code> cases so turning is gentler.'],
@@ -5513,147 +5440,167 @@ const LESSONS = [
     goal: 'Score 2 goals', check: W => W.state.score && W.state.score[0] >= 2 },
 ];
 
-/* ---- PID path: students write a PID line follower in four steps ---- */
-const PID_TOP = (title, extra) => `// ${title}
+/* ---- PID path: students write a PID line follower in four steps ----
+   The same method as the PID sample (LINE_GLOBALS, CALIBRATE_FN, READLINE_FN in examples.js):
+   1 calibrate and find the threshold, 2 where is the line, 3 P, 4 D and race. */
+const PID_TOP = (title, extra, opts = {}) => `// ${title}
 // Five IR sensors: A0 (far left) to A4 (far right). About 950 on black, 100 on white.
 
 ${MOTOR_SETUP}
 
-${extra}int baseSpeed = 150;   // cruising speed, 0-255
-int lastError = 0;     // the error from the last time round loop()
+${extra}int baseSpeed = ${opts.speed || 150};   // cruising speed, 0-255
+
+${opts.globals || LINE_GLOBALS}
 
 void setup() {
 ${PINMODES}
+  pinMode(LED_BUILTIN, OUTPUT);
   Serial.begin(9600);
+  calibrate();
 }
 
 ${DRIVE_FN}
 
-// One sensor: 0 on white, up to about 850 on black.
-int readSensor(int i) {
-  int v = analogRead(A0 + i) - 100;
-  return constrain(v, 0, 1000);
-}
+${opts.calibrate || CALIBRATE_FN}
+
+${opts.readLine || READLINE_FN}
 `;
-const READLINE_DONE = `
-// Where is the line? -2000 = far left, 0 = in the middle, 2000 = far right.
-int readLine() {
-  long weighted = 0;
-  long total = 0;
-  for (int i = 0; i < 5; i++) {
-    int v = readSensor(i);
-    long position = (i - 2) * 1000;   // -2000, -1000, 0, 1000, 2000
-    weighted += v * position;
-    total += v;
-  }
-  if (total < 300) {                 // no sensor sees the line: keep turning the way we last saw it
-    return lastError > 0 ? 2000 : -2000;
-  }
-  return weighted / total;
-}
-`;
-const PID1_CODE = PID_TOP('PID step 1: where is the line?', '') + `
-// Where is the line? -2000 = under the far-left sensor, 0 = in the middle, 2000 = far right.
-// Give every sensor a position (-2000, -1000, 0, 1000, 2000), then take the average,
-// weighted by how much black each sensor sees.
-int readLine() {
-  long weighted = 0;   // adds up  reading x position
-  long total = 0;      // adds up  reading
-  for (int i = 0; i < 5; i++) {
-    int v = readSensor(i);
-    long position = (i - 2) * 1000;   // -2000, -1000, 0, 1000, 2000
-    // TODO 1: add  v * position  to weighted
-
-    // TODO 2: add  v  to total
-
-  }
-  if (total < 300) {                 // no sensor sees the line: keep turning the way we last saw it
-    return lastError > 0 ? 2000 : -2000;
-  }
-  // TODO 3: return the weighted average:  weighted / total
-  return 0;
-}
-
+const swap = (text, a, b) => { if (!text.includes(a)) throw new Error('PID lesson: text not found: ' + a.slice(0, 40)); return text.replace(a, b); };
+const CALIBRATE_TODO = swap(swap(CALIBRATE_FN,
+  '      if (v < minV[i]) minV[i] = v;\n      if (v > maxV[i]) maxV[i] = v;\n',
+  '      // TODO 1: remember this sensor\'s whitest and blackest reading:\n      //   if v is smaller than minV[i], put v in minV[i]. If v is bigger than maxV[i], put v in maxV[i].\n\n'),
+  '  threshold = (avgWhite + avgBlack) / 2;',
+  '  // TODO 2: the threshold is halfway between the average white and the average black.\n  threshold = 0;');
+const READLINE_TODO = swap(swap(READLINE_FN,
+  '    onLine[i] = analogRead(A0 + i) > threshold ? 1 : 0;\n    seen += onLine[i];\n    sum += onLine[i] * (i + 1);\n',
+  '    // TODO 1: does sensor i see the line? 1 if analogRead(A0 + i) is above the threshold, else 0.\n    onLine[i] = 0;\n    // TODO 2: count it: add onLine[i] to seen, and onLine[i] * (i + 1) to sum.\n\n'),
+  '  if (seen > 0) position = (float)sum / seen;   // no line: keep the last position',
+  '  // TODO 3: if seen is more than 0, the position is the average:  (float)sum / seen\n  //         (if no sensor sees the line, keep the last position)\n');
+const PID1_CODE = PID_TOP('PID step 1: calibrate', '', {
+  globals: swap(LINE_GLOBALS, 'int threshold = 500;   // above this = the sensor sees the line (calibrate() works out the real one)', 'int threshold = 0;     // above this = the sensor sees the line (TODO 2 works it out)'),
+  calibrate: CALIBRATE_TODO }) + `
 void loop() {
-  int error = readLine();
-  Serial.println(error);   // open the Plotter to watch it
-  lastError = error;
+  readLine();
+  // Simple steering with the sensors. In PID 2 you work out exactly where the line is.
+  if (onLine[2] == 1) drive(baseSpeed, baseSpeed);                              // middle: straight on
+  else if (onLine[1] == 1 || onLine[0] == 1) drive(baseSpeed / 4, baseSpeed);   // line on the left: turn left
+  else if (onLine[3] == 1 || onLine[4] == 1) drive(baseSpeed, baseSpeed / 4);   // line on the right: turn right
+}
+`;
+const PID2_CODE = PID_TOP('PID step 2: where is the line?', '', { readLine: READLINE_TODO }) + `
+void loop() {
+  readLine();
+  float error = position - 3;   // -2 (line far left) .. 0 (in the middle) .. +2 (far right)
+  Serial.println(error);        // open the Plotter to watch it
 
-  // Simple steering for now. In step 2 you will make it smooth.
-  if (error > 300) drive(baseSpeed, baseSpeed / 4);         // line on the right: turn right
-  else if (error < -300) drive(baseSpeed / 4, baseSpeed);   // line on the left: turn left
+  // Simple steering for now. In PID 3 you make it smooth.
+  if (error > 0.5) drive(baseSpeed, baseSpeed / 4);         // line on the right: turn right
+  else if (error < -0.5) drive(baseSpeed / 4, baseSpeed);   // line on the left: turn left
   else drive(baseSpeed, baseSpeed);
-  delay(2);   // a short pause, so every trip round loop() takes about the same time
 }
 `;
-const PID2_CODE = PID_TOP('PID step 2: P, steer by how far away the line is', 'float Kp = 0.05;     // P gain: how hard to steer for each step of error\n') + READLINE_DONE + `
+const PID3_CODE = PID_TOP('PID step 3: P, steer by how far away the line is', 'float Kp = 15;        // P gain: how hard to steer for each sensor of error\nint sampleMs = 10;    // work out the steering every 10 ms\n') + `
+unsigned long lastPid = 0;
+
 void loop() {
-  int error = readLine();
-  lastError = error;
+  readLine();
+  if (millis() - lastPid >= sampleMs) {
+    lastPid = millis();
+    float error = position - 3;   // -2 .. +2
 
-  // P = proportional: the farther the line, the harder Dowee steers.
-  // error goes from -2000 to 2000, so Kp * error is a speed change of about -100 to 100.
+    // P = proportional: the farther the line, the harder Dowee steers.
+    // TODO 1: work out how hard to turn:  Kp * error
+    float turn = 0;
 
-  // TODO 1: work out how hard to turn:  Kp * error
-  int turn = 0;
-
-  // TODO 2: speed up one wheel and slow the other: left gets  baseSpeed + turn,  right gets  baseSpeed - turn
-  drive(baseSpeed, baseSpeed);
-  delay(2);   // a short pause, so every trip round loop() takes about the same time
+    // TODO 2: speed up one wheel and slow the other: left gets  baseSpeed + turn,  right gets  baseSpeed - turn
+    drive(baseSpeed, baseSpeed);
+  }
 }
 `;
-const PID3_CODE = PID_TOP('PID step 3: D, calm the wiggle', 'float Kp = 0.08;     // P gain\nfloat Kd = 1.5;      // D gain: brakes the turn before it overshoots\n') + READLINE_DONE + `
+const PID4_CODE = PID_TOP('PID step 4: D, calm the wiggle, then race', 'float Kp = 70;        // P gain\nfloat Kd = 1000;      // D gain: brakes the turn before it overshoots\nint turnSpeed = 170;  // spin speed when the line is lost\nint sampleMs = 10;    // work out the steering every 10 ms\n', { speed: 240 }) + `
+float lastError = 0;
+char lostSide = 's';  // where the line was last seen at the edge: 'l', 'r', or 's' (not yet)
+unsigned long lastPid = 0;
+
 void loop() {
-  int error = readLine();
+  readLine();
 
-  // D = derivative: how fast is the error changing since last time?
-  int change = error - lastError;
+  // Remember which edge sensor saw the line last
+  if (onLine[0] == 1 && onLine[4] == 0) lostSide = 'l';
+  if (onLine[4] == 1 && onLine[0] == 0) lostSide = 'r';
 
-  int turn = Kp * error;   // the P part, from step 2
-  // TODO: add the D part to turn:  Kd * change
+  // Line lost: spin towards where it was last seen until a middle sensor finds it
+  if (seen == 0 && lostSide != 's') {
+    if (lostSide == 'r') drive(turnSpeed, -turnSpeed);
+    else drive(-turnSpeed, turnSpeed);
+    while (onLine[1] == 0 && onLine[2] == 0 && onLine[3] == 0) readLine();
+    lastError = position - 3;
+    return;
+  }
 
-  lastError = error;       // remember this error for next time
-  drive(baseSpeed + turn, baseSpeed - turn);
-  delay(2);                // a short pause: D needs every loop to take about the same time
+  // A crossing (every sensor sees black): drive straight over it
+  if (seen == 5) {
+    drive(baseSpeed, baseSpeed);
+    while (seen == 5) readLine();
+    return;
+  }
+
+  if (millis() - lastPid >= sampleMs) {
+    lastPid = millis();
+    float error = position - 3;
+
+    // D = derivative: how much did the error change in the last 10 ms?
+    float change = error - lastError;
+
+    float turn = Kp * error;   // the P part, from PID 3
+    // TODO: add the D part to turn:  Kd * change
+
+    lastError = error;         // remember this error for next time
+    drive(baseSpeed + turn, baseSpeed - turn);
+  }
 }
 `;
+// Did calibrate() learn white and black, and put the threshold between them?
+const calibrated = W => {
+  const lo = globalOf(W, 'minV'), hi = globalOf(W, 'maxV'), th = globalOf(W, 'threshold');
+  if (!lo || !hi || th == null) return false;
+  const w = [0, 1, 2, 3, 4].reduce((s, i) => s + lo[i], 0) / 5, b = [0, 1, 2, 3, 4].reduce((s, i) => s + hi[i], 0) / 5;
+  return w < 300 && b > 700 && th > w && th < b;
+};
 const PID_LESSONS = [
-  { id: 'pid1', title: 'PID 1: Where is the line?', level: 'PID line follower', arena: 'line', variant: 'oval', code: PID1_CODE,
-    intro: 'A PID follower needs one number: how far the line is from the middle of Dowee. That number is called the <b>error</b>. You will work it out from all five sensors with a <b>weighted average</b>.',
-    steps: ['Run it as it is. <code class="k">readLine()</code> always says "line far left", so Dowee spins.', 'Fill in the three <b>TODO</b>s in <code class="k">readLine()</code>.', 'Run again and open the <b>Plotter</b>. The error should be near 0 on the straights and jump up or down in the turns.', 'Which way is the line when the error is positive?'],
-    hints: ['If only the middle sensor sees black, the error should be 0. If only A4 sees black, it should be 2000.', 'Inside the <code class="k">for</code> loop: <code class="k">weighted += v * position;</code> and <code class="k">total += v;</code>', 'At the end, replace <code class="k">return 0;</code> with <code class="k">return weighted / total;</code>'],
+  { id: 'pid1', title: 'PID 1: Calibrate', level: 'PID line follower', arena: 'line', variant: 'oval', code: PID1_CODE,
+    intro: 'Every sensor reads white and black a little differently, and the floor changes from room to room. So a line follower first <b>calibrates</b>: it sweeps over the line, learns white and black, and picks a <b>threshold</b> halfway between them. Above the threshold means "I see the line".',
+    steps: ['Run it as it is. The threshold is 0, so every sensor thinks it sees the line, and Dowee drives straight off.', 'Fill in <b>TODO 1</b>: while sweeping, remember each sensor\'s whitest (<code class="k">minV</code>) and blackest (<code class="k">maxV</code>) reading.', 'Fill in <b>TODO 2</b>: <code class="k">threshold = (avgWhite + avgBlack) / 2</code>. The Serial monitor shows what Dowee learned.', 'Run it: the simple steering now follows the Oval.'],
+    hints: ['In the <code class="k">for</code> loop: <code class="k">if (v &lt; minV[i]) minV[i] = v;</code> and the same for <code class="k">maxV</code> with <code class="k">&gt;</code>.', 'Halfway between two numbers is their sum divided by 2: <code class="k">threshold = (avgWhite + avgBlack) / 2;</code>', 'White is about 100 and black about 950, so the threshold should be about 530.'],
+    goal: 'Calibrate (white below 300, black above 700, threshold between them), then lap the Oval', check: W => calibrated(W) && W.state.laps && W.state.laps.length >= 1 },
+  { id: 'pid2', title: 'PID 2: Where is the line?', level: 'PID line follower', arena: 'line', variant: 'oval', code: PID2_CODE,
+    intro: 'A PID follower needs one number: how far the line is from the middle of Dowee, the <b>error</b>. Each sensor is either on the line (1) or not (0). The line\'s <b>position</b> is the average of the sensors that see it: from 1 (far left) to 5 (far right). The middle is 3, so <code class="k">error = position - 3</code>.',
+    steps: ['Run it. <code class="k">readLine()</code> never sees the line, so the error stays 0 and Dowee drives straight.', 'Fill in the three <b>TODO</b>s in <code class="k">readLine()</code>.', 'Run again and open the <b>Plotter</b>: the error goes from -2 to 2 as the line moves under Dowee.'],
+    hints: ['If only the middle sensor (number 3) sees the line, the position is 3 and the error is 0. If sensors 4 and 5 see it, the position is 4.5.', '<code class="k">onLine[i] = analogRead(A0 + i) &gt; threshold ? 1 : 0;</code> then <code class="k">seen += onLine[i];</code> and <code class="k">sum += onLine[i] * (i + 1);</code>', 'After the loop: <code class="k">if (seen &gt; 0) position = (float)sum / seen;</code>'],
     goal: 'Complete one lap of the Oval', check: W => W.state.laps && W.state.laps.length >= 1 },
-  { id: 'pid2', title: 'PID 2: P, steer smoothly', level: 'PID line follower', arena: 'line', variant: 'oval', code: PID2_CODE,
-    intro: 'Step 1 steered in jumps: hard left, straight or hard right. The <b>P</b> part steers by <i>how much</i>: a little off means a little turn, far off means a big turn. <code class="k">turn = Kp * error</code>.',
-    steps: ['Fill in the two <b>TODO</b>s in <code class="k">loop()</code>.', 'Run it on the Oval. Turn on <b>Trail</b>: Dowee follows the line, but it wiggles.', 'Open the <b>Tune</b> tab and move <code class="k">Kp</code> while it drives. Too small: it misses turns. Too big: it wiggles off the line.'],
-    hints: ['<code class="k">int turn = Kp * error;</code>', 'Line on the right means the error is positive, so the left wheel must go faster: <code class="k">drive(baseSpeed + turn, baseSpeed - turn);</code>', 'If Dowee wiggles off the line, make <code class="k">Kp</code> smaller, for example 0.05.'],
-    goal: 'Complete one lap of the Oval', check: W => W.state.laps && W.state.laps.length >= 1 },
-  { id: 'pid3', title: 'PID 3: D, calm the wiggle', level: 'PID line follower', arena: 'line', variant: 'oval', code: PID3_CODE,
-    intro: 'With P alone Dowee overshoots: it turns towards the line, crosses it and has to turn back. The <b>D</b> part looks at how fast the error is changing and brakes the turn early, like easing off the steering wheel before you reach the middle of the lane.<br><br><b>What about I?</b> The I part adds up the error over time. It fixes a robot that always drives a little to one side. Line followers rarely need it, so most racers only use P and D.',
-    steps: ['Run it first: with <code class="k">Kp = 0.08</code> and no D, Dowee wobbles off the line.', 'Fill in the <b>TODO</b>: add <code class="k">Kd * change</code> to <code class="k">turn</code>.', 'Run again with <b>Trail</b> on. Compare the wiggle with step 2.', 'In the <b>Tune</b> tab set <code class="k">Kd</code> to 0 and back to 1.5 while it drives. Feel the difference!'],
-    hints: ['<code class="k">change</code> is big when the line moves away fast. That is when Dowee should brake its turn.', 'Write the P and D parts in one line: <code class="k">int turn = Kp * error + Kd * change;</code>', 'Keep <code class="k">lastError = error;</code> <b>after</b> you use <code class="k">change</code>, otherwise change is always 0.'],
-    goal: 'Lap the Oval in under 16 seconds', check: W => W.state.laps && W.state.laps.some(l => l.time < 16) },
+  { id: 'pid3', title: 'PID 3: P, steer smoothly', level: 'PID line follower', arena: 'line', variant: 'oval', code: PID3_CODE,
+    intro: 'Step 2 steered in jumps: hard left, straight or hard right. The <b>P</b> part steers by <i>how much</i>: a little off means a little turn, far off means a big turn. <code class="k">turn = Kp * error</code>. It is worked out every 10 ms, so it acts the same however fast the loop runs.',
+    steps: ['Fill in the two <b>TODO</b>s.', 'Run it on the Oval with <b>Trail</b> on: Dowee follows the line, but it wiggles.', 'Open the <b>Tune</b> tab and move <code class="k">Kp</code> and <code class="k">baseSpeed</code> while it drives.'],
+    hints: ['<code class="k">float turn = Kp * error;</code>', 'Line on the right means the error is positive, so the left wheel must go faster: <code class="k">drive(baseSpeed + turn, baseSpeed - turn);</code>', 'If Dowee wiggles a lot, make Kp smaller. If it is slow to turn, make it bigger. Without D (next step), a big Kp swings across the line.'],
+    goal: 'Lap the Oval in under 17 seconds', check: W => W.state.laps && W.state.laps.some(l => l.time < 17) },
+  { id: 'pid', title: 'PID 4: D, calm the wiggle, then race', level: 'PID line follower', arena: 'line', variant: 'snake', code: PID4_CODE,
+    intro: 'With P alone, a fast Dowee overshoots: it turns towards the line, crosses it and has to turn back. The <b>D</b> part looks at how fast the error is changing and brakes the turn early, like easing off the steering wheel before you reach the bend. This program also finds a lost line and drives over crossings, so you can race.',
+    steps: ['Run it first: with P only at this speed, Dowee wobbles off the Snake.', 'Fill in the <b>TODO</b>: add <code class="k">Kd * change</code> to <code class="k">turn</code>.', 'Run again with <b>Trail</b> on, then tune Kp, Kd and baseSpeed in the <b>Tune</b> tab for the fastest lap.'],
+    hints: ['<code class="k">change</code> is big when the line moves away fast. That is when Dowee should brake its turn.', 'One line does both parts: <code class="k">float turn = Kp * error + Kd * change;</code>', 'Keep <code class="k">lastError = error;</code> after the turn, so next time <code class="k">change</code> is right.'],
+    goal: 'Lap the Snake in under 12 seconds', check: W => W.state.laps && W.state.laps.some(l => l.time < 12) },
 ];
-const pidAt = LESSONS.findIndex(l => l.id === 'pid');
-LESSONS.splice(pidAt, 0, ...PID_LESSONS);
+LESSONS.splice(LESSONS.findIndex(l => l.id === 'follow') + 1, 0, ...PID_LESSONS);
 
 // Classroom students start these lessons from a version with TODOs instead of the finished program.
 const LESSON_TODO = {
-  follow: { code: EXAMPLES.line.bang.code.replace(/  if \(left == HIGH && right == LOW\) \{[\s\S]*?\n  \}\n\}/, `  // TODO 1: if left is HIGH and right is LOW, the line is on the left: turn left with drive(0, speed);
+  follow: { code: EXAMPLES.line.bang.code.replace(/  if \(left == 1 && right == 0\) \{[\s\S]*?\n  \}\n\}/, `  // TODO 1: if left is 1 and right is 0, the line is on the left: turn left with drive(0, speed);
 
-  // TODO 2: else if right is HIGH and left is LOW, the line is on the right: turn right.
+  // TODO 2: else if right is 1 and left is 0, the line is on the right: turn right.
 
   // TODO 3: else (both see the same thing) go straight.
 }`),
-    hints: ['Look at the <b>Sensors &amp; pins</b> tab: which sensor turns HIGH when the line is on the left?', 'Use <code class="k">&amp;&amp;</code> for "and": <code class="k">if (left == HIGH &amp;&amp; right == LOW) { … }</code>', '<pre>if (left == HIGH &amp;&amp; right == LOW) {\n  drive(0, speed);\n} else if (right == HIGH &amp;&amp; left == LOW) {\n  drive(speed, 0);\n} else {\n  drive(speed, speed);\n}</pre>'],
+    hints: ['Look at the <b>Sensors &amp; pins</b> tab: which sensor reads above the threshold when the line is on the left?', 'Use <code class="k">&amp;&amp;</code> for "and": <code class="k">if (left == 1 &amp;&amp; right == 0) { … }</code>', '<pre>if (left == 1 &amp;&amp; right == 0) {\n  drive(0, speed);\n} else if (right == 1 &amp;&amp; left == 0) {\n  drive(speed, 0);\n} else {\n  drive(speed, speed);\n}</pre>'],
     steps: ['Read the three <b>TODO</b>s in <code class="k">loop()</code> and write them as <code class="k">if</code> / <code class="k">else if</code> / <code class="k">else</code>.', 'Press <b>Upload &amp; run</b>. Does Dowee follow the oval?', 'Make <code class="k">speed</code> bigger. At some point it misses the turn — why?', 'Turn on <b>Trail</b> to see the path it really drove.'] },
-  pid: { code: PID_LESSON_CODE.replace('  int turn = Kp * error + Kd * (error - lastError);', `  // TODO: work out how hard to turn. Right now turn is 0, so Dowee never steers!
-  //   P part: Kp * error              (far from the line = turn harder)
-  //   D part: Kd * (error - lastError) (calms the wiggle down)
-  //   Add the two parts together.
-  int turn = 0;`),
-    hints: ['<code class="k">error</code> says how far the line is from the centre. The bigger it is, the harder Dowee should turn.', 'The P part is <code class="k">Kp * error</code>. The D part looks at how fast the error changes: <code class="k">error - lastError</code>.', '<pre>int turn = Kp * error + Kd * (error - lastError);</pre>'],
-    steps: ['Run it. Dowee calibrates for 2 seconds, then drives straight off the line: <code class="k">turn</code> is always 0.', 'Fill in the <b>TODO</b>: <code class="k">turn</code> is the P part plus the D part.', 'Open the <b>Tune</b> tab and move the sliders <b>while the robot drives</b>. Set <code class="k">Kd</code> to 0: what happens to the wiggle?', 'Raise <code class="k">baseSpeed</code> and adjust Kp and Kd. Every lap is logged so you can compare.', 'When you are happy, press <b>Write values into code</b>.'] },
   rc: { code: TEMPLATES.race.guided, hints: TEMPLATES.race.hints, steps: ['Run it and press the up arrow (or W): forward already works.', 'Fill in the <b>TODO</b>s one letter at a time and test each one.', 'Watch the Serial monitor to see each letter the controller sends.'] },
   soccer: { code: TEMPLATES.soccer.guided, hints: TEMPLATES.race.hints, steps: ['Fill in the <b>TODO</b>s so all the arrow keys work (or reuse your RC car program).', 'Use the speed slider: slower is easier to aim.', 'Push the ball into the goal on the right.'] },
   sonar: { code: TEMPLATES.maze.guided, hints: TEMPLATES.maze.hints, steps: ['Run it and turn on <b>Sensor view</b> to see the sound beam. The distance appears in the Serial monitor.', 'Fill in the two <b>TODO</b>s: turn away when a wall is close, otherwise drive on.', 'Change <code class="k">safeDistance</code>. Too small and it bumps; too big and it gets stuck turning.'] },
@@ -5676,39 +5623,27 @@ function globalOf(W, name) {
   return g ? P.G[g.slot] : null;
 }
 
-const CALIBRATE_FN = `// Sweep left and right over the line for 2 seconds, remembering each sensor's min and max.
-void calibrate() {
-  digitalWrite(LED_BUILTIN, HIGH);
-  unsigned long start = millis();
-  while (millis() - start < 2000) {
-    unsigned long t = millis() - start;
-    if (t < 250 || (t >= 750 && t < 1250) || t >= 1750) drive(-120, 120);
-    else drive(120, -120);
-    for (int i = 0; i < 5; i++) {
-      int v = analogRead(A0 + i);
-      if (v < minV[i]) minV[i] = v;
-      if (v > maxV[i]) maxV[i] = v;
-    }
-  }
-  drive(0, 0);
-  for (int i = 0; i < 5; i++) {
-    if (maxV[i] - minV[i] < 100) maxV[i] = minV[i] + 100;   // sensor never saw the line
-  }
-  digitalWrite(LED_BUILTIN, LOW);
-  delay(300);
-}`;
+const aswap = (text, a, b) => { if (!text.includes(a)) throw new Error('Advanced PID: text not found: ' + a.slice(0, 40)); return text.replace(a, b); };
 const PID_GLOBALS = (kp, ki, kd, speed) => `// ---- Tune these in the Tune tab while the robot drives ----
-float Kp = ${kp};      // P: turn harder when the line is far away
-float Ki = ${ki};    // I: fixes a robot that always drifts to one side
-float Kd = ${kd};       // D: brakes the turn before it overshoots
+float Kp = ${kp};       // P: turn harder when the line is far away
+float Ki = ${ki};       // I: fixes a robot that always drifts to one side
+float Kd = ${kd};     // D: brakes the turn before it overshoots
 int baseSpeed = ${speed};  // cruising speed, 0-255
-long iLimit = 20000;  // anti-windup: the biggest the integral may get
+int sampleMs = 10;    // work out the steering every 10 ms
+float iLimit = 40;    // anti-windup: the biggest the integral may get
 
-int minV[5] = {1023, 1023, 1023, 1023, 1023};
-int maxV[5] = {0, 0, 0, 0, 0};
-int error = 0;        // where the line is now
-int lastError = 0;    // where it was last time
-long integral = 0;    // all the errors added up`;
+${LINE_GLOBALS}
+
+float error = 0;      // where the line is now: -2 (far left) .. 0 .. +2 (far right)
+float lastError = 0;  // where it was 10 ms ago
+float integral = 0;   // all the errors added up
+unsigned long lastPid = 0;`;
+const PID_SETUP = `void setup() {
+${PINMODES}
+  pinMode(LED_BUILTIN, OUTPUT);
+  Serial.begin(9600);
+  calibrate();
+}`;
 
 // The full program. {{n}} marks blank n.
 const PIDI_FULL = `// Advanced PID line follower: P, I and D, with calibration
@@ -5716,64 +5651,41 @@ const PIDI_FULL = `// Advanced PID line follower: P, I and D, with calibration
 
 ${MOTOR_SETUP}
 
-${PID_GLOBALS('0.08', '0.0002', '1.5', '180')}
+${PID_GLOBALS('70', '0.5', '1000', '200')}
 
-void setup() {
-${PINMODES}
-  pinMode(LED_BUILTIN, OUTPUT);
-  Serial.begin(9600);
-  calibrate();
-}
+${PID_SETUP}
 
 ${DRIVE_FN}
 
-${CALIBRATE_FN}
+${aswap(CALIBRATE_FN, '  threshold = (avgWhite + avgBlack) / 2;', '  threshold = {{1}};')}
 
-// One sensor scaled to 0 (white) .. 1000 (black)
-int readSensor(int i) {
-  long v = map(analogRead(A0 + i), minV[i], maxV[i], 0, 1000);
-  return constrain(v, 0, 1000);
-}
-
-// Where is the line? -2000 (far left) .. 0 (middle) .. 2000 (far right)
-int readLine() {
-  long weighted = 0;
-  long total = 0;
-  for (int i = 0; i < 5; i++) {
-    int v = readSensor(i);
-    if (v < 100) v = 0;                      // ignore small noise
-    long position = {{1}};
-    {{2}};
-    {{3}};
-  }
-  if (total < 300) {                         // line lost: keep turning the way we last saw it
-    return lastError > 0 ? 2000 : -2000;
-  }
-  return {{4}};
-}
+${aswap(aswap(aswap(READLINE_FN, '    onLine[i] = analogRead(A0 + i) > threshold ? 1 : 0;\n    seen += onLine[i];\n    sum += onLine[i] * (i + 1);\n',
+  '    onLine[i] = {{2}};\n    {{3}};\n    {{4}};\n'), '  if (seen > 0) position = (float)sum / seen;', '  if (seen > 0) position = {{5}};'), '// Reads all 5 sensors', '// Reads all 5 sensors')}
 
 void loop() {
-  error = readLine();
-  int change = {{5}};
-  {{6}};
-  integral = {{7}};
-  int turn = {{8}};
-  drive({{9}});
-  {{10}};
-  delay(2);
+  readLine();
+  if (millis() - lastPid >= sampleMs) {
+    lastPid = millis();
+    error = {{6}};
+    float change = error - lastError;
+    integral = {{7}};
+    float turn = {{8}};
+    drive({{9}});
+    {{10}};
+  }
 }
 `;
 const PID_BLANKS = [
-  { q: 'Where is sensor i? It should give -2000 for sensor 0, 0 for the middle one and 2000 for sensor 4.', a: ['(i - 2) * 1000', '1000 * (i - 2)'], hint: 'The middle sensor is i = 2. Subtract 2, then multiply by 1000.' },
-  { q: 'Add this sensor\'s reading times its position to <code class="k">weighted</code>.', a: ['weighted += v * position', 'weighted = weighted + v * position'], hint: 'Use <code class="k">+=</code> to add to a variable: <code class="k">weighted += …</code>' },
-  { q: 'Add this sensor\'s reading to <code class="k">total</code>.', a: ['total += v', 'total = total + v'], hint: 'Just like blank 2, but only the reading <code class="k">v</code>.' },
-  { q: 'The weighted average: where the line is.', a: ['weighted / total'], hint: 'An average is the sum divided by how much there was.' },
-  { q: 'D: how much did the error change since last time?', a: ['error - lastError'], hint: 'New error minus old error.' },
-  { q: 'I: add this error to the running total.', a: ['integral += error', 'integral = integral + error'], hint: 'The integral is all the errors added up: <code class="k">integral += …</code>' },
-  { q: 'Anti-windup: keep the integral between <code class="k">-iLimit</code> and <code class="k">iLimit</code>.', a: ['constrain(integral, -iLimit, iLimit)'], hint: '<code class="k">constrain(value, low, high)</code> keeps a value inside a range.' },
-  { q: 'The PID formula: the P part + the I part + the D part.', a: ['Kp * error + Ki * integral + Kd * change'], hint: 'Each part is its gain times its number: <code class="k">Kp * error</code>, <code class="k">Ki * integral</code>, <code class="k">Kd * change</code>. Add them.' },
+  { q: 'The threshold: halfway between the average white and the average black.', a: ['(avgWhite + avgBlack) / 2'], hint: 'Halfway between two numbers is their sum divided by 2. Use brackets: <code class="k">(a + b) / 2</code>.' },
+  { q: 'Is sensor i on the line? 1 if its reading is above the threshold, else 0.', a: ['analogRead(A0 + i) > threshold ? 1 : 0', '(analogRead(A0 + i) > threshold) ? 1 : 0'], hint: 'Read it with <code class="k">analogRead(A0 + i)</code>, compare with <code class="k">&gt; threshold</code>, then <code class="k">? 1 : 0</code>.' },
+  { q: 'Count the sensors that see the line: add <code class="k">onLine[i]</code> to <code class="k">seen</code>.', a: ['seen += onLine[i]', 'seen = seen + onLine[i]'], hint: 'Use <code class="k">+=</code> to add to a variable.' },
+  { q: 'Add this sensor\'s number (i + 1) to <code class="k">sum</code>, but only if it sees the line.', a: ['sum += onLine[i] * (i + 1)', 'sum = sum + onLine[i] * (i + 1)'], hint: '<code class="k">onLine[i]</code> is 0 or 1, so multiplying by it adds the number only when the sensor sees the line.' },
+  { q: 'The position is the average of the sensors that see the line.', a: ['(float)sum / seen', 'sum / (float)seen'], hint: 'An average is the sum divided by how many. Write <code class="k">(float)</code> first, or 5 / 2 gives 2 instead of 2.5.' },
+  { q: 'The error: how far the line is from the middle sensor (number 3).', a: ['position - 3'], hint: 'Positive means the line is to the right. The middle is 3.' },
+  { q: 'I: add this error to the integral, and keep it between <code class="k">-iLimit</code> and <code class="k">iLimit</code> (anti-windup).', a: ['constrain(integral + error, -iLimit, iLimit)', 'constrain(error + integral, -iLimit, iLimit)'], hint: '<code class="k">constrain(value, low, high)</code> keeps a value between low and high. The value is <code class="k">integral + error</code>.' },
+  { q: 'The PID formula: the P part + the I part + the D part.', a: ['Kp * error + Ki * integral + Kd * change'], hint: 'Each part is its gain times its number: <code class="k">Kp * error</code>, <code class="k">Ki * integral</code>, <code class="k">Kd * change</code>.' },
   { q: 'The two wheel speeds: when the line is on the right (turn > 0), the left wheel goes faster.', a: ['baseSpeed + turn, baseSpeed - turn'], hint: 'Left wheel first: <code class="k">baseSpeed + turn</code>, then the right wheel.' },
-  { q: 'Remember this error for next time.', a: ['lastError = error'], hint: 'Next time round, <code class="k">lastError</code> must hold today\'s error.' },
+  { q: 'Remember this error for next time.', a: ['lastError = error'], hint: 'In 10 ms, <code class="k">lastError</code> must hold this error.' },
 ];
 // Make two answers comparable: no spaces, no ";", "x += y" means "x = x + y", and the order of
 // things added or multiplied at the top level doesn't matter.
@@ -5794,29 +5706,25 @@ const PIDI_EDITOR = PIDI_FULL.split('\n').map(line => {
 }).join('\n').replace(/^\/\/ Advanced PID line follower: P, I and D, with calibration/, '// Advanced PID: fill in the blanks\n// Replace every ____ with your answer. The comment above each one says what goes there.');
 
 const snakeUnder = sec => W => W.arena.id === 'line' && W.state.laps && W.state.laps.some(l => l.time < sec);
-const PIDI_STEPS = ['Open the <b>Tune</b> tab and set <code class="k">Ki</code> to 0.002 while Dowee drives. Watch the trail: it starts to wiggle more.', 'Now delete the <code class="k">integral = constrain(…)</code> line and run again. The integral grows and grows (this is called <b>windup</b>) until Dowee loses the line.', 'Put the line back and set <code class="k">Ki</code> to 0.0002 again.'];
-const I_WORTH = '<br><br><b>Is I worth it?</b> The I part adds up the error over time. If Dowee always sits a little to one side (for example because one motor is weaker), the sum keeps growing and pushes it back to the middle. But on a normal Dowee the line moves all the time, so I mostly adds wiggle, and without a limit it "winds up" and loses the line. That is why most line-follower racers use only P and D, or a very small, limited I.';
+const PIDI_STEPS = ['Open the <b>Tune</b> tab and set <code class="k">Ki</code> to 5 while Dowee drives. Watch the trail: it starts to wiggle more.', 'Now change the integral line to <code class="k">integral = integral + error;</code> (no limit) and run again. The integral can grow and grow (this is called <b>windup</b>), so Dowee keeps steering after the line has moved.', 'Put the <code class="k">constrain</code> back and set <code class="k">Ki</code> to 0.5 again.'];
+const I_WORTH = '<br><br><b>Is I worth it?</b> The I part adds up the error over time. If Dowee always sits a little to one side (for example because one motor is weaker), the sum keeps growing and pushes it back to the middle. But on a normal Dowee the line moves all the time, so I mostly adds wiggle, and without a limit it "winds up". That is why most line-follower racers use only P and D, or a very small, limited I.';
 
 // Build-your-own template: stubs for the student, with fixed names the guide reads.
 const PIDI_GUIDED = `// Build your own PID racer (guided)
 // Follow the guide in the Lessons tab, one step at a time.
-// Keep these variable names: the guide checks minV, maxV, error, integral, Kp and Ki while your program runs.
+// Keep these variable names: the guide checks minV, maxV, threshold, error, integral, Kp and Ki while your program runs.
 
 ${MOTOR_SETUP}
 
-${PID_GLOBALS('0.08', '0.0', '1.5', '150')}
+${aswap(PID_GLOBALS('70', '0', '1000', '150'), 'int threshold = 500;   // above this = the sensor sees the line (calibrate() works out the real one)', 'int threshold = 0;     // above this = the sensor sees the line (STEP 1 works it out)')}
 
-void setup() {
-${PINMODES}
-  pinMode(LED_BUILTIN, OUTPUT);
-  Serial.begin(9600);
-  calibrate();
-}
+${PID_SETUP}
 
 ${DRIVE_FN}
 
 // STEP 1: calibrate. Sweep left and right over the line for 2 seconds.
-// While sweeping, read all 5 sensors and remember each one's smallest (minV) and biggest (maxV) value.
+// While sweeping, read all 5 sensors and remember each one's whitest (minV) and blackest (maxV) value.
+// Then the threshold is halfway between the average white and the average black.
 void calibrate() {
   unsigned long start = millis();
   while (millis() - start < 2000) {
@@ -5826,86 +5734,103 @@ void calibrate() {
 
   }
   drive(0, 0);
+  // TODO: average the minV values, average the maxV values, and set the threshold halfway between them.
+
 }
 
-// STEP 2: one sensor scaled from 0 (white) to 1000 (black), using what calibrate() learned.
-int readSensor(int i) {
-  // TODO: map the reading from minV[i]..maxV[i] to 0..1000, then constrain it to 0..1000.
-  return 0;
-}
+// STEP 2: where is the line? For each sensor: onLine[i] is 1 when it reads above the threshold.
+// seen counts them, and position is the average of (i + 1) of the sensors that see the line:
+// 1 (far left) .. 3 (middle) .. 5 (far right). If no sensor sees the line, keep the last position.
+void readLine() {
+  // TODO: like in PID 2.
 
-// STEP 2: where is the line? -2000 (far left) .. 0 (middle) .. 2000 (far right)
-int readLine() {
-  // TODO: the weighted average of the five sensors, like in PID 1.
-  // If no sensor sees the line, return 2000 or -2000 (the side you saw it last).
-  return 0;
 }
 
 void loop() {
-  error = readLine();
+  readLine();
+  if (millis() - lastPid >= sampleMs) {
+    lastPid = millis();
+    error = position - 3;
 
-  // Simple steering for now, so you can test step 2. In STEP 3 you replace it with P and D.
-  // STEP 4: add I, with an anti-windup limit.
-  int turn = 0;
-  if (error > 300) turn = 50;
-  if (error < -300) turn = -50;
+    // Simple steering for now, so you can test step 2. In STEP 3 you replace it with P and D.
+    // STEP 4: add I, with an anti-windup limit.
+    float turn = 0;
+    if (error > 0.5) turn = 50;
+    if (error < -0.5) turn = -50;
 
-  lastError = error;
-  drive(baseSpeed + turn, baseSpeed - turn);
-  delay(2);
+    lastError = error;
+    drive(baseSpeed + turn, baseSpeed - turn);
+  }
 }
 `;
 // Guide steps. check(W, memo) runs about 5 times a second while the program runs; memo starts empty each run.
 const PIDI_GUIDE = [
-  { title: 'Calibrate', text: 'Real sensors all read a little differently. <code class="k">calibrate()</code> sweeps over the line and remembers the darkest and brightest value each sensor sees.',
-    hints: ['Spin with <code class="k">drive(-120, 120)</code> (left) and <code class="k">drive(120, -120)</code> (right). Dowee starts on the line, so sweep left 250 ms, right 500 ms, left 500 ms, right 500 ms, left 250 ms. Then it ends up back on the line.', '<code class="k">unsigned long t = millis() - start;</code> then <code class="k">if (t &lt; 250 || (t &gt;= 750 &amp;&amp; t &lt; 1250) || t &gt;= 1750) drive(-120, 120); else drive(120, -120);</code>', 'Inside the while loop: <code class="k">for (int i = 0; i &lt; 5; i++) { int v = analogRead(A0 + i); … }</code>', '<code class="k">if (v &lt; minV[i]) minV[i] = v;</code> and <code class="k">if (v &gt; maxV[i]) maxV[i] = v;</code>'],
-    check: 'Every sensor learned black and white (min below 300, max above 700)', ok: W => { const a = globalOf(W, 'minV'), b = globalOf(W, 'maxV'); if (!a || !b || W.time < 2200) return false; for (let i = 0; i < 5; i++) if (!(a[i] < 300 && b[i] > 700)) return false; return true; } },
-  { title: 'Find the line', text: 'Write <code class="k">readSensor()</code> with <code class="k">map()</code>, then <code class="k">readLine()</code>: the weighted average from PID 1. The simple steering in <code class="k">loop()</code> uses your <code class="k">error</code>, and the guide compares it with where the line really is.',
-    hints: ['<code class="k">long v = map(analogRead(A0 + i), minV[i], maxV[i], 0, 1000); return constrain(v, 0, 1000);</code>', 'In readLine, loop over the sensors: <code class="k">weighted += (long)v * (i - 2) * 1000; total += v;</code>', 'After the loop: <code class="k">if (total &lt; 300) return lastError &gt; 0 ? 2000 : -2000;</code> then <code class="k">return weighted / total;</code>'],
+  { title: 'Calibrate', text: 'Real sensors all read a little differently, and every floor is different. <code class="k">calibrate()</code> sweeps over the line, remembers the whitest and blackest value each sensor sees, and puts the <b>threshold</b> halfway between the average white and the average black.',
+    hints: ['Spin with <code class="k">drive(-120, 120)</code> (left) and <code class="k">drive(120, -120)</code> (right). Dowee starts on the line, so sweep left 250 ms, right 500 ms, left 500 ms, right 500 ms, left 250 ms.', 'For each sensor: <code class="k">int v = analogRead(A0 + i); if (v &lt; minV[i]) minV[i] = v; if (v &gt; maxV[i]) maxV[i] = v;</code>', 'Add up the five minV values and divide by 5 (the average white), the same for maxV, then <code class="k">threshold = (avgWhite + avgBlack) / 2;</code>'],
+    check: 'Every sensor learned white and black (white below 300, black above 700), and the threshold is between them', ok: W => W.time > 2200 && calibrated(W) },
+  { title: 'Find the line', text: 'Write <code class="k">readLine()</code>, like in PID 2: on or off for each sensor, then the average position. The simple steering in <code class="k">loop()</code> uses it, so Dowee should already follow the line roughly.',
+    hints: ['<code class="k">onLine[i] = analogRead(A0 + i) &gt; threshold ? 1 : 0;</code>', 'Count and add up: <code class="k">seen += onLine[i]; sum += onLine[i] * (i + 1);</code> (start with <code class="k">seen = 0</code> and <code class="k">sum = 0</code>).', 'After the loop: <code class="k">if (seen &gt; 0) position = (float)sum / seen;</code>'],
     check: '<code class="k">error</code> follows the line: negative when it is on the left, positive on the right',
     ok: (W, m) => {
       const e = globalOf(W, 'error'); if (e == null || W.time < 2500) return false;
       const r = W.robots[0], refl = [0, 1, 2, 3, 4].map(i => r.reflect(i)), dark = refl.indexOf(Math.min(...refl));
       if (refl[dark] > 0.5) return false;   // no sensor is over the line right now
-      const right = dark === 2 ? Math.abs(e) < 800 : (dark < 2 ? e < -300 : e > 300);
+      const right = dark === 2 ? Math.abs(e) < 0.6 : (dark < 2 ? e < -0.4 : e > 0.4);
       m.n = (m.n || 0) + 1; m.good = (m.good || 0) + (right ? 1 : 0); if (right && dark !== 2) m.side = true;
       return m.n >= 8 && m.good / m.n >= 0.85 && !!m.side;
     } },
-  { title: 'P and D', text: 'Replace the simple steering in <code class="k">loop()</code> with <code class="k">turn = Kp * error + Kd * (error - lastError)</code>, like PID 2 and 3.',
+  { title: 'P and D', text: 'Replace the simple steering in <code class="k">loop()</code> with <code class="k">turn = Kp * error + Kd * (error - lastError)</code>, like PID 3 and 4.',
     hints: ['P part: <code class="k">Kp * error</code>. D part: <code class="k">Kd * (error - lastError)</code>.', 'Use the D part <b>before</b> the line <code class="k">lastError = error;</code>'],
     check: 'Lap the Oval with less than 8 mm of wiggle', ok: W => W.state.laps && W.state.laps.some(l => l.rms < 8) && W.variant === 'oval' && !(W.robots[0].cfg.mismatch > 0) },
-  { title: 'Add I, with a limit', robot: { mismatch: 30 }, text: 'Press the button to swap to a Dowee whose <b>right motor is 30% weaker</b>. Set <code class="k">Kp</code> to 0.04 (gentle) and run: Dowee rides off to one side. Now add the I part: <code class="k">integral += error;</code>, limit it with <code class="k">constrain(integral, -iLimit, iLimit)</code>, and add <code class="k">Ki * integral</code> to the turn. Try <code class="k">Ki</code> = 0.001.' + I_WORTH,
-    hints: ['Add these two lines before the turn: <code class="k">integral += error;</code> and <code class="k">integral = constrain(integral, -iLimit, iLimit);</code>', '<code class="k">int turn = Kp * error + Ki * integral + Kd * (error - lastError);</code>', 'Without the <code class="k">constrain</code> line the integral "winds up" and Dowee loses the line. Try it!'],
-    check: 'On the weak-motor Dowee, with Kp at 0.05 or less and Ki above 0: lap the Oval with less than 6 mm of wiggle, and the integral never goes above 50000',
+  { title: 'Add I, with a limit', robot: { mismatch: 30 }, text: 'Press the button to swap to a Dowee whose <b>right motor is 30% weaker</b>. Set <code class="k">Kp</code> to 20 (gentle) and run: Dowee rides off to one side of the line. Add the I part: it adds up the error, so a steady drift keeps growing the push back. Keep the integral between <code class="k">-iLimit</code> and <code class="k">iLimit</code>, or it winds up.',
+    hints: ['Add this line before the turn: <code class="k">integral = constrain(integral + error, -iLimit, iLimit);</code>', '<code class="k">float turn = Kp * error + Ki * integral + Kd * (error - lastError);</code>', 'Then try <code class="k">Ki</code> values in the Tune tab, starting with 1.'],
+    check: 'On the weak-motor Dowee, with Kp at 20 or less and Ki above 0: lap the Oval with less than 6 mm of wiggle, and the integral stays within ±50',
     ok: (W, m) => {
       if (!(W.robots[0].cfg.mismatch >= 30) || W.variant !== 'oval') return false;
       const kp = globalOf(W, 'Kp'), ki = globalOf(W, 'Ki'), it = globalOf(W, 'integral');
       if (it != null) m.maxI = Math.max(m.maxI || 0, Math.abs(it));
-      if (kp == null || ki == null || !(kp <= 0.05) || !(ki > 0) || m.maxI > 50000) return false;
+      if (kp == null || ki == null || !(kp <= 20) || !(ki > 0) || m.maxI > 50) return false;
       return W.state.laps && W.state.laps.some(l => l.rms < 6);
     } },
   { title: 'Race', text: 'Swap back to the normal Dowee and switch the track to the <b>Snake</b>. Raise <code class="k">baseSpeed</code> and tune Kp, Ki and Kd in the Tune tab. Every lap is logged, so you can compare.',
-    hints: ['Faster needs more steering: try <code class="k">baseSpeed = 200</code> with <code class="k">Kp = 0.1</code> and <code class="k">Kd = 2</code>.', 'If it wiggles more with I, make Ki smaller (or 0). The weak-motor problem is gone on the normal Dowee, and racers often don\'t need I at all.', 'Still too slow? Go up to <code class="k">baseSpeed = 230</code> and raise <code class="k">Kd</code> to 2.5 so it doesn\'t overshoot.'],
-    check: 'Lap the Snake in under 14.5 seconds on the normal Dowee', ok: W => W.variant === 'snake' && !(W.robots[0].cfg.mismatch > 0) && snakeUnder(14.5)(W) },
+    hints: ['Raise <code class="k">baseSpeed</code> to about 220, set Kp back to 70 and Kd to 1000, and Ki to 0.', 'If it wiggles more with I, make Ki smaller (or 0). The weak-motor problem is gone on the normal Dowee.'],
+    check: 'Lap the Snake in under 12 seconds on the normal Dowee', ok: W => W.variant === 'snake' && !(W.robots[0].cfg.mismatch > 0) && snakeUnder(12)(W) },
 ];
+
+// Advanced PID 4: weight each sensor by how dark it sees the floor, instead of on/off. Smoother.
+const PIDI_GREY = aswap(PIDI_FULL.replace(/\{\{(\d+)\}\}/g, (m, n) => PID_BLANKS[n - 1].a[0]).replace('float Ki = 0.5;', 'float Ki = 0;  ').replace('int baseSpeed = 200;', 'int baseSpeed = 220;').replace('// Advanced PID line follower: P, I and D, with calibration', '// Advanced PID 4: shades of grey'),
+  '  if (seen > 0) position = (float)sum / seen;   // no line: keep the last position\n}',
+  `  if (seen > 0) position = (float)sum / seen;   // no line: keep the last position
+
+  // TODO: on/off only knows "on the line" or "not". A sensor half over the line reads grey,
+  // and that tells you more. Instead of the average above, weight each sensor by how dark it is:
+  //   for each sensor:  long dark = constrain(map(analogRead(A0 + i), minV[i], maxV[i], 0, 1000), 0, 1000);
+  //                     add  dark * (i + 1)  to a weighted sum, and  dark  to a total
+  //   then (when seen > 0):  position = (float)weighted / total;
+}`);
 
 const ADV_PID = [
   { id: 'apid1', title: 'Advanced PID 1: Fill in the blanks (worksheet)', level: 'Advanced PID', arena: 'line', variant: 'snake', code: PIDI_EDITOR, worksheet: true,
-    intro: 'Here is a complete PID line follower, with <b>P</b>, <b>I</b> and <b>D</b> and sensor calibration, but 10 pieces are missing. Fill in each box, press <b>Check my answers</b>, then put the program in your editor and race it.' + I_WORTH,
+    intro: 'Here is a complete PID line follower, with calibration and <b>P</b>, <b>I</b> and <b>D</b>, but 10 pieces are missing. Fill in each box, press <b>Check my answers</b>, then put the program in your editor and race it.' + I_WORTH,
     steps: ['Fill in the boxes in the worksheet below. Each one has a question.', 'Press <b>Check my answers</b>. Green means right. Orange gives you a hint.', 'Press <b>Put it in my code</b> and <b>Upload &amp; run</b>.', ...PIDI_STEPS],
-    goal: 'Lap the Snake in under 16 seconds', check: snakeUnder(16) },
+    goal: 'Lap the Snake in under 14 seconds', check: snakeUnder(14) },
   { id: 'apid2', title: 'Advanced PID 2: Fill in the blanks (in the editor)', level: 'Advanced PID', arena: 'line', variant: 'snake', code: PIDI_EDITOR,
     intro: 'The same complete PID line follower, but this time you fill in the blanks right in the code, like a real programmer. Every <code class="k">____</code> needs an answer. The comment above it says what goes there.' + I_WORTH,
     steps: ['Find every <code class="k">____</code> in the editor (there are 10).', 'Replace each one with your answer. Press <b>Verify</b> to check the code without running it.', 'If the error says a line still has a blank, read the BLANK comment above that line.', 'Press <b>Upload &amp; run</b>.', ...PIDI_STEPS],
     hints: PID_BLANKS.map((b, i) => `Blank ${i + 1}: ${b.hint}`),
-    goal: 'Lap the Snake in under 16 seconds', check: snakeUnder(16) },
+    goal: 'Lap the Snake in under 14 seconds', check: snakeUnder(14) },
   { id: 'apid3', title: 'Advanced PID 3: Build your own PID racer', level: 'Advanced PID', arena: 'line', variant: 'oval', code: PIDI_GUIDED, guide: PIDI_GUIDE,
     intro: 'Now you write the whole controller yourself, from calibration to the I part. Follow the guide below one step at a time. Each step ticks itself off when your program does it.',
     steps: ['Work through the 5 steps in the guide. Run your program after each step.', 'Stuck? Every step has hints.'],
-    goal: 'Finish all 5 steps: the last one is a Snake lap under 14.5 seconds', check: W => W.variant === 'snake' && !(W.robots[0].cfg.mismatch > 0) && snakeUnder(14.5)(W) },
+    goal: 'Finish all 5 steps: the last one is a Snake lap under 12 seconds', check: W => W.variant === 'snake' && !(W.robots[0].cfg.mismatch > 0) && snakeUnder(12)(W) },
+  { id: 'apid4', title: 'Advanced PID 4: Shades of grey', level: 'Advanced PID', arena: 'line', variant: 'oval', code: PIDI_GREY,
+    intro: 'On/off sensors make the position jump in steps: 3, then 3.5, then 4. But a sensor half over the line reads <b>grey</b>, somewhere between white and black. If each sensor counts as much as it is dark, the position slides smoothly between sensors, and Dowee wobbles less. It uses the white and black that <code class="k">calibrate()</code> learned.',
+    steps: ['Run it with <b>Trail</b> on and note the wiggle (in mm) in the lap list.', 'Fill in the <b>TODO</b> at the end of <code class="k">readLine()</code>.', 'Run it again and compare the wiggle.'],
+    hints: ['Keep the on/off part: <code class="k">seen</code> still tells you when the line is lost or at a crossing.', '<code class="k">long weighted = 0, total = 0;</code> then in a loop: <code class="k">long dark = constrain(map(analogRead(A0 + i), minV[i], maxV[i], 0, 1000), 0, 1000); weighted += dark * (i + 1); total += dark;</code>', 'Then <code class="k">if (seen &gt; 0) position = (float)weighted / total;</code>'],
+    goal: 'At baseSpeed 220 or more, lap the Oval with less than 4 mm of wiggle', check: W => W.variant === 'oval' && (globalOf(W, 'baseSpeed') || 0) >= 220 && W.state.laps && W.state.laps.some(l => l.rms < 4) },
 ];
 LESSONS.splice(LESSONS.findIndex(l => l.id === 'pid') + 1, 0, ...ADV_PID);
-if (typeof module !== 'undefined') Object.assign(module.exports, { PIDI_FULL, PIDI_EDITOR, PIDI_GUIDED, PID_BLANKS, PIDI_GUIDE, canonAnswer, blankRight, fillBlanks, globalOf });
+if (typeof module !== 'undefined') Object.assign(module.exports, { PIDI_FULL, PIDI_EDITOR, PIDI_GUIDED, PIDI_GREY, PID_BLANKS, PIDI_GUIDE, canonAnswer, blankRight, fillBlanks, globalOf });
 
 /* =====================================================================
    PRIMM for every built-in lesson: Predict, Run, Investigate, Modify, Make.
@@ -5992,7 +5917,7 @@ const PRIMM = {
     predict: { q: 'What will Dowee do on the Oval?', options: ['Follow the line with a little wiggle', 'Glide perfectly smoothly along the line', 'Drive straight off the track'], answer: 0, why: 'This follower only knows "turn left", "turn right" or "straight", so it zig-zags along the line.' },
     investigate: [
       { q: 'Only the <b>left</b> sensor sees the line. What does Dowee do?', options: ['Turns left: <code class="k">drive(0, speed)</code>', 'Turns right: <code class="k">drive(speed, 0)</code>', 'Goes straight'], answer: 0, why: 'With the left wheel stopped and the right one driving, Dowee turns left, back towards the line.' },
-      { q: 'What does <code class="k">&amp;&amp;</code> mean in an <code class="k">if</code>?', options: ['AND: both parts must be true', 'OR: one part is enough', 'NOT'], answer: 0, why: '<code class="k">left == HIGH &amp;&amp; right == LOW</code> is only true when both are true.' },
+      { q: 'What does <code class="k">&amp;&amp;</code> mean in an <code class="k">if</code>?', options: ['AND: both parts must be true', 'OR: one part is enough', 'NOT'], answer: 0, why: '<code class="k">left == 1 &amp;&amp; right == 0</code> is only true when both are true.' },
     ],
     modify: [
       { text: 'Make Dowee faster: lap the Oval in <b>under 25 seconds</b>. Too fast and it misses the turn!', check: W => W.state.laps && W.state.laps.some(l => l.time < 25) },
@@ -6006,50 +5931,44 @@ const PRIMM = {
     },
   },
   pid1: {
-    predict: { q: 'The three TODOs in <code class="k">readLine()</code> are still empty. What will Dowee do?', options: ['Drive round in circles', 'Follow the line', 'Stand still'], answer: 0, why: '<code class="k">total</code> stays 0, so readLine() thinks it lost the line and always says "far left". Dowee keeps turning left.' },
+    predict: { q: 'The threshold is 0 for now. What will Dowee do?', options: ['Drive straight off the line', 'Follow the line', 'Stand still'], answer: 0, why: 'Every reading is above 0, so every sensor says "I see the line". The middle sensor sees it too, so Dowee goes straight on, even off the track.' },
     investigate: [
-      { q: 'Only the middle sensor (i = 2) sees black. What is the error?', options: ['0', '2000', '-2000'], answer: 0, why: 'Its position is (2 - 2) × 1000 = 0, so the weighted average is 0: the line is right in the middle.' },
-      { q: 'The error is <b>positive</b>, like 1500. Where is the line?', options: ['On the right', 'On the left', 'Under the middle sensor'], answer: 0, why: 'A3 and A4 on the right have the positions 1000 and 2000.' },
+      { q: 'White reads about 100 and black about 950. Where should the threshold be?', options: ['About 525: halfway', 'About 950', 'About 100'], answer: 0, why: '(100 + 950) / 2 = 525. Anything darker than that counts as the line.' },
+      { q: 'Why calibrate, instead of always using 500?', options: ['Sensors and floors all read a bit differently', 'To make the program longer', 'Because the line changes colour'], answer: 0, why: 'On a shiny floor, in a bright room or with a different sensor, white and black give other numbers. Calibrating finds the right threshold every time.' },
+    ],
+    modify: [
+      { text: 'Fill in both TODOs so Dowee follows the line for 5 seconds.', check: PQ.onLine(5000) },
+    ],
+  },
+  pid2: {
+    predict: { q: '<code class="k">readLine()</code> never sets <code class="k">onLine</code> yet. What will Dowee do?', options: ['Drive straight off the line', 'Follow the line', 'Spin on the spot'], answer: 0, why: 'No sensor ever "sees" the line, so the position stays 3, the error stays 0, and Dowee goes straight on.' },
+    investigate: [
+      { q: 'Sensors 2 and 3 see the line. What is the position?', options: ['2.5', '5', '3'], answer: 0, why: '(2 + 3) / 2 = 2.5. The error is 2.5 - 3 = -0.5: the line is a little to the left.' },
+      { q: 'The error is <b>+2</b>. Where is the line?', options: ['Under the far-right sensor', 'Under the far-left sensor', 'In the middle'], answer: 0, why: 'Position 5 is the far-right sensor, and 5 - 3 = 2.' },
     ],
     modify: [
       { text: 'Fill in the 3 TODOs so Dowee follows the line for 5 seconds.', check: PQ.onLine(5000) },
     ],
   },
-  pid2: {
+  pid3: {
     predict: { q: '<code class="k">turn</code> is always 0 for now. What will Dowee do on the Oval?', options: ['Drive straight off the line', 'Follow the line smoothly', 'Spin on the spot'], answer: 0, why: 'Both wheels get the same speed, so Dowee never steers.' },
     investigate: [
-      { q: 'The error is 1000 and Kp is 0.05. What is <code class="k">Kp * error</code>?', options: ['50', '1000', '0.05'], answer: 0, why: '0.05 × 1000 = 50, so one wheel goes 50 faster and the other 50 slower.' },
+      { q: 'The error is 1 and Kp is 15. What is <code class="k">Kp * error</code>?', options: ['15', '1', '150'], answer: 0, why: '15 × 1 = 15, so one wheel goes 15 faster and the other 15 slower.' },
       { q: 'The line is on the right, so turn is positive. Which wheel must go faster?', options: ['The left wheel', 'The right wheel', 'Both the same'], answer: 0, why: 'A faster left wheel turns Dowee to the right, towards the line: <code class="k">drive(baseSpeed + turn, baseSpeed - turn)</code>.' },
     ],
     modify: [
       { text: 'Fill in the 2 TODOs so Dowee gets halfway round the Oval without losing the line.', check: W => W.state.lap && !W.state.lap.lost && W.state.lap.progress() > 0.5 },
     ],
   },
-  pid3: {
-    predict: { q: 'This step starts with P only and a big Kp (0.08). What will Dowee do?', options: ['Wobble more and more', 'Drive perfectly smoothly', 'Not move at all'], answer: 0, why: 'A strong P turns hard towards the line, crosses it and turns back too late. Each swing gets bigger.' },
-    investigate: [
-      { q: 'When is <code class="k">change</code> (error − lastError) big?', options: ['When the line moves away fast', 'When Dowee is exactly on the line', 'When Kd is big'], answer: 0, why: 'change is how much the error grew since the last loop. D uses it to brake the turn early.' },
-    ],
-    modify: [
-      { text: 'Add the D part so Dowee stays close to the line for 8 seconds.', check: PQ.onLine(8000) },
-    ],
-  },
   pid: {
-    predict: { q: 'What will Dowee do first when you press Run?', options: ['Sweep left and right on the spot', 'Race off straight away', 'Wait and do nothing'], answer: 0, why: 'It <b>calibrates</b> for 2 seconds: it learns what black and white look like for each of its sensors.' },
+    predict: { q: 'This step starts with P only, at speed 240. What will Dowee do on the Snake?', options: ['Swing across the line again and again', 'Race smoothly', 'Not move at all'], answer: 0, why: 'A strong P at high speed turns hard towards the line, crosses it and has to turn back. Nothing brakes the turn yet.' },
     investigate: [
-      { q: 'Why does every sensor get its own min and max?', options: ['Real sensors all read a little differently', 'To make the code longer', 'Because the line changes colour'], answer: 0, why: 'After calibrating, every sensor gives 0 on white and 1000 on black, even if one is a bit weaker.' },
-      { q: 'In the Tune tab, what happens when you set <code class="k">Kd</code> to 0?', options: ['Dowee wiggles more', 'Dowee wiggles less', 'Dowee stops'], answer: 0, why: 'D brakes the turn before Dowee overshoots. Without it, Dowee swings across the line.' },
+      { q: 'When is <code class="k">change</code> (error − lastError) big?', options: ['When the line moves away fast', 'When Dowee is exactly on the line', 'When Kd is big'], answer: 0, why: 'change is how much the error grew in the last 10 ms. D uses it to brake the turn before Dowee overshoots.' },
+      { q: 'What does Dowee do when no sensor sees the line?', options: ['Spins towards where it last saw the line', 'Stops', 'Drives straight on'], answer: 0, why: '<code class="k">lostSide</code> remembers which edge sensor saw the line last, so Dowee spins back that way.' },
     ],
     modify: [
-      { text: 'Make it faster: set <code class="k">baseSpeed</code> to 180 or more and stay on the line for 5 seconds.', check: (W, m) => (PQ.num(W, 'baseSpeed') || 0) >= 180 && PQ.onLine(5000)(W, m) },
+      { text: 'Add the D part so Dowee laps the Snake with less than 15 mm of wiggle.', check: W => W.state.laps && W.state.laps.some(l => l.rms < 15) },
     ],
-    todo: {
-      predict: { q: 'The TODO sets <code class="k">turn = 0</code>. What will Dowee do?', options: ['Calibrate, then drive straight off the line', 'Calibrate, then follow the line', 'Not move at all'], answer: 0, why: 'Calibrating works, but with turn = 0 both wheels get the same speed and Dowee never steers.' },
-      modify: [
-        { text: 'Fill in the TODO so Dowee follows the Snake for 5 seconds.', check: PQ.onLine(5000) },
-        { text: 'Make it faster: <code class="k">baseSpeed</code> 180 or more, still on the line.', check: (W, m) => (PQ.num(W, 'baseSpeed') || 0) >= 180 && PQ.onLine(5000)(W, m) },
-      ],
-    },
   },
   rc: {
     predict: { q: 'You press the up arrow. The controller sends the letter <b>F</b>. What does Dowee do?', options: ['Drives forward', 'Spins left', 'Nothing'], answer: 0, why: '<code class="k">case \'F\':</code> runs <code class="k">drive(speed, speed);</code>: both wheels forward.' },
@@ -6123,19 +6042,28 @@ const PRIMM = {
     ],
   },
   apid1: {
-    predict: { q: 'The I part adds up the error over time. On a normal Dowee, what will a <b>big</b> Ki do?', options: ['Make it wiggle more', 'Make it drive smoother', 'Nothing at all'], answer: 0, why: 'On a line the error keeps changing sides, so the sum swings around and pushes Dowee off course. Measured: 3 mm of wiggle without I, 15–26 mm with it.' },
+    predict: { q: 'The I part adds up the error over time. On a normal Dowee, what will a <b>big</b> Ki do?', options: ['Make it wiggle more', 'Make it drive smoother', 'Nothing at all'], answer: 0, why: 'On a line the error keeps changing sides, so the sum swings around and pushes Dowee off course. That is why the limit (iLimit) and a small Ki matter.' },
     modify: [
-      { text: 'In the <b>Tune</b> tab, set <code class="k">Ki</code> to 0.002 or more and watch the wiggle grow.', check: W => (PQ.num(W, 'Ki') || 0) >= 0.0019 && W.time > 6000 },
+      { text: 'In the <b>Tune</b> tab, set <code class="k">Ki</code> to 5 or more and watch the wiggle grow.', check: W => (PQ.num(W, 'Ki') || 0) >= 5 && W.time > 6000 },
     ],
   },
   apid2: {
     predict: { q: 'What will happen if you press <b>Upload &amp; run</b> before filling in the blanks?', options: ['It won\'t upload: there is a blank to fill', 'Dowee follows the line anyway', 'Dowee drives backwards'], answer: 0, why: 'A program with <code class="k">____</code> in it is not finished, so the compiler stops and tells you which line.' },
     modify: [
-      { text: 'Set <code class="k">Ki</code> to 0.002 or more in the Tune tab and watch the wiggle grow.', check: W => (PQ.num(W, 'Ki') || 0) >= 0.0019 && W.time > 6000 },
+      { text: 'Set <code class="k">Ki</code> to 5 or more in the Tune tab and watch the wiggle grow.', check: W => (PQ.num(W, 'Ki') || 0) >= 5 && W.time > 6000 },
     ],
   },
   apid3: {
-    predict: { q: 'The template only drives straight or turns hard. What will it do before you write the steps?', options: ['Zig-zag along the line, if it stays on at all', 'Race smoothly', 'Not move'], answer: 0, why: 'Without a weighted average and PID it only knows "line far left" or "line far right".' },
+    predict: { q: 'The template only drives straight or turns hard. What will it do before you write the steps?', options: ['Zig-zag along the line, if it stays on at all', 'Race smoothly', 'Not move'], answer: 0, why: 'Until you write calibrate() and readLine(), Dowee has no threshold and no position, so it only knows "line far left" or "line far right" at best.' },
+  },
+  apid4: {
+    predict: { q: 'Each sensor will count as much as it is dark, instead of on or off. What will change?', options: ['Dowee wobbles less', 'Dowee wobbles more', 'Nothing'], answer: 0, why: 'A sensor half over the line reads grey. Counting that grey moves the position smoothly between sensors, instead of in jumps of 0.5.' },
+    investigate: [
+      { q: 'After calibrating, a sensor reads exactly halfway between its white and its black. How dark is it on the 0–1000 scale?', options: ['About 500', '0', '1000'], answer: 0, why: '<code class="k">map(v, minV[i], maxV[i], 0, 1000)</code> turns its white into 0 and its black into 1000, so halfway is 500.' },
+    ],
+    modify: [
+      { text: 'Fill in the TODO, then at baseSpeed 220 or more lap the Oval with less than 4 mm of wiggle.', check: W => (PQ.num(W, 'baseSpeed') || 0) >= 220 && W.state.laps && W.state.laps.some(l => l.rms < 4) },
+    ],
   },
 };
 // Fix-the-bug challenges: Predict what goes wrong, Investigate, then the fix is the goal (Make).
@@ -6144,7 +6072,7 @@ const BUG_PRIMM = {
   'bug-pinmode': { predict: ['It drives in a curve', 'It drives straight', 'It stays still'], why: 'Without pinMode, IN3 and IN4 can\'t send their signal, so only one motor knows which way to go.', iq: 'What must every pin have before digitalWrite?', io: ['pinMode(pin, OUTPUT) in setup()', 'A delay', 'Serial.begin'] },
   'bug-semicolon': { predict: ['It won\'t upload: there is an error', 'It drives forward and stops', 'It drives backwards'], why: 'One line is missing its semicolon, so the program can\'t be understood.', iq: 'How does almost every line in Arduino C end?', io: ['With a ;', 'With a .', 'With nothing'] },
   'bug-swapped': { predict: ['It turns away from the line', 'It follows the line', 'It stands still'], why: 'The left and right turns are swapped, so every correction goes the wrong way.', iq: 'To turn LEFT, which wheel should be slower?', io: ['The left wheel', 'The right wheel', 'Both the same'] },
-  'bug-equals': { predict: ['It goes round in circles', 'It follows the line', 'It drives straight off'], why: '<code class="k">left = HIGH</code> puts HIGH into left every time, so the first if is always true.', iq: 'What does a single = do?', io: ['Puts a value into a variable', 'Asks if two things are equal', 'Adds two numbers'] },
+  'bug-equals': { predict: ['It goes round in circles', 'It follows the line', 'It drives straight off'], why: '<code class="k">left = 1</code> puts 1 into left every time, so the first if is always true.', iq: 'What does a single = do?', io: ['Puts a value into a variable', 'Asks if two things are equal', 'Adds two numbers'] },
   'bug-sleepy': { predict: ['It misses the turns', 'It follows the line perfectly', 'It doesn\'t move'], why: 'During delay(400) Dowee keeps driving without looking at the line.', iq: 'What does Dowee do during delay(400)?', io: ['Keeps driving without looking', 'Stops and waits', 'Reads the sensors faster'] },
   'bug-threshold': { predict: ['It loses the line', 'It follows the line', 'It drives backwards'], why: 'It checks for numbers smaller than black, but black gives a big number.', iq: 'A sensor on black reads about…', io: ['950: a big number', '100: a small number', '0'] },
   'bug-rc': { predict: ['Forward does nothing', 'Every key works', 'It drives backwards'], why: 'The program waits for a small f, but the controller sends a capital F.', iq: 'Are \'f\' and \'F\' the same letter for the Arduino?', io: ['No, they are different', 'Yes, the same'] },
@@ -6169,7 +6097,7 @@ const LESSON_PATH = [
   { name: 'Line following', about: 'From a simple follower to a full PID racer.', ids: ['follow', 'pid1', 'pid2', 'pid3', 'pid'], missions: ['line'] },
   { name: 'Remote control', about: 'Drive Dowee over Bluetooth and play soccer.', ids: ['rc', 'soccer'], missions: ['race', 'soccer'] },
   { name: 'Sumo', about: 'Stay in the ring and push the other robot out.', ids: ['edge', 'fight'], missions: ['sumo'] },
-  { name: 'Advanced PID', about: 'Write P, I and D yourself. For confident coders.', ids: ['apid1', 'apid2', 'apid3'], extra: true },
+  { name: 'Advanced PID', about: 'Write P, I and D yourself. For confident coders.', ids: ['apid1', 'apid2', 'apid3', 'apid4'], extra: true },
   { name: 'Fix the bug', about: 'Each program has one mistake. Can you find it?', ids: CHALLENGES.map(c => c.id), extra: true },
 ];
 if (typeof module !== 'undefined') Object.assign(module.exports, { PRIMM, LESSON_PATH, PQ });
@@ -6208,7 +6136,7 @@ const X = {
   // the type of every variable id used below (block fields must carry it)
   vt: new Map([['vc', 'int'], ['vb', 'int'], ['ve', 'int'], ['vt', 'float'], ['vd', 'int'], ['vs', 'int'],
     ['kp', 'float'], ['kd', 'float'], ['bs', 'int'], ['le', 'float'], ['er', 'float'], ['tu', 'float'], ['mn', 'list'], ['mx', 'list'], ['vv', 'int'], ['st', 'long'], ['tt', 'long'], ['ww', 'int'], ['to', 'int'],
-    ['ts', 'int'], ['tm', 'int'], ['cm', 'int'], ['tx', 'String'], ['sp', 'int'],
+    ['ts', 'int'], ['tm', 'int'], ['cm', 'int'], ['tx', 'String'], ['sp', 'int'], ['pe', 'float'],
     ['ki', 'float'], ['smp', 'int'], ['sb', 'int'], ['ol', 'list'], ['sn', 'int'], ['ps', 'float'], ['ig', 'float'], ['ls', 'int'], ['lp', 'long'], ['wl', 'long'], ['tl', 'long'],
     ['lf', 'int'], ['rt', 'int'], ['el', 'int'], ['ar', 'int'], ['ss', 'int'], ['dl', 'long'], ['sd', 'int'], ['cr', 'int'], ['dt', 'int'], ['ch', 'int']]),
   vars: list => (list.length ? `<variables>${list.map(([id, name, type]) => `<variable type="${type || ''}" id="${id}">${name}</variable>`).join('')}</variables>` : ''),
@@ -6267,12 +6195,12 @@ const FULL = {
   // lab/meter: drive for driveTime ms at speed, then stop and say "Done!"
   meter: () => X.prog(seq(X.set('sp', 'speed', 180), X.set('dt', 'driveTime', 1500), X.led('HIGH'), X.motors(X.get('sp', 'speed'), X.get('sp', 'speed')),
     B('dowee_wait_ms', { v: { MS: X.get('dt', 'driveTime') } }), X.stop(), X.led('LOW'), X.print(XB.text('Done!'))), '', { vars: [['sp', 'speed', 'int'], ['dt', 'driveTime', 'int']] }),
-  // line/bang: digitalRead of the two middle sensors
+  // line/bang: the two middle sensors against the threshold
   bang: () => {
-    const hl = v => B('dowee_hilo', { f: { V: v } }), eq = (id, nm, v) => X.cmp('EQ', X.get(id, nm), hl(v)), sp = () => X.get('sp', 'speed');
+    const sees = pin => B('logic_ternary', { v: { IF: X.black(pin), THEN: 1, ELSE: 0 } }), eq = (id, nm, v) => X.cmp('EQ', X.get(id, nm), v), sp = () => X.get('sp', 'speed');
     return X.prog(X.set('sp', 'speed', 150), seq(
-      X.set('lf', 'left', B('dowee_dread', { v: { PIN: XB.pin('A1') } })), X.set('rt', 'right', B('dowee_dread', { v: { PIN: XB.pin('A3') } })),
-      X.ifs([[and2(eq('lf', 'left', 'HIGH'), eq('rt', 'right', 'LOW')), X.motors(0, sp())], [and2(eq('rt', 'right', 'HIGH'), eq('lf', 'left', 'LOW')), X.motors(sp(), 0)]], X.motors(sp(), sp()))),
+      X.set('lf', 'left', sees('A1')), X.set('rt', 'right', sees('A3')),
+      X.ifs([[and2(eq('lf', 'left', 1), eq('rt', 'right', 0)), X.motors(0, sp())], [and2(eq('rt', 'right', 1), eq('lf', 'left', 0)), X.motors(sp(), 0)]], X.motors(sp(), sp()))),
       { vars: [['sp', 'speed', 'int'], ['lf', 'left', 'int'], ['rt', 'right', 'int']] });
   },
   // race/rc and soccer/rc: switch on the letter, speed keys 0-9 and q
@@ -6315,68 +6243,39 @@ const FULL = {
   },
 };
 // The PID line follower with calibration: the same program as the text example (line/pid), made of blocks.
+// "calibrate the line sensors", "line position" and "how many sensors see the line" write the same code as the text.
 function pidBlocks() {
-  const g = (id, nm) => X.get(id, nm), i = g('i', 'i'), n = g('pn', 'n');
-  const mn = k => XB.item('mn', 'minV', k), mx = k => XB.item('mx', 'maxV', k), on = k => XB.item('ol', 'onLine', k);
+  const g = (id, nm) => X.get(id, nm);
   const L = c => B('dowee_char', { f: { L: c } }), eq = (a, b) => X.cmp('EQ', a, b), and2 = (a, b) => XB.and(a, b);
-  const whileDo = (cond, body) => B('controls_whileUntil', { f: { MODE: 'WHILE' }, v: { BOOL: cond }, s: { DO: body } });
+  const whileDo = (cond, body) => B('controls_whileUntil', { f: { MODE: 'WHILE' }, v: { BOOL: cond }, s: body ? { DO: body } : {} });
   const brk = () => '<block type="controls_flow_statements"><field name="FLOW">BREAK</field></block>';
-  const set = (id, nm, v) => X.set(id, nm, v), change = (id, nm, d) => B('dowee_var_change', { f: { VAR: X.f(id, nm) }, v: { DELTA: d } });
-  const err = () => X.arith('MINUS', g('ps', 'position'), 3);
+  const set = (id, nm, v) => X.set(id, nm, v);
+  const on = pin => B('dowee_on_line', { f: { PIN: pin } }), not = x => X.not(x), seen = () => B('dowee_line_seen'), read = () => B('dowee_read_line');
+  const err = () => X.arith('MINUS', B('dowee_line_pos'), 3);
   const waitForStart = X.defn('waitForStart', seq(
     X.print(XB.text('Press the button on pin 2, or type g, to start.')),
     whileDo(B('logic_boolean', { f: { BOOL: 'TRUE' } }), seq(
       X.ifs([[eq(B('dowee_dread', { v: { PIN: g('sb', 'startButton') } }), B('dowee_hilo', { f: { V: 'LOW' } })), brk()]]),
       X.ifs([[and2(B('dowee_serial_has'), eq(B('dowee_serial_read', { f: { OP: 'read' } }), L('g'))), brk()]]))),
     X.print(XB.text('Go!'))), 360);
-  const calibrate = X.defn('calibrate', seq(
-    XB.forI('i', 1, 5, seq(XB.setItem('mn', 'minV', i, 1023), XB.setItem('mx', 'maxV', i, 0))),
-    X.led('HIGH'),
-    set('st', 'start', XB.millis()),
-    whileDo(X.lt(X.arith('MINUS', XB.millis(), g('st', 'start')), 2000), seq(
-      set('tt', 't', X.arith('MINUS', XB.millis(), g('st', 'start'))),
-      X.ifs([[X.or(X.or(X.lt(g('tt', 't'), 250), and2(X.cmp('GTE', g('tt', 't'), 750), X.lt(g('tt', 't'), 1250))), X.cmp('GTE', g('tt', 't'), 1750)), X.motors(-120, 120)]], X.motors(120, -120)),
-      XB.forI('i', 1, 5, seq(
-        set('vv', 'v', XB.sensorN(i)),
-        X.ifs([[X.lt(g('vv', 'v'), mn(i)), XB.setItem('mn', 'minV', i, g('vv', 'v'))]]),
-        X.ifs([[X.cmp('GT', g('vv', 'v'), mx(i)), XB.setItem('mx', 'maxV', i, g('vv', 'v'))]]))))),
-    X.stop(),
-    // a sensor that never saw the line gets a range of 100; then show each sensor's range in the Serial monitor
-    XB.forI('i', 1, 5, seq(X.ifs([[X.lt(X.arith('MINUS', mx(i), mn(i)), 100), XB.setItem('mx', 'maxV', i, X.arith('ADD', mn(i), 100))]]),
-      XB.print(mn(i)), XB.print(XB.text('-')), XB.print(mx(i)), X.ifs([[X.lt(i, 5), XB.print(XB.text('  '))]], X.print(XB.text(''))))),
-    X.led('LOW'),
-    XB.ms(300)), 700);
-  // one sensor scaled to 0 (white) .. 1000 (black)
-  const readSensor = XB.defr('readSensor', [['pn', 'n']], '', B('math_constrain', { v: { VALUE: B('dowee_map', { v: { V: XB.sensorN(n), FL: mn(n), FH: mx(n), TL: 0, TH: 1000 } }), LOW: 0, HIGH: 1000 } }), 1300);
-  // which sensors see the line, and where the line is (1 far left .. 3 middle .. 5 far right)
-  const readLine = X.defn('readLine', seq(
-    set('wl', 'weighted', 0), set('tl', 'total', 0), set('sn', 'seen', 0),
-    XB.forI('i', 1, 5, seq(
-      set('vv', 'v', XB.callr('readSensor', [['n', i]])),
-      XB.setItem('ol', 'onLine', i, B('logic_ternary', { v: { IF: X.cmp('GT', g('vv', 'v'), 500), THEN: 1, ELSE: 0 } })),
-      change('sn', 'seen', on(i)),
-      X.ifs([[X.lt(g('vv', 'v'), 100), set('vv', 'v', 0)]]),
-      change('wl', 'weighted', X.arith('MULTIPLY', g('vv', 'v'), i)),
-      change('tl', 'total', g('vv', 'v')))),
-    X.ifs([[X.cmp('GT', g('sn', 'seen'), 0), set('ps', 'position', X.arith('DIVIDE', g('wl', 'weighted'), g('tl', 'total')))]])), 1420);
   const ts = () => g('ts', 'turnSpeed'), bs = () => g('bs', 'baseSpeed');
   return X.prog(
-    seq(set('kp', 'Kp', 120), set('ki', 'Ki', 0), set('kd', 'Kd', 1300), set('bs', 'baseSpeed', 240), set('ts', 'turnSpeed', 170), set('smp', 'sampleMs', 10),
-      set('sb', 'startButton', 2), set('ps', 'position', 3), set('ls', 'lostSide', L('s')),
+    seq(set('kp', 'Kp', 70), set('ki', 'Ki', 0), set('kd', 'Kd', 1000), set('bs', 'baseSpeed', 240), set('ts', 'turnSpeed', 170), set('smp', 'sampleMs', 10),
+      set('sb', 'startButton', 2), set('ls', 'lostSide', L('s')),
       B('dowee_pmode', { f: { MODE: 'INPUT_PULLUP' }, v: { PIN: g('sb', 'startButton') } }),
-      X.call('waitForStart'), X.call('calibrate')),
-    seq(X.call('readLine'),
+      X.call('waitForStart'), B('dowee_calibrate')),
+    seq(read(),
       // remember which edge sensor saw the line last
-      X.ifs([[and2(eq(on(1), 1), eq(on(5), 0)), set('ls', 'lostSide', L('l'))]]),
-      X.ifs([[and2(eq(on(5), 1), eq(on(1), 0)), set('ls', 'lostSide', L('r'))]]),
+      X.ifs([[and2(on('A0'), not(on('A4'))), set('ls', 'lostSide', L('l'))]]),
+      X.ifs([[and2(on('A4'), not(on('A0'))), set('ls', 'lostSide', L('r'))]]),
       X.ifs([
         // line lost: spin towards where it was last seen until a middle sensor finds it
-        [and2(eq(g('sn', 'seen'), 0), X.cmp('NEQ', g('ls', 'lostSide'), L('s'))), seq(
+        [and2(eq(seen(), 0), X.cmp('NEQ', g('ls', 'lostSide'), L('s'))), seq(
           X.ifs([[eq(g('ls', 'lostSide'), L('r')), X.motors(ts(), neg(ts()))]], X.motors(neg(ts()), ts())),
-          whileDo(and2(and2(eq(on(2), 0), eq(on(3), 0)), eq(on(4), 0)), X.call('readLine')),
+          whileDo(and2(and2(not(on('A1')), not(on('A2'))), not(on('A3'))), read()),
           set('le', 'lastError', err()))],
         // a crossing (every sensor sees black): drive straight over it
-        [eq(g('sn', 'seen'), 5), seq(X.motors(bs(), bs()), whileDo(eq(g('sn', 'seen'), 5), X.call('readLine')))],
+        [eq(seen(), 5), seq(X.motors(bs(), bs()), whileDo(eq(seen(), 5), read()))],
         // the PID, every sampleMs milliseconds
         [X.cmp('GTE', X.arith('MINUS', XB.millis(), g('lp', 'lastPid')), g('smp', 'sampleMs')), seq(
           set('lp', 'lastPid', XB.millis()),
@@ -6387,9 +6286,7 @@ function pidBlocks() {
           set('le', 'lastError', g('er', 'error')),
           X.motors(X.arith('ADD', bs(), g('tu', 'turn')), X.arith('MINUS', bs(), g('tu', 'turn'))))]])),
     { vars: [['kp', 'Kp', 'float'], ['ki', 'Ki', 'float'], ['kd', 'Kd', 'float'], ['bs', 'baseSpeed', 'int'], ['ts', 'turnSpeed', 'int'], ['smp', 'sampleMs', 'int'], ['sb', 'startButton', 'int'],
-      ['mn', 'minV', 'list'], ['mx', 'maxV', 'list'], ['ol', 'onLine', 'list'], ['sn', 'seen', 'int'], ['ps', 'position', 'float'], ['le', 'lastError', 'float'], ['ig', 'integral', 'float'],
-      ['ls', 'lostSide', 'int'], ['lp', 'lastPid', 'long'], ['er', 'error', 'float'], ['tu', 'turn', 'float'], ['i', 'i', ''], ['vv', 'v', 'int'], ['st', 'start', 'long'], ['tt', 't', 'long'],
-      ['wl', 'weighted', 'long'], ['tl', 'total', 'long'], ['pn', 'n', '']], extra: waitForStart + calibrate + readSensor + readLine });
+      ['le', 'lastError', 'float'], ['ig', 'integral', 'float'], ['ls', 'lostSide', 'int'], ['lp', 'lastPid', 'long'], ['er', 'error', 'float'], ['tu', 'turn', 'float']], extra: waitForStart });
 }
 const BX = {
   rc: () => X.prog('', X.btRead(X.ifs([[X.bt('F'), X.move('F', 220)], [X.bt('B'), X.move('B', 220)], [X.bt('L'), X.move('SL', 130)], [X.bt('R'), X.move('SR', 130)], [X.bt('G'), X.move('TL', 220)], [X.bt('I'), X.move('TR', 220)], [X.bt('S'), X.stop()]]))),
@@ -6418,7 +6315,11 @@ const BLOCK_EXAMPLES = {
     follow2: { name: 'Follow the line with 2 sensors (simple)', starter: true, xml: () => BX.follow2() },
     bang: { name: 'Simple 2-sensor follower', xml: FULL.bang },
     follow3: { name: 'Smoother: 3 sensors', xml: () => X.prog('', X.ifs([[X.black('A2'), X.move('F', 170)], [X.black('A1'), X.move('TL', 150)], [X.black('A3'), X.move('TR', 150)]])) },
-    pfollow: { name: 'Steer by line position (P control)', xml: () => X.prog(X.set('vb', 'baseSpeed', 140), X.set('ve', 'error', X.linePos(), X.set('vt', 'turn', X.arith('MULTIPLY', X.get('ve', 'error'), 0.02), X.motors(X.arith('ADD', X.get('vb', 'baseSpeed'), X.get('vt', 'turn')), X.arith('MINUS', X.get('vb', 'baseSpeed'), X.get('vt', 'turn'))))), { vars: [['vb', 'baseSpeed', 'int'], ['ve', 'error', 'int'], ['vt', 'turn', 'float']] }) },
+    pfollow: { name: 'Steer by line position (P control)', xml: () => X.prog(X.set('vb', 'baseSpeed', 150), seq(
+      X.set('pe', 'error', X.arith('MINUS', X.linePos(), 3)),
+      X.set('vt', 'turn', X.arith('MULTIPLY', X.get('pe', 'error'), 15)),
+      X.motors(X.arith('ADD', X.get('vb', 'baseSpeed'), X.get('vt', 'turn')), X.arith('MINUS', X.get('vb', 'baseSpeed'), X.get('vt', 'turn'))),
+      B('dowee_wait_ms', { v: { MS: 10 } })), { vars: [['vb', 'baseSpeed', 'int'], ['pe', 'error', 'float'], ['vt', 'turn', 'float']] }) },
     pid: { name: 'PID line follower with calibration', xml: pidBlocks },
     print: { name: 'Print sensor values (for the Plotter)', xml: () => X.prog('', seq(
       XB.forI('i', 1, 5, seq(XB.print(XB.sensorN(X.get('i', 'i'))), X.ifs([[X.lt(X.get('i', 'i'), 5), XB.print(XB.text(','))]]))),
@@ -8195,8 +8096,12 @@ function defineDoweeBlocks() {
     // Sensors
     { type: 'dowee_sensor', message0: 'line sensor %1', args0: [{ type: 'field_dropdown', name: 'PIN', options: SENSOR_OPTS }], output: 'Number', colour: C.sense, tooltip: 'Black ≈ 950, white ≈ 100.' },
     { type: 'dowee_sensor_n', message0: 'line sensor number %1', args0: [{ type: 'input_value', name: 'N', check: 'Number' }], inputsInline: true, output: 'Number', colour: C.sense, tooltip: 'Sensor 1 (far left) to 5 (far right). Handy in a count loop.' },
-    { type: 'dowee_black', message0: 'sensor %1 sees black', args0: [{ type: 'field_dropdown', name: 'PIN', options: SENSOR_OPTS }], output: 'Boolean', colour: C.sense, tooltip: 'True when the reading is above BLACK (500). Change BLACK in the Tune tab.' },
-    { type: 'dowee_line_pos', message0: 'line position', output: 'Number', colour: C.sense, tooltip: '-2000 = line under the far-left sensor, 0 = in the middle, 2000 = far right.' },
+    { type: 'dowee_black', message0: 'sensor %1 sees black', args0: [{ type: 'field_dropdown', name: 'PIN', options: SENSOR_OPTS }], output: 'Boolean', colour: C.sense, tooltip: 'True when the reading is above the threshold: 500 (halfway between white and black), or what "calibrate the line sensors" worked out. Change it in the Tune tab.' },
+    st({ type: 'dowee_calibrate', message0: 'calibrate the line sensors', tooltip: 'Sweeps left and right over the line for 2 seconds, learns each sensor\'s white and black, and sets the threshold halfway between the average white and the average black. Put it in "when Dowee starts", with Dowee on the line.' }, C.sense),
+    { type: 'dowee_line_pos', message0: 'line position (1 to 5)', output: 'Number', colour: C.sense, tooltip: 'The average of the sensors that see the line: 1 = far left, 3 = middle, 5 = far right. If no sensor sees it, it stays where it was last. (It used to give -2000 to 2000: old programs need new numbers.)' },
+    { type: 'dowee_line_seen', message0: 'how many sensors see the line', output: 'Number', colour: C.sense, tooltip: '0 = the line is lost, 5 = a crossing (every sensor sees black).' },
+    st({ type: 'dowee_read_line', message0: 'read the line sensors', tooltip: 'readLine(): reads all 5 sensors once. When your program has this block, "line position", "how many sensors see the line" and "sensor … is on the line" give the values from the last read, like position, seen and onLine[] in text code. Without it, they read the sensors themselves.' }, C.sense),
+    { type: 'dowee_on_line', message0: 'sensor %1 is on the line', args0: [{ type: 'field_dropdown', name: 'PIN', options: SENSOR_OPTS }], output: 'Boolean', colour: C.sense, tooltip: 'onLine[]: true when this sensor read above the threshold. With "read the line sensors" in your program, it uses the last read.' },
     { type: 'dowee_distance', message0: 'distance in cm', output: 'Number', colour: C.sense, tooltip: 'From the ultrasonic sensor. 999 means nothing is in front.' },
     st({ type: 'dowee_bt_read', message0: 'read Bluetooth command', tooltip: 'Gets the newest letter from the remote control.' }, C.sense),
     { type: 'dowee_bt_is', message0: 'Bluetooth command is %1', args0: [{ type: 'field_dropdown', name: 'CMD', options: [['F forward', 'F'], ['B back', 'B'], ['L left', 'L'], ['R right', 'R'], ['S stop', 'S'], ['G forward-left', 'G'], ['I forward-right', 'I'], ['H back-left', 'H'], ['J back-right', 'J']] }], output: 'Boolean', colour: C.sense },
@@ -8276,7 +8181,7 @@ function defineDoweeBlocks() {
 // C operator precedence (smaller binds tighter), as Blockly orders.
 // Whole numbers only: Blockly rounds orders down. They are spaced by 2 so ±1 can say 'same level is fine' (left side) or 'same level needs brackets' (right side of - * /).
 const O = { ATOMIC: 0, UNARY: 4, MULT: 10, ADD: 12, SHIFT: 14, REL: 16, EQ: 18, BAND: 20, BXOR: 22, BOR: 24, AND: 26, OR: 28, COND: 30, NONE: 99 };
-const C_RESERVED = new Set([...TYPE_WORDS, ...KEYWORDS, ...Object.keys(BUILTINS), ...Object.keys(CONSTS), 'drive', 'readDistanceCm', 'readLinePosition', 'setup', 'loop', 'Serial', 'String', 'btCommand', 'BLACK', 'ENA', 'ENB', 'IN1', 'IN2', 'IN3', 'IN4', 'TRIG', 'ECHO', 'LIST_SIZE']);
+const C_RESERVED = new Set([...TYPE_WORDS, ...KEYWORDS, ...Object.keys(BUILTINS), ...Object.keys(CONSTS), 'drive', 'readDistanceCm', 'readLine', 'linePosition', 'sensorsOnLine', 'calibrate', 'minV', 'maxV', 'threshold', 'onLine', 'seen', 'position', 'setup', 'loop', 'Serial', 'String', 'btCommand', 'BLACK', 'ENA', 'ENB', 'IN1', 'IN2', 'IN3', 'IN4', 'TRIG', 'ECHO', 'LIST_SIZE']);
 const LIST_SIZE = 20;
 const isWhole = s => /^-?\d+$/.test(s);
 const isNum = s => /^-?\d+(\.\d+)?$/.test(s);
@@ -8327,8 +8232,14 @@ function makeGenerator() {
   F.dowee_notone = b => `noTone(${b.getFieldValue('PIN')});\n`;
   F.dowee_sensor = b => [`analogRead(${b.getFieldValue('PIN')})`, O.ATOMIC];
   F.dowee_sensor_n = b => [`analogRead(A0 + ${v(b, 'N', O.ADD, '1')} - 1)`, O.ATOMIC];
-  F.dowee_black = b => { g.black = true; return [`analogRead(${b.getFieldValue('PIN')}) > BLACK`, O.REL]; };
-  F.dowee_line_pos = () => { g.used.add('linepos'); return ['readLinePosition()', O.ATOMIC]; };
+  // The line blocks use the same code as the text programs: LINE_GLOBALS, CALIBRATE_FN and READLINE_FN (examples.js).
+  F.dowee_black = b => { g.black = true; return [`analogRead(${b.getFieldValue('PIN')}) > threshold`, O.REL]; };
+  F.dowee_calibrate = () => { g.used.add('calibrate'); g.pins.led = true; g.serial = true; return 'calibrate();\n'; };
+  // With a "read the line sensors" block in the program, these give the last read (like the text code); without it they read now.
+  F.dowee_read_line = () => { g.used.add('linepos'); return 'readLine();\n'; };
+  F.dowee_line_pos = () => { g.used.add('linepos'); return g.manualRead ? ['position', O.ATOMIC] : ['linePosition()', O.ATOMIC]; };
+  F.dowee_line_seen = () => { g.used.add('linepos'); return g.manualRead ? ['seen', O.ATOMIC] : ['sensorsOnLine()', O.ATOMIC]; };
+  F.dowee_on_line = b => { const p = b.getFieldValue('PIN'); if (g.manualRead) { g.used.add('linepos'); return [`onLine[${+p.slice(1)}] == 1`, O.EQ]; } g.black = true; return [`analogRead(${p}) > threshold`, O.REL]; };
   F.dowee_distance = () => { g.used.add('distance'); return ['readDistanceCm()', O.ATOMIC]; };
   F.dowee_bt_read = () => { g.used.add('bt'); g.serial = true; return 'if (Serial.available() > 0) {\n  btCommand = Serial.read();\n}\n'; };
   F.dowee_bt_is = b => { g.used.add('bt'); return [`btCommand == '${b.getFieldValue('CMD')}'`, O.EQ]; };
@@ -8557,16 +8468,17 @@ function inferTypes(g, ws) {
     // map and constrain: the answer fits the range they are given (map(v, 0, 1023, 0, 255) is a whole number)
     if (t === 'dowee_map') { const r = wider(k('TL'), k('TH')); return r === 'float' || r === 'long' ? 'long' : 'int'; }
     if (t === 'math_constrain') { const v0 = k('VALUE'), r = wider(k('LOW'), k('HIGH')); return v0 === 'float' || r === 'float' ? 'float' : r === 'bool' ? 'int' : r; }
-    if (t === 'math_round' || t === 'math_modulo' || t === 'dowee_intdiv' || t === 'math_random_int' || t === 'dowee_map' || t === 'dowee_sensor' || t === 'dowee_sensor_n' || t === 'dowee_analog_read' || t === 'dowee_line_pos' || t === 'dowee_distance' || t === 'dowee_serial_num' || t === 'dowee_list_get') return t === 'math_modulo' || t === 'dowee_intdiv' || t === 'dowee_distance' || t === 'math_random_int' || t === 'dowee_map' ? 'long' : 'int';
+    if (t === 'math_round' || t === 'math_modulo' || t === 'dowee_intdiv' || t === 'math_random_int' || t === 'dowee_map' || t === 'dowee_sensor' || t === 'dowee_sensor_n' || t === 'dowee_analog_read' || t === 'dowee_distance' || t === 'dowee_serial_num' || t === 'dowee_list_get') return t === 'math_modulo' || t === 'dowee_intdiv' || t === 'dowee_distance' || t === 'math_random_int' || t === 'dowee_map' ? 'long' : 'int';
     if (t === 'math_constrain') return wider(k('VALUE'), wider(k('LOW'), k('HIGH')));
     if (t === 'dowee_minmax') return wider(k('A'), k('B'));
     if (t === 'dowee_millis' || t === 'dowee_pulse_in' || t === 'dowee_micros') return 'long';
     if (/^(text|text_join|dowee_num_text|dowee_serial_text|dowee_text_char|dowee_text_sub)$/.test(t)) return 'String';
     if (/^dowee_(trig|atan2|atan|const)$/.test(t) || (t === 'dowee_serial_read' && b.getFieldValue('OP') === 'parseFloat') || (t === 'dowee_text_num' && b.getFieldValue('OP') === 'toFloat')) return 'float';
+    if (t === 'dowee_line_pos') return 'float';
     if (t === 'dowee_sq') return k('A');
     if (t === 'dowee_isnan' || t === 'dowee_text_compare') return 'bool';
     if (t === 'dowee_time') return 'float';
-    if (/^logic_|dowee_black|dowee_bt_is|dowee_pin_read|dowee_serial_has/.test(t)) return 'bool';
+    if (/^logic_|dowee_black|dowee_on_line|dowee_bt_is|dowee_pin_read|dowee_serial_has/.test(t)) return 'bool';
     if (t === 'variables_get' || t === 'dowee_var_get') return vtype.get(b.getFieldValue('VAR')) || 'int';
     if (t === 'procedures_callreturn') return ret.get(b.getFieldValue('NAME')) || 'float';
     return 'int';
@@ -8604,7 +8516,7 @@ function inferTypes(g, ws) {
 
 const HELPERS = {
   distance: `long readDistanceCm() {\n  digitalWrite(TRIG, LOW);\n  delayMicroseconds(2);\n  digitalWrite(TRIG, HIGH);\n  delayMicroseconds(10);\n  digitalWrite(TRIG, LOW);\n  long duration = pulseIn(ECHO, HIGH, 30000);\n  if (duration == 0) return 999;   // nothing seen\n  return duration * 0.034 / 2;\n}`,
-  linepos: `// Where is the line? -2000 = under the far-left sensor, 0 = middle, 2000 = far right.\nint readLinePosition() {\n  long weighted = 0, total = 0;\n  for (int k = 0; k < 5; k++) {\n    int v = analogRead(A0 + k) - 100;   // white reads about 100\n    if (v < 0) v = 0;\n    weighted += (long)v * (k - 2) * 1000;\n    total += v;\n  }\n  if (total == 0) return 0;\n  return weighted / total;\n}`,
+  linepos: READLINE_FN + `\n\n// Read the sensors, then: where is the line? 1 (far left) .. 3 (middle) .. 5 (far right)\nfloat linePosition() {\n  readLine();\n  return position;\n}\n\n// Read the sensors, then: how many see the line? 0 = lost, 5 = a crossing\nint sensorsOnLine() {\n  readLine();\n  return seen;\n}`,
 };
 // Turns a workspace into an Arduino sketch. Also fills BK.lineMap (line number → block id) and puts
 // warnings on blocks that can't run (not under a hat, a second "when Dowee starts").
@@ -8612,6 +8524,7 @@ function blocksToArduino(ws, opts = {}) {
   if (!BK.gen) BK.gen = makeGenerator();
   const g = BK.gen; g.init(ws);
   g.used = new Set(); g.globals = []; g.defs = []; g.pins = { out: new Set(), in: new Set(), led: false }; g.serial = false; g.baud = '9600'; g.black = false; g.timerN = 0;
+  g.manualRead = ws.getAllBlocks(false).some(b => b.type === 'dowee_read_line' && b.isEnabled());
   g.names = makeNames(ws); g.freshName = g.names.fresh;
   const procNames = new Map(); g.procName = raw => { if (!procNames.has(raw)) procNames.set(raw, g.names.clean(raw)); return procNames.get(raw); };
   inferTypes(g, ws);
@@ -8637,7 +8550,8 @@ function blocksToArduino(ws, opts = {}) {
     return `${t} ${e.c} = ${t === 'bool' ? 'false' : t === 'String' ? '""' : '0'};`;
   }).filter(Boolean);
   const dist = g.used.has('distance'), bt = g.used.has('bt'), lists = g.names.all().some(e => e.type === 'list' || e.type === 'flist');
-  const motors = /\bdrive\(/.test(setupBody + loopBody + g.defs.join('\n'));
+  const lineAll = g.used.has('calibrate') || g.used.has('linepos');   // the full line-sensor code (globals, readLine, calibrate)
+  const motors = /\bdrive\(/.test(setupBody + loopBody + g.defs.join('\n')) || g.used.has('calibrate');
   const serial = g.serial || bt;
   const setupLines = [
     motors ? PINMODES : '',
@@ -8651,14 +8565,15 @@ function blocksToArduino(ws, opts = {}) {
     '// copy it into the Arduino IDE to run it on the real robot.',
     motors ? MOTOR_SETUP : '',
     dist ? 'const int TRIG = 11;\nconst int ECHO = 12;' : '',
-    g.black ? 'const int BLACK = 500;   // a line sensor above this sees black' : '',
+    lineAll ? LINE_GLOBALS : g.black ? 'int threshold = 500;   // halfway between white (about 100) and black (about 950): above it = the sensor sees the line' : '',
     lists ? `const int LIST_SIZE = ${LIST_SIZE};` : '',
     bt ? "char btCommand = 'S';   // last letter from the Bluetooth remote" : '',
     ...decl, ...g.globals,
     '',
     motors ? DRIVE_FN : '',
     dist ? '\n' + HELPERS.distance : '',
-    g.used.has('linepos') ? '\n' + HELPERS.linepos : '',
+    g.used.has('calibrate') ? '\n' + CALIBRATE_FN : '',
+    g.used.has('linepos') ? '\n' + (g.manualRead ? READLINE_FN : HELPERS.linepos) : '',
     ...g.defs.map(d => '\n' + d),
     '',
     `/*@B'${startId || ''}'@*/`,
@@ -8699,8 +8614,8 @@ const TOOLBOX = level => {
     cat('Start', C.start, [blk('dowee_start'), blk('dowee_forever')]),
     cat('Move', C.move, [blk('dowee_move', { inputs: { SPEED: num(150) } }), blk('dowee_stop'), blk('dowee_wait', { inputs: { SEC: num(1) } }),
       ...(full ? [blk('dowee_drive_for', { inputs: { SPEED: num(150), SEC: num(1) } })] : []), blk('dowee_motors', { inputs: { L: num(150), R: num(150) } })]),
-    cat('Sensors', C.sense, [blk('dowee_black', { fields: { PIN: 'A2' } }), blk('dowee_distance'), blk('dowee_bt_read'), blk('dowee_bt_is'),
-      ...(full ? [blk('dowee_sensor', { fields: { PIN: 'A2' } }), blk('dowee_sensor_n', { inputs: { N: num(3) } }), blk('dowee_line_pos'), blk('dowee_time')] : [])]),
+    cat('Sensors', C.sense, [blk('dowee_black', { fields: { PIN: 'A2' } }), blk('dowee_calibrate'), blk('dowee_distance'), blk('dowee_bt_read'), blk('dowee_bt_is'),
+      ...(full ? [blk('dowee_sensor', { fields: { PIN: 'A2' } }), blk('dowee_sensor_n', { inputs: { N: num(3) } }), blk('dowee_line_pos'), blk('dowee_line_seen'), blk('dowee_read_line'), blk('dowee_on_line', { fields: { PIN: 'A2' } }), blk('dowee_time')] : [])]),
     cat('Light & sound', C.light, [blk('dowee_led'), ...(full ? [blk('dowee_led_toggle'), blk('dowee_tone', { inputs: { HZ: num(440), MS: num(200) } }), blk('dowee_notone')] : []),
       blk('dowee_print', { inputs: { V: { shadow: { type: 'text', fields: { TEXT: 'Hello!' } } } } })]),
     cat('Control', C.control, [blk('controls_if'), blk('controls_if', { extraState: { hasElse: true } }), blk('controls_repeat_ext', { inputs: { TIMES: num(4) } }), blk('dowee_wait', { inputs: { SEC: num(1) } }),

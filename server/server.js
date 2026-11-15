@@ -41,9 +41,9 @@ const ROBOT_TYPES = {
 };
 const BUILTIN = {
   blocks: ['Blocks 1: Your first blocks program', 'lab', 'lab'], blink: ['Blink the LED', 'lab', 'lab'], drive: ['Drive exactly 1 metre', 'lab', 'lab'], turn: ['Turn 90 degrees', 'lab', 'lab'],
-  see: ['See what the sensors see', 'line', 'oval'], follow: ['Follow the line with 2 sensors', 'line', 'oval'], pid1: ['PID 1: Where is the line?', 'line', 'oval'], pid2: ['PID 2: P, steer smoothly', 'line', 'oval'],
-  pid3: ['PID 3: D, calm the wiggle', 'line', 'oval'], pid: ['PID 4: Calibrate and race', 'line', 'snake'],
-  apid1: ['Advanced PID 1: Fill in the blanks (worksheet)', 'line', 'snake'], apid2: ['Advanced PID 2: Fill in the blanks (in the editor)', 'line', 'snake'], apid3: ['Advanced PID 3: Build your own PID racer', 'line', 'oval'],
+  see: ['See what the sensors see', 'line', 'oval'], follow: ['Follow the line with 2 sensors', 'line', 'oval'], pid1: ['PID 1: Calibrate', 'line', 'oval'], pid2: ['PID 2: Where is the line?', 'line', 'oval'],
+  pid3: ['PID 3: P, steer smoothly', 'line', 'oval'], pid: ['PID 4: D, calm the wiggle, then race', 'line', 'snake'],
+  apid1: ['Advanced PID 1: Fill in the blanks (worksheet)', 'line', 'snake'], apid2: ['Advanced PID 2: Fill in the blanks (in the editor)', 'line', 'snake'], apid3: ['Advanced PID 3: Build your own PID racer', 'line', 'oval'], apid4: ['Advanced PID 4: Shades of grey', 'line', 'oval'],
   'b-blink': ['Blocks 2: Blink forever', 'lab', 'lab'], 'b-square': ['Blocks 3: Drive a square (repeat)', 'lab', 'lab'], 'b-count': ['Blocks 4: Count with a variable', 'lab', 'lab'],
   'b-follow': ['Blocks 5: Follow the line with if / else', 'line', 'oval'], 'b-avoid': ['Blocks 6: Don\'t bump (distance and if)', 'maze', 'room1'], 'b-rc': ['Blocks 7: Bluetooth remote', 'race', 'none'],
   'b-func': ['Blocks 8: Make your own block', 'lab', 'lab'], 'b-every': ['Blocks 9: Two things at once (every … ms)', 'line', 'oval'], 'b-tocode': ['Blocks 10: From blocks to code', 'line', 'oval'],

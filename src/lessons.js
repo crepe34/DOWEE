@@ -52,10 +52,6 @@ const LESSONS = [
     intro: 'The simplest line follower: if the line is on the left, turn left. If it is on the right, turn right. Otherwise go straight.',
     steps: ['Run it. The robot wiggles around the oval.', 'Make <code class="k">speed</code> bigger. At some point it misses the turn — why?', 'Turn on <b>Trail</b> to see the path it really drove.'],
     goal: 'Complete one full lap', check: W => W.state.laps && W.state.laps.length >= 1 },
-  { id: 'pid', title: 'PID 4: Calibrate and race', level: 'PID line follower', arena: 'line', variant: 'snake', code: PID_LESSON_CODE,
-    intro: 'You can write P and D now. Real sensors all read a bit differently, so a racing follower first <b>calibrates</b>: it sweeps over the line and learns the darkest and brightest value of each sensor. Then it is time to tune for speed.',
-    steps: ['Run it. First Dowee sweeps left and right for 2 seconds: it is <b>calibrating</b>, learning what black and white look like for each of its sensors. The Serial monitor shows what it learned.', 'Open the <b>Tune</b> tab. Move the sliders <b>while the robot drives</b>.', 'Set <code class="k">Kd</code> to 0. What happens to the wiggle? Put it back.', 'Raise <code class="k">baseSpeed</code> and adjust Kp and Kd. Every lap is logged so you can compare.', 'When you are happy, press <b>Write values into code</b>.'],
-    goal: 'Lap the Snake track in under 15 seconds', check: W => W.state.laps && W.state.laps.some(l => l.time < 15) },
   { id: 'rc', title: 'Bluetooth RC driver', level: 'Remote control', arena: 'race', variant: 'none', example: 'rc',
     intro: 'A phone app sends letters over Bluetooth: F for forward, L for left, S for stop. The robot reads them with Serial.read().',
     steps: ['Run it, then drive with <b>W A S D</b>, the arrow keys, a gamepad, or the on-screen pad.', 'Watch the Serial monitor: it shows every letter the controller sends.', 'Change the <code class="k">\'L\'</code> and <code class="k">\'R\'</code> cases so turning is gentler.'],
@@ -78,147 +74,167 @@ const LESSONS = [
     goal: 'Score 2 goals', check: W => W.state.score && W.state.score[0] >= 2 },
 ];
 
-/* ---- PID path: students write a PID line follower in four steps ---- */
-const PID_TOP = (title, extra) => `// ${title}
+/* ---- PID path: students write a PID line follower in four steps ----
+   The same method as the PID sample (LINE_GLOBALS, CALIBRATE_FN, READLINE_FN in examples.js):
+   1 calibrate and find the threshold, 2 where is the line, 3 P, 4 D and race. */
+const PID_TOP = (title, extra, opts = {}) => `// ${title}
 // Five IR sensors: A0 (far left) to A4 (far right). About 950 on black, 100 on white.
 
 ${MOTOR_SETUP}
 
-${extra}int baseSpeed = 150;   // cruising speed, 0-255
-int lastError = 0;     // the error from the last time round loop()
+${extra}int baseSpeed = ${opts.speed || 150};   // cruising speed, 0-255
+
+${opts.globals || LINE_GLOBALS}
 
 void setup() {
 ${PINMODES}
+  pinMode(LED_BUILTIN, OUTPUT);
   Serial.begin(9600);
+  calibrate();
 }
 
 ${DRIVE_FN}
 
-// One sensor: 0 on white, up to about 850 on black.
-int readSensor(int i) {
-  int v = analogRead(A0 + i) - 100;
-  return constrain(v, 0, 1000);
-}
+${opts.calibrate || CALIBRATE_FN}
+
+${opts.readLine || READLINE_FN}
 `;
-const READLINE_DONE = `
-// Where is the line? -2000 = far left, 0 = in the middle, 2000 = far right.
-int readLine() {
-  long weighted = 0;
-  long total = 0;
-  for (int i = 0; i < 5; i++) {
-    int v = readSensor(i);
-    long position = (i - 2) * 1000;   // -2000, -1000, 0, 1000, 2000
-    weighted += v * position;
-    total += v;
-  }
-  if (total < 300) {                 // no sensor sees the line: keep turning the way we last saw it
-    return lastError > 0 ? 2000 : -2000;
-  }
-  return weighted / total;
-}
-`;
-const PID1_CODE = PID_TOP('PID step 1: where is the line?', '') + `
-// Where is the line? -2000 = under the far-left sensor, 0 = in the middle, 2000 = far right.
-// Give every sensor a position (-2000, -1000, 0, 1000, 2000), then take the average,
-// weighted by how much black each sensor sees.
-int readLine() {
-  long weighted = 0;   // adds up  reading x position
-  long total = 0;      // adds up  reading
-  for (int i = 0; i < 5; i++) {
-    int v = readSensor(i);
-    long position = (i - 2) * 1000;   // -2000, -1000, 0, 1000, 2000
-    // TODO 1: add  v * position  to weighted
-
-    // TODO 2: add  v  to total
-
-  }
-  if (total < 300) {                 // no sensor sees the line: keep turning the way we last saw it
-    return lastError > 0 ? 2000 : -2000;
-  }
-  // TODO 3: return the weighted average:  weighted / total
-  return 0;
-}
-
+const swap = (text, a, b) => { if (!text.includes(a)) throw new Error('PID lesson: text not found: ' + a.slice(0, 40)); return text.replace(a, b); };
+const CALIBRATE_TODO = swap(swap(CALIBRATE_FN,
+  '      if (v < minV[i]) minV[i] = v;\n      if (v > maxV[i]) maxV[i] = v;\n',
+  '      // TODO 1: remember this sensor\'s whitest and blackest reading:\n      //   if v is smaller than minV[i], put v in minV[i]. If v is bigger than maxV[i], put v in maxV[i].\n\n'),
+  '  threshold = (avgWhite + avgBlack) / 2;',
+  '  // TODO 2: the threshold is halfway between the average white and the average black.\n  threshold = 0;');
+const READLINE_TODO = swap(swap(READLINE_FN,
+  '    onLine[i] = analogRead(A0 + i) > threshold ? 1 : 0;\n    seen += onLine[i];\n    sum += onLine[i] * (i + 1);\n',
+  '    // TODO 1: does sensor i see the line? 1 if analogRead(A0 + i) is above the threshold, else 0.\n    onLine[i] = 0;\n    // TODO 2: count it: add onLine[i] to seen, and onLine[i] * (i + 1) to sum.\n\n'),
+  '  if (seen > 0) position = (float)sum / seen;   // no line: keep the last position',
+  '  // TODO 3: if seen is more than 0, the position is the average:  (float)sum / seen\n  //         (if no sensor sees the line, keep the last position)\n');
+const PID1_CODE = PID_TOP('PID step 1: calibrate', '', {
+  globals: swap(LINE_GLOBALS, 'int threshold = 500;   // above this = the sensor sees the line (calibrate() works out the real one)', 'int threshold = 0;     // above this = the sensor sees the line (TODO 2 works it out)'),
+  calibrate: CALIBRATE_TODO }) + `
 void loop() {
-  int error = readLine();
-  Serial.println(error);   // open the Plotter to watch it
-  lastError = error;
+  readLine();
+  // Simple steering with the sensors. In PID 2 you work out exactly where the line is.
+  if (onLine[2] == 1) drive(baseSpeed, baseSpeed);                              // middle: straight on
+  else if (onLine[1] == 1 || onLine[0] == 1) drive(baseSpeed / 4, baseSpeed);   // line on the left: turn left
+  else if (onLine[3] == 1 || onLine[4] == 1) drive(baseSpeed, baseSpeed / 4);   // line on the right: turn right
+}
+`;
+const PID2_CODE = PID_TOP('PID step 2: where is the line?', '', { readLine: READLINE_TODO }) + `
+void loop() {
+  readLine();
+  float error = position - 3;   // -2 (line far left) .. 0 (in the middle) .. +2 (far right)
+  Serial.println(error);        // open the Plotter to watch it
 
-  // Simple steering for now. In step 2 you will make it smooth.
-  if (error > 300) drive(baseSpeed, baseSpeed / 4);         // line on the right: turn right
-  else if (error < -300) drive(baseSpeed / 4, baseSpeed);   // line on the left: turn left
+  // Simple steering for now. In PID 3 you make it smooth.
+  if (error > 0.5) drive(baseSpeed, baseSpeed / 4);         // line on the right: turn right
+  else if (error < -0.5) drive(baseSpeed / 4, baseSpeed);   // line on the left: turn left
   else drive(baseSpeed, baseSpeed);
-  delay(2);   // a short pause, so every trip round loop() takes about the same time
 }
 `;
-const PID2_CODE = PID_TOP('PID step 2: P, steer by how far away the line is', 'float Kp = 0.05;     // P gain: how hard to steer for each step of error\n') + READLINE_DONE + `
+const PID3_CODE = PID_TOP('PID step 3: P, steer by how far away the line is', 'float Kp = 15;        // P gain: how hard to steer for each sensor of error\nint sampleMs = 10;    // work out the steering every 10 ms\n') + `
+unsigned long lastPid = 0;
+
 void loop() {
-  int error = readLine();
-  lastError = error;
+  readLine();
+  if (millis() - lastPid >= sampleMs) {
+    lastPid = millis();
+    float error = position - 3;   // -2 .. +2
 
-  // P = proportional: the farther the line, the harder Dowee steers.
-  // error goes from -2000 to 2000, so Kp * error is a speed change of about -100 to 100.
+    // P = proportional: the farther the line, the harder Dowee steers.
+    // TODO 1: work out how hard to turn:  Kp * error
+    float turn = 0;
 
-  // TODO 1: work out how hard to turn:  Kp * error
-  int turn = 0;
-
-  // TODO 2: speed up one wheel and slow the other: left gets  baseSpeed + turn,  right gets  baseSpeed - turn
-  drive(baseSpeed, baseSpeed);
-  delay(2);   // a short pause, so every trip round loop() takes about the same time
+    // TODO 2: speed up one wheel and slow the other: left gets  baseSpeed + turn,  right gets  baseSpeed - turn
+    drive(baseSpeed, baseSpeed);
+  }
 }
 `;
-const PID3_CODE = PID_TOP('PID step 3: D, calm the wiggle', 'float Kp = 0.08;     // P gain\nfloat Kd = 1.5;      // D gain: brakes the turn before it overshoots\n') + READLINE_DONE + `
+const PID4_CODE = PID_TOP('PID step 4: D, calm the wiggle, then race', 'float Kp = 70;        // P gain\nfloat Kd = 1000;      // D gain: brakes the turn before it overshoots\nint turnSpeed = 170;  // spin speed when the line is lost\nint sampleMs = 10;    // work out the steering every 10 ms\n', { speed: 240 }) + `
+float lastError = 0;
+char lostSide = 's';  // where the line was last seen at the edge: 'l', 'r', or 's' (not yet)
+unsigned long lastPid = 0;
+
 void loop() {
-  int error = readLine();
+  readLine();
 
-  // D = derivative: how fast is the error changing since last time?
-  int change = error - lastError;
+  // Remember which edge sensor saw the line last
+  if (onLine[0] == 1 && onLine[4] == 0) lostSide = 'l';
+  if (onLine[4] == 1 && onLine[0] == 0) lostSide = 'r';
 
-  int turn = Kp * error;   // the P part, from step 2
-  // TODO: add the D part to turn:  Kd * change
+  // Line lost: spin towards where it was last seen until a middle sensor finds it
+  if (seen == 0 && lostSide != 's') {
+    if (lostSide == 'r') drive(turnSpeed, -turnSpeed);
+    else drive(-turnSpeed, turnSpeed);
+    while (onLine[1] == 0 && onLine[2] == 0 && onLine[3] == 0) readLine();
+    lastError = position - 3;
+    return;
+  }
 
-  lastError = error;       // remember this error for next time
-  drive(baseSpeed + turn, baseSpeed - turn);
-  delay(2);                // a short pause: D needs every loop to take about the same time
+  // A crossing (every sensor sees black): drive straight over it
+  if (seen == 5) {
+    drive(baseSpeed, baseSpeed);
+    while (seen == 5) readLine();
+    return;
+  }
+
+  if (millis() - lastPid >= sampleMs) {
+    lastPid = millis();
+    float error = position - 3;
+
+    // D = derivative: how much did the error change in the last 10 ms?
+    float change = error - lastError;
+
+    float turn = Kp * error;   // the P part, from PID 3
+    // TODO: add the D part to turn:  Kd * change
+
+    lastError = error;         // remember this error for next time
+    drive(baseSpeed + turn, baseSpeed - turn);
+  }
 }
 `;
+// Did calibrate() learn white and black, and put the threshold between them?
+const calibrated = W => {
+  const lo = globalOf(W, 'minV'), hi = globalOf(W, 'maxV'), th = globalOf(W, 'threshold');
+  if (!lo || !hi || th == null) return false;
+  const w = [0, 1, 2, 3, 4].reduce((s, i) => s + lo[i], 0) / 5, b = [0, 1, 2, 3, 4].reduce((s, i) => s + hi[i], 0) / 5;
+  return w < 300 && b > 700 && th > w && th < b;
+};
 const PID_LESSONS = [
-  { id: 'pid1', title: 'PID 1: Where is the line?', level: 'PID line follower', arena: 'line', variant: 'oval', code: PID1_CODE,
-    intro: 'A PID follower needs one number: how far the line is from the middle of Dowee. That number is called the <b>error</b>. You will work it out from all five sensors with a <b>weighted average</b>.',
-    steps: ['Run it as it is. <code class="k">readLine()</code> always says "line far left", so Dowee spins.', 'Fill in the three <b>TODO</b>s in <code class="k">readLine()</code>.', 'Run again and open the <b>Plotter</b>. The error should be near 0 on the straights and jump up or down in the turns.', 'Which way is the line when the error is positive?'],
-    hints: ['If only the middle sensor sees black, the error should be 0. If only A4 sees black, it should be 2000.', 'Inside the <code class="k">for</code> loop: <code class="k">weighted += v * position;</code> and <code class="k">total += v;</code>', 'At the end, replace <code class="k">return 0;</code> with <code class="k">return weighted / total;</code>'],
+  { id: 'pid1', title: 'PID 1: Calibrate', level: 'PID line follower', arena: 'line', variant: 'oval', code: PID1_CODE,
+    intro: 'Every sensor reads white and black a little differently, and the floor changes from room to room. So a line follower first <b>calibrates</b>: it sweeps over the line, learns white and black, and picks a <b>threshold</b> halfway between them. Above the threshold means "I see the line".',
+    steps: ['Run it as it is. The threshold is 0, so every sensor thinks it sees the line, and Dowee drives straight off.', 'Fill in <b>TODO 1</b>: while sweeping, remember each sensor\'s whitest (<code class="k">minV</code>) and blackest (<code class="k">maxV</code>) reading.', 'Fill in <b>TODO 2</b>: <code class="k">threshold = (avgWhite + avgBlack) / 2</code>. The Serial monitor shows what Dowee learned.', 'Run it: the simple steering now follows the Oval.'],
+    hints: ['In the <code class="k">for</code> loop: <code class="k">if (v &lt; minV[i]) minV[i] = v;</code> and the same for <code class="k">maxV</code> with <code class="k">&gt;</code>.', 'Halfway between two numbers is their sum divided by 2: <code class="k">threshold = (avgWhite + avgBlack) / 2;</code>', 'White is about 100 and black about 950, so the threshold should be about 530.'],
+    goal: 'Calibrate (white below 300, black above 700, threshold between them), then lap the Oval', check: W => calibrated(W) && W.state.laps && W.state.laps.length >= 1 },
+  { id: 'pid2', title: 'PID 2: Where is the line?', level: 'PID line follower', arena: 'line', variant: 'oval', code: PID2_CODE,
+    intro: 'A PID follower needs one number: how far the line is from the middle of Dowee, the <b>error</b>. Each sensor is either on the line (1) or not (0). The line\'s <b>position</b> is the average of the sensors that see it: from 1 (far left) to 5 (far right). The middle is 3, so <code class="k">error = position - 3</code>.',
+    steps: ['Run it. <code class="k">readLine()</code> never sees the line, so the error stays 0 and Dowee drives straight.', 'Fill in the three <b>TODO</b>s in <code class="k">readLine()</code>.', 'Run again and open the <b>Plotter</b>: the error goes from -2 to 2 as the line moves under Dowee.'],
+    hints: ['If only the middle sensor (number 3) sees the line, the position is 3 and the error is 0. If sensors 4 and 5 see it, the position is 4.5.', '<code class="k">onLine[i] = analogRead(A0 + i) &gt; threshold ? 1 : 0;</code> then <code class="k">seen += onLine[i];</code> and <code class="k">sum += onLine[i] * (i + 1);</code>', 'After the loop: <code class="k">if (seen &gt; 0) position = (float)sum / seen;</code>'],
     goal: 'Complete one lap of the Oval', check: W => W.state.laps && W.state.laps.length >= 1 },
-  { id: 'pid2', title: 'PID 2: P, steer smoothly', level: 'PID line follower', arena: 'line', variant: 'oval', code: PID2_CODE,
-    intro: 'Step 1 steered in jumps: hard left, straight or hard right. The <b>P</b> part steers by <i>how much</i>: a little off means a little turn, far off means a big turn. <code class="k">turn = Kp * error</code>.',
-    steps: ['Fill in the two <b>TODO</b>s in <code class="k">loop()</code>.', 'Run it on the Oval. Turn on <b>Trail</b>: Dowee follows the line, but it wiggles.', 'Open the <b>Tune</b> tab and move <code class="k">Kp</code> while it drives. Too small: it misses turns. Too big: it wiggles off the line.'],
-    hints: ['<code class="k">int turn = Kp * error;</code>', 'Line on the right means the error is positive, so the left wheel must go faster: <code class="k">drive(baseSpeed + turn, baseSpeed - turn);</code>', 'If Dowee wiggles off the line, make <code class="k">Kp</code> smaller, for example 0.05.'],
-    goal: 'Complete one lap of the Oval', check: W => W.state.laps && W.state.laps.length >= 1 },
-  { id: 'pid3', title: 'PID 3: D, calm the wiggle', level: 'PID line follower', arena: 'line', variant: 'oval', code: PID3_CODE,
-    intro: 'With P alone Dowee overshoots: it turns towards the line, crosses it and has to turn back. The <b>D</b> part looks at how fast the error is changing and brakes the turn early, like easing off the steering wheel before you reach the middle of the lane.<br><br><b>What about I?</b> The I part adds up the error over time. It fixes a robot that always drives a little to one side. Line followers rarely need it, so most racers only use P and D.',
-    steps: ['Run it first: with <code class="k">Kp = 0.08</code> and no D, Dowee wobbles off the line.', 'Fill in the <b>TODO</b>: add <code class="k">Kd * change</code> to <code class="k">turn</code>.', 'Run again with <b>Trail</b> on. Compare the wiggle with step 2.', 'In the <b>Tune</b> tab set <code class="k">Kd</code> to 0 and back to 1.5 while it drives. Feel the difference!'],
-    hints: ['<code class="k">change</code> is big when the line moves away fast. That is when Dowee should brake its turn.', 'Write the P and D parts in one line: <code class="k">int turn = Kp * error + Kd * change;</code>', 'Keep <code class="k">lastError = error;</code> <b>after</b> you use <code class="k">change</code>, otherwise change is always 0.'],
-    goal: 'Lap the Oval in under 16 seconds', check: W => W.state.laps && W.state.laps.some(l => l.time < 16) },
+  { id: 'pid3', title: 'PID 3: P, steer smoothly', level: 'PID line follower', arena: 'line', variant: 'oval', code: PID3_CODE,
+    intro: 'Step 2 steered in jumps: hard left, straight or hard right. The <b>P</b> part steers by <i>how much</i>: a little off means a little turn, far off means a big turn. <code class="k">turn = Kp * error</code>. It is worked out every 10 ms, so it acts the same however fast the loop runs.',
+    steps: ['Fill in the two <b>TODO</b>s.', 'Run it on the Oval with <b>Trail</b> on: Dowee follows the line, but it wiggles.', 'Open the <b>Tune</b> tab and move <code class="k">Kp</code> and <code class="k">baseSpeed</code> while it drives.'],
+    hints: ['<code class="k">float turn = Kp * error;</code>', 'Line on the right means the error is positive, so the left wheel must go faster: <code class="k">drive(baseSpeed + turn, baseSpeed - turn);</code>', 'If Dowee wiggles a lot, make Kp smaller. If it is slow to turn, make it bigger. Without D (next step), a big Kp swings across the line.'],
+    goal: 'Lap the Oval in under 17 seconds', check: W => W.state.laps && W.state.laps.some(l => l.time < 17) },
+  { id: 'pid', title: 'PID 4: D, calm the wiggle, then race', level: 'PID line follower', arena: 'line', variant: 'snake', code: PID4_CODE,
+    intro: 'With P alone, a fast Dowee overshoots: it turns towards the line, crosses it and has to turn back. The <b>D</b> part looks at how fast the error is changing and brakes the turn early, like easing off the steering wheel before you reach the bend. This program also finds a lost line and drives over crossings, so you can race.',
+    steps: ['Run it first: with P only at this speed, Dowee wobbles off the Snake.', 'Fill in the <b>TODO</b>: add <code class="k">Kd * change</code> to <code class="k">turn</code>.', 'Run again with <b>Trail</b> on, then tune Kp, Kd and baseSpeed in the <b>Tune</b> tab for the fastest lap.'],
+    hints: ['<code class="k">change</code> is big when the line moves away fast. That is when Dowee should brake its turn.', 'One line does both parts: <code class="k">float turn = Kp * error + Kd * change;</code>', 'Keep <code class="k">lastError = error;</code> after the turn, so next time <code class="k">change</code> is right.'],
+    goal: 'Lap the Snake in under 12 seconds', check: W => W.state.laps && W.state.laps.some(l => l.time < 12) },
 ];
-const pidAt = LESSONS.findIndex(l => l.id === 'pid');
-LESSONS.splice(pidAt, 0, ...PID_LESSONS);
+LESSONS.splice(LESSONS.findIndex(l => l.id === 'follow') + 1, 0, ...PID_LESSONS);
 
 // Classroom students start these lessons from a version with TODOs instead of the finished program.
 const LESSON_TODO = {
-  follow: { code: EXAMPLES.line.bang.code.replace(/  if \(left == HIGH && right == LOW\) \{[\s\S]*?\n  \}\n\}/, `  // TODO 1: if left is HIGH and right is LOW, the line is on the left: turn left with drive(0, speed);
+  follow: { code: EXAMPLES.line.bang.code.replace(/  if \(left == 1 && right == 0\) \{[\s\S]*?\n  \}\n\}/, `  // TODO 1: if left is 1 and right is 0, the line is on the left: turn left with drive(0, speed);
 
-  // TODO 2: else if right is HIGH and left is LOW, the line is on the right: turn right.
+  // TODO 2: else if right is 1 and left is 0, the line is on the right: turn right.
 
   // TODO 3: else (both see the same thing) go straight.
 }`),
-    hints: ['Look at the <b>Sensors &amp; pins</b> tab: which sensor turns HIGH when the line is on the left?', 'Use <code class="k">&amp;&amp;</code> for "and": <code class="k">if (left == HIGH &amp;&amp; right == LOW) { … }</code>', '<pre>if (left == HIGH &amp;&amp; right == LOW) {\n  drive(0, speed);\n} else if (right == HIGH &amp;&amp; left == LOW) {\n  drive(speed, 0);\n} else {\n  drive(speed, speed);\n}</pre>'],
+    hints: ['Look at the <b>Sensors &amp; pins</b> tab: which sensor reads above the threshold when the line is on the left?', 'Use <code class="k">&amp;&amp;</code> for "and": <code class="k">if (left == 1 &amp;&amp; right == 0) { … }</code>', '<pre>if (left == 1 &amp;&amp; right == 0) {\n  drive(0, speed);\n} else if (right == 1 &amp;&amp; left == 0) {\n  drive(speed, 0);\n} else {\n  drive(speed, speed);\n}</pre>'],
     steps: ['Read the three <b>TODO</b>s in <code class="k">loop()</code> and write them as <code class="k">if</code> / <code class="k">else if</code> / <code class="k">else</code>.', 'Press <b>Upload &amp; run</b>. Does Dowee follow the oval?', 'Make <code class="k">speed</code> bigger. At some point it misses the turn — why?', 'Turn on <b>Trail</b> to see the path it really drove.'] },
-  pid: { code: PID_LESSON_CODE.replace('  int turn = Kp * error + Kd * (error - lastError);', `  // TODO: work out how hard to turn. Right now turn is 0, so Dowee never steers!
-  //   P part: Kp * error              (far from the line = turn harder)
-  //   D part: Kd * (error - lastError) (calms the wiggle down)
-  //   Add the two parts together.
-  int turn = 0;`),
-    hints: ['<code class="k">error</code> says how far the line is from the centre. The bigger it is, the harder Dowee should turn.', 'The P part is <code class="k">Kp * error</code>. The D part looks at how fast the error changes: <code class="k">error - lastError</code>.', '<pre>int turn = Kp * error + Kd * (error - lastError);</pre>'],
-    steps: ['Run it. Dowee calibrates for 2 seconds, then drives straight off the line: <code class="k">turn</code> is always 0.', 'Fill in the <b>TODO</b>: <code class="k">turn</code> is the P part plus the D part.', 'Open the <b>Tune</b> tab and move the sliders <b>while the robot drives</b>. Set <code class="k">Kd</code> to 0: what happens to the wiggle?', 'Raise <code class="k">baseSpeed</code> and adjust Kp and Kd. Every lap is logged so you can compare.', 'When you are happy, press <b>Write values into code</b>.'] },
   rc: { code: TEMPLATES.race.guided, hints: TEMPLATES.race.hints, steps: ['Run it and press the up arrow (or W): forward already works.', 'Fill in the <b>TODO</b>s one letter at a time and test each one.', 'Watch the Serial monitor to see each letter the controller sends.'] },
   soccer: { code: TEMPLATES.soccer.guided, hints: TEMPLATES.race.hints, steps: ['Fill in the <b>TODO</b>s so all the arrow keys work (or reuse your RC car program).', 'Use the speed slider: slower is easier to aim.', 'Push the ball into the goal on the right.'] },
   sonar: { code: TEMPLATES.maze.guided, hints: TEMPLATES.maze.hints, steps: ['Run it and turn on <b>Sensor view</b> to see the sound beam. The distance appears in the Serial monitor.', 'Fill in the two <b>TODO</b>s: turn away when a wall is close, otherwise drive on.', 'Change <code class="k">safeDistance</code>. Too small and it bumps; too big and it gets stuck turning.'] },

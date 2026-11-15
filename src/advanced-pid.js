@@ -11,39 +11,27 @@ function globalOf(W, name) {
   return g ? P.G[g.slot] : null;
 }
 
-const CALIBRATE_FN = `// Sweep left and right over the line for 2 seconds, remembering each sensor's min and max.
-void calibrate() {
-  digitalWrite(LED_BUILTIN, HIGH);
-  unsigned long start = millis();
-  while (millis() - start < 2000) {
-    unsigned long t = millis() - start;
-    if (t < 250 || (t >= 750 && t < 1250) || t >= 1750) drive(-120, 120);
-    else drive(120, -120);
-    for (int i = 0; i < 5; i++) {
-      int v = analogRead(A0 + i);
-      if (v < minV[i]) minV[i] = v;
-      if (v > maxV[i]) maxV[i] = v;
-    }
-  }
-  drive(0, 0);
-  for (int i = 0; i < 5; i++) {
-    if (maxV[i] - minV[i] < 100) maxV[i] = minV[i] + 100;   // sensor never saw the line
-  }
-  digitalWrite(LED_BUILTIN, LOW);
-  delay(300);
-}`;
+const aswap = (text, a, b) => { if (!text.includes(a)) throw new Error('Advanced PID: text not found: ' + a.slice(0, 40)); return text.replace(a, b); };
 const PID_GLOBALS = (kp, ki, kd, speed) => `// ---- Tune these in the Tune tab while the robot drives ----
-float Kp = ${kp};      // P: turn harder when the line is far away
-float Ki = ${ki};    // I: fixes a robot that always drifts to one side
-float Kd = ${kd};       // D: brakes the turn before it overshoots
+float Kp = ${kp};       // P: turn harder when the line is far away
+float Ki = ${ki};       // I: fixes a robot that always drifts to one side
+float Kd = ${kd};     // D: brakes the turn before it overshoots
 int baseSpeed = ${speed};  // cruising speed, 0-255
-long iLimit = 20000;  // anti-windup: the biggest the integral may get
+int sampleMs = 10;    // work out the steering every 10 ms
+float iLimit = 40;    // anti-windup: the biggest the integral may get
 
-int minV[5] = {1023, 1023, 1023, 1023, 1023};
-int maxV[5] = {0, 0, 0, 0, 0};
-int error = 0;        // where the line is now
-int lastError = 0;    // where it was last time
-long integral = 0;    // all the errors added up`;
+${LINE_GLOBALS}
+
+float error = 0;      // where the line is now: -2 (far left) .. 0 .. +2 (far right)
+float lastError = 0;  // where it was 10 ms ago
+float integral = 0;   // all the errors added up
+unsigned long lastPid = 0;`;
+const PID_SETUP = `void setup() {
+${PINMODES}
+  pinMode(LED_BUILTIN, OUTPUT);
+  Serial.begin(9600);
+  calibrate();
+}`;
 
 // The full program. {{n}} marks blank n.
 const PIDI_FULL = `// Advanced PID line follower: P, I and D, with calibration
@@ -51,64 +39,41 @@ const PIDI_FULL = `// Advanced PID line follower: P, I and D, with calibration
 
 ${MOTOR_SETUP}
 
-${PID_GLOBALS('0.08', '0.0002', '1.5', '180')}
+${PID_GLOBALS('70', '0.5', '1000', '200')}
 
-void setup() {
-${PINMODES}
-  pinMode(LED_BUILTIN, OUTPUT);
-  Serial.begin(9600);
-  calibrate();
-}
+${PID_SETUP}
 
 ${DRIVE_FN}
 
-${CALIBRATE_FN}
+${aswap(CALIBRATE_FN, '  threshold = (avgWhite + avgBlack) / 2;', '  threshold = {{1}};')}
 
-// One sensor scaled to 0 (white) .. 1000 (black)
-int readSensor(int i) {
-  long v = map(analogRead(A0 + i), minV[i], maxV[i], 0, 1000);
-  return constrain(v, 0, 1000);
-}
-
-// Where is the line? -2000 (far left) .. 0 (middle) .. 2000 (far right)
-int readLine() {
-  long weighted = 0;
-  long total = 0;
-  for (int i = 0; i < 5; i++) {
-    int v = readSensor(i);
-    if (v < 100) v = 0;                      // ignore small noise
-    long position = {{1}};
-    {{2}};
-    {{3}};
-  }
-  if (total < 300) {                         // line lost: keep turning the way we last saw it
-    return lastError > 0 ? 2000 : -2000;
-  }
-  return {{4}};
-}
+${aswap(aswap(aswap(READLINE_FN, '    onLine[i] = analogRead(A0 + i) > threshold ? 1 : 0;\n    seen += onLine[i];\n    sum += onLine[i] * (i + 1);\n',
+  '    onLine[i] = {{2}};\n    {{3}};\n    {{4}};\n'), '  if (seen > 0) position = (float)sum / seen;', '  if (seen > 0) position = {{5}};'), '// Reads all 5 sensors', '// Reads all 5 sensors')}
 
 void loop() {
-  error = readLine();
-  int change = {{5}};
-  {{6}};
-  integral = {{7}};
-  int turn = {{8}};
-  drive({{9}});
-  {{10}};
-  delay(2);
+  readLine();
+  if (millis() - lastPid >= sampleMs) {
+    lastPid = millis();
+    error = {{6}};
+    float change = error - lastError;
+    integral = {{7}};
+    float turn = {{8}};
+    drive({{9}});
+    {{10}};
+  }
 }
 `;
 const PID_BLANKS = [
-  { q: 'Where is sensor i? It should give -2000 for sensor 0, 0 for the middle one and 2000 for sensor 4.', a: ['(i - 2) * 1000', '1000 * (i - 2)'], hint: 'The middle sensor is i = 2. Subtract 2, then multiply by 1000.' },
-  { q: 'Add this sensor\'s reading times its position to <code class="k">weighted</code>.', a: ['weighted += v * position', 'weighted = weighted + v * position'], hint: 'Use <code class="k">+=</code> to add to a variable: <code class="k">weighted += …</code>' },
-  { q: 'Add this sensor\'s reading to <code class="k">total</code>.', a: ['total += v', 'total = total + v'], hint: 'Just like blank 2, but only the reading <code class="k">v</code>.' },
-  { q: 'The weighted average: where the line is.', a: ['weighted / total'], hint: 'An average is the sum divided by how much there was.' },
-  { q: 'D: how much did the error change since last time?', a: ['error - lastError'], hint: 'New error minus old error.' },
-  { q: 'I: add this error to the running total.', a: ['integral += error', 'integral = integral + error'], hint: 'The integral is all the errors added up: <code class="k">integral += …</code>' },
-  { q: 'Anti-windup: keep the integral between <code class="k">-iLimit</code> and <code class="k">iLimit</code>.', a: ['constrain(integral, -iLimit, iLimit)'], hint: '<code class="k">constrain(value, low, high)</code> keeps a value inside a range.' },
-  { q: 'The PID formula: the P part + the I part + the D part.', a: ['Kp * error + Ki * integral + Kd * change'], hint: 'Each part is its gain times its number: <code class="k">Kp * error</code>, <code class="k">Ki * integral</code>, <code class="k">Kd * change</code>. Add them.' },
+  { q: 'The threshold: halfway between the average white and the average black.', a: ['(avgWhite + avgBlack) / 2'], hint: 'Halfway between two numbers is their sum divided by 2. Use brackets: <code class="k">(a + b) / 2</code>.' },
+  { q: 'Is sensor i on the line? 1 if its reading is above the threshold, else 0.', a: ['analogRead(A0 + i) > threshold ? 1 : 0', '(analogRead(A0 + i) > threshold) ? 1 : 0'], hint: 'Read it with <code class="k">analogRead(A0 + i)</code>, compare with <code class="k">&gt; threshold</code>, then <code class="k">? 1 : 0</code>.' },
+  { q: 'Count the sensors that see the line: add <code class="k">onLine[i]</code> to <code class="k">seen</code>.', a: ['seen += onLine[i]', 'seen = seen + onLine[i]'], hint: 'Use <code class="k">+=</code> to add to a variable.' },
+  { q: 'Add this sensor\'s number (i + 1) to <code class="k">sum</code>, but only if it sees the line.', a: ['sum += onLine[i] * (i + 1)', 'sum = sum + onLine[i] * (i + 1)'], hint: '<code class="k">onLine[i]</code> is 0 or 1, so multiplying by it adds the number only when the sensor sees the line.' },
+  { q: 'The position is the average of the sensors that see the line.', a: ['(float)sum / seen', 'sum / (float)seen'], hint: 'An average is the sum divided by how many. Write <code class="k">(float)</code> first, or 5 / 2 gives 2 instead of 2.5.' },
+  { q: 'The error: how far the line is from the middle sensor (number 3).', a: ['position - 3'], hint: 'Positive means the line is to the right. The middle is 3.' },
+  { q: 'I: add this error to the integral, and keep it between <code class="k">-iLimit</code> and <code class="k">iLimit</code> (anti-windup).', a: ['constrain(integral + error, -iLimit, iLimit)', 'constrain(error + integral, -iLimit, iLimit)'], hint: '<code class="k">constrain(value, low, high)</code> keeps a value between low and high. The value is <code class="k">integral + error</code>.' },
+  { q: 'The PID formula: the P part + the I part + the D part.', a: ['Kp * error + Ki * integral + Kd * change'], hint: 'Each part is its gain times its number: <code class="k">Kp * error</code>, <code class="k">Ki * integral</code>, <code class="k">Kd * change</code>.' },
   { q: 'The two wheel speeds: when the line is on the right (turn > 0), the left wheel goes faster.', a: ['baseSpeed + turn, baseSpeed - turn'], hint: 'Left wheel first: <code class="k">baseSpeed + turn</code>, then the right wheel.' },
-  { q: 'Remember this error for next time.', a: ['lastError = error'], hint: 'Next time round, <code class="k">lastError</code> must hold today\'s error.' },
+  { q: 'Remember this error for next time.', a: ['lastError = error'], hint: 'In 10 ms, <code class="k">lastError</code> must hold this error.' },
 ];
 // Make two answers comparable: no spaces, no ";", "x += y" means "x = x + y", and the order of
 // things added or multiplied at the top level doesn't matter.
@@ -129,29 +94,25 @@ const PIDI_EDITOR = PIDI_FULL.split('\n').map(line => {
 }).join('\n').replace(/^\/\/ Advanced PID line follower: P, I and D, with calibration/, '// Advanced PID: fill in the blanks\n// Replace every ____ with your answer. The comment above each one says what goes there.');
 
 const snakeUnder = sec => W => W.arena.id === 'line' && W.state.laps && W.state.laps.some(l => l.time < sec);
-const PIDI_STEPS = ['Open the <b>Tune</b> tab and set <code class="k">Ki</code> to 0.002 while Dowee drives. Watch the trail: it starts to wiggle more.', 'Now delete the <code class="k">integral = constrain(…)</code> line and run again. The integral grows and grows (this is called <b>windup</b>) until Dowee loses the line.', 'Put the line back and set <code class="k">Ki</code> to 0.0002 again.'];
-const I_WORTH = '<br><br><b>Is I worth it?</b> The I part adds up the error over time. If Dowee always sits a little to one side (for example because one motor is weaker), the sum keeps growing and pushes it back to the middle. But on a normal Dowee the line moves all the time, so I mostly adds wiggle, and without a limit it "winds up" and loses the line. That is why most line-follower racers use only P and D, or a very small, limited I.';
+const PIDI_STEPS = ['Open the <b>Tune</b> tab and set <code class="k">Ki</code> to 5 while Dowee drives. Watch the trail: it starts to wiggle more.', 'Now change the integral line to <code class="k">integral = integral + error;</code> (no limit) and run again. The integral can grow and grow (this is called <b>windup</b>), so Dowee keeps steering after the line has moved.', 'Put the <code class="k">constrain</code> back and set <code class="k">Ki</code> to 0.5 again.'];
+const I_WORTH = '<br><br><b>Is I worth it?</b> The I part adds up the error over time. If Dowee always sits a little to one side (for example because one motor is weaker), the sum keeps growing and pushes it back to the middle. But on a normal Dowee the line moves all the time, so I mostly adds wiggle, and without a limit it "winds up". That is why most line-follower racers use only P and D, or a very small, limited I.';
 
 // Build-your-own template: stubs for the student, with fixed names the guide reads.
 const PIDI_GUIDED = `// Build your own PID racer (guided)
 // Follow the guide in the Lessons tab, one step at a time.
-// Keep these variable names: the guide checks minV, maxV, error, integral, Kp and Ki while your program runs.
+// Keep these variable names: the guide checks minV, maxV, threshold, error, integral, Kp and Ki while your program runs.
 
 ${MOTOR_SETUP}
 
-${PID_GLOBALS('0.08', '0.0', '1.5', '150')}
+${aswap(PID_GLOBALS('70', '0', '1000', '150'), 'int threshold = 500;   // above this = the sensor sees the line (calibrate() works out the real one)', 'int threshold = 0;     // above this = the sensor sees the line (STEP 1 works it out)')}
 
-void setup() {
-${PINMODES}
-  pinMode(LED_BUILTIN, OUTPUT);
-  Serial.begin(9600);
-  calibrate();
-}
+${PID_SETUP}
 
 ${DRIVE_FN}
 
 // STEP 1: calibrate. Sweep left and right over the line for 2 seconds.
-// While sweeping, read all 5 sensors and remember each one's smallest (minV) and biggest (maxV) value.
+// While sweeping, read all 5 sensors and remember each one's whitest (minV) and blackest (maxV) value.
+// Then the threshold is halfway between the average white and the average black.
 void calibrate() {
   unsigned long start = millis();
   while (millis() - start < 2000) {
@@ -161,83 +122,100 @@ void calibrate() {
 
   }
   drive(0, 0);
+  // TODO: average the minV values, average the maxV values, and set the threshold halfway between them.
+
 }
 
-// STEP 2: one sensor scaled from 0 (white) to 1000 (black), using what calibrate() learned.
-int readSensor(int i) {
-  // TODO: map the reading from minV[i]..maxV[i] to 0..1000, then constrain it to 0..1000.
-  return 0;
-}
+// STEP 2: where is the line? For each sensor: onLine[i] is 1 when it reads above the threshold.
+// seen counts them, and position is the average of (i + 1) of the sensors that see the line:
+// 1 (far left) .. 3 (middle) .. 5 (far right). If no sensor sees the line, keep the last position.
+void readLine() {
+  // TODO: like in PID 2.
 
-// STEP 2: where is the line? -2000 (far left) .. 0 (middle) .. 2000 (far right)
-int readLine() {
-  // TODO: the weighted average of the five sensors, like in PID 1.
-  // If no sensor sees the line, return 2000 or -2000 (the side you saw it last).
-  return 0;
 }
 
 void loop() {
-  error = readLine();
+  readLine();
+  if (millis() - lastPid >= sampleMs) {
+    lastPid = millis();
+    error = position - 3;
 
-  // Simple steering for now, so you can test step 2. In STEP 3 you replace it with P and D.
-  // STEP 4: add I, with an anti-windup limit.
-  int turn = 0;
-  if (error > 300) turn = 50;
-  if (error < -300) turn = -50;
+    // Simple steering for now, so you can test step 2. In STEP 3 you replace it with P and D.
+    // STEP 4: add I, with an anti-windup limit.
+    float turn = 0;
+    if (error > 0.5) turn = 50;
+    if (error < -0.5) turn = -50;
 
-  lastError = error;
-  drive(baseSpeed + turn, baseSpeed - turn);
-  delay(2);
+    lastError = error;
+    drive(baseSpeed + turn, baseSpeed - turn);
+  }
 }
 `;
 // Guide steps. check(W, memo) runs about 5 times a second while the program runs; memo starts empty each run.
 const PIDI_GUIDE = [
-  { title: 'Calibrate', text: 'Real sensors all read a little differently. <code class="k">calibrate()</code> sweeps over the line and remembers the darkest and brightest value each sensor sees.',
-    hints: ['Spin with <code class="k">drive(-120, 120)</code> (left) and <code class="k">drive(120, -120)</code> (right). Dowee starts on the line, so sweep left 250 ms, right 500 ms, left 500 ms, right 500 ms, left 250 ms. Then it ends up back on the line.', '<code class="k">unsigned long t = millis() - start;</code> then <code class="k">if (t &lt; 250 || (t &gt;= 750 &amp;&amp; t &lt; 1250) || t &gt;= 1750) drive(-120, 120); else drive(120, -120);</code>', 'Inside the while loop: <code class="k">for (int i = 0; i &lt; 5; i++) { int v = analogRead(A0 + i); … }</code>', '<code class="k">if (v &lt; minV[i]) minV[i] = v;</code> and <code class="k">if (v &gt; maxV[i]) maxV[i] = v;</code>'],
-    check: 'Every sensor learned black and white (min below 300, max above 700)', ok: W => { const a = globalOf(W, 'minV'), b = globalOf(W, 'maxV'); if (!a || !b || W.time < 2200) return false; for (let i = 0; i < 5; i++) if (!(a[i] < 300 && b[i] > 700)) return false; return true; } },
-  { title: 'Find the line', text: 'Write <code class="k">readSensor()</code> with <code class="k">map()</code>, then <code class="k">readLine()</code>: the weighted average from PID 1. The simple steering in <code class="k">loop()</code> uses your <code class="k">error</code>, and the guide compares it with where the line really is.',
-    hints: ['<code class="k">long v = map(analogRead(A0 + i), minV[i], maxV[i], 0, 1000); return constrain(v, 0, 1000);</code>', 'In readLine, loop over the sensors: <code class="k">weighted += (long)v * (i - 2) * 1000; total += v;</code>', 'After the loop: <code class="k">if (total &lt; 300) return lastError &gt; 0 ? 2000 : -2000;</code> then <code class="k">return weighted / total;</code>'],
+  { title: 'Calibrate', text: 'Real sensors all read a little differently, and every floor is different. <code class="k">calibrate()</code> sweeps over the line, remembers the whitest and blackest value each sensor sees, and puts the <b>threshold</b> halfway between the average white and the average black.',
+    hints: ['Spin with <code class="k">drive(-120, 120)</code> (left) and <code class="k">drive(120, -120)</code> (right). Dowee starts on the line, so sweep left 250 ms, right 500 ms, left 500 ms, right 500 ms, left 250 ms.', 'For each sensor: <code class="k">int v = analogRead(A0 + i); if (v &lt; minV[i]) minV[i] = v; if (v &gt; maxV[i]) maxV[i] = v;</code>', 'Add up the five minV values and divide by 5 (the average white), the same for maxV, then <code class="k">threshold = (avgWhite + avgBlack) / 2;</code>'],
+    check: 'Every sensor learned white and black (white below 300, black above 700), and the threshold is between them', ok: W => W.time > 2200 && calibrated(W) },
+  { title: 'Find the line', text: 'Write <code class="k">readLine()</code>, like in PID 2: on or off for each sensor, then the average position. The simple steering in <code class="k">loop()</code> uses it, so Dowee should already follow the line roughly.',
+    hints: ['<code class="k">onLine[i] = analogRead(A0 + i) &gt; threshold ? 1 : 0;</code>', 'Count and add up: <code class="k">seen += onLine[i]; sum += onLine[i] * (i + 1);</code> (start with <code class="k">seen = 0</code> and <code class="k">sum = 0</code>).', 'After the loop: <code class="k">if (seen &gt; 0) position = (float)sum / seen;</code>'],
     check: '<code class="k">error</code> follows the line: negative when it is on the left, positive on the right',
     ok: (W, m) => {
       const e = globalOf(W, 'error'); if (e == null || W.time < 2500) return false;
       const r = W.robots[0], refl = [0, 1, 2, 3, 4].map(i => r.reflect(i)), dark = refl.indexOf(Math.min(...refl));
       if (refl[dark] > 0.5) return false;   // no sensor is over the line right now
-      const right = dark === 2 ? Math.abs(e) < 800 : (dark < 2 ? e < -300 : e > 300);
+      const right = dark === 2 ? Math.abs(e) < 0.6 : (dark < 2 ? e < -0.4 : e > 0.4);
       m.n = (m.n || 0) + 1; m.good = (m.good || 0) + (right ? 1 : 0); if (right && dark !== 2) m.side = true;
       return m.n >= 8 && m.good / m.n >= 0.85 && !!m.side;
     } },
-  { title: 'P and D', text: 'Replace the simple steering in <code class="k">loop()</code> with <code class="k">turn = Kp * error + Kd * (error - lastError)</code>, like PID 2 and 3.',
+  { title: 'P and D', text: 'Replace the simple steering in <code class="k">loop()</code> with <code class="k">turn = Kp * error + Kd * (error - lastError)</code>, like PID 3 and 4.',
     hints: ['P part: <code class="k">Kp * error</code>. D part: <code class="k">Kd * (error - lastError)</code>.', 'Use the D part <b>before</b> the line <code class="k">lastError = error;</code>'],
     check: 'Lap the Oval with less than 8 mm of wiggle', ok: W => W.state.laps && W.state.laps.some(l => l.rms < 8) && W.variant === 'oval' && !(W.robots[0].cfg.mismatch > 0) },
-  { title: 'Add I, with a limit', robot: { mismatch: 30 }, text: 'Press the button to swap to a Dowee whose <b>right motor is 30% weaker</b>. Set <code class="k">Kp</code> to 0.04 (gentle) and run: Dowee rides off to one side. Now add the I part: <code class="k">integral += error;</code>, limit it with <code class="k">constrain(integral, -iLimit, iLimit)</code>, and add <code class="k">Ki * integral</code> to the turn. Try <code class="k">Ki</code> = 0.001.' + I_WORTH,
-    hints: ['Add these two lines before the turn: <code class="k">integral += error;</code> and <code class="k">integral = constrain(integral, -iLimit, iLimit);</code>', '<code class="k">int turn = Kp * error + Ki * integral + Kd * (error - lastError);</code>', 'Without the <code class="k">constrain</code> line the integral "winds up" and Dowee loses the line. Try it!'],
-    check: 'On the weak-motor Dowee, with Kp at 0.05 or less and Ki above 0: lap the Oval with less than 6 mm of wiggle, and the integral never goes above 50000',
+  { title: 'Add I, with a limit', robot: { mismatch: 30 }, text: 'Press the button to swap to a Dowee whose <b>right motor is 30% weaker</b>. Set <code class="k">Kp</code> to 20 (gentle) and run: Dowee rides off to one side of the line. Add the I part: it adds up the error, so a steady drift keeps growing the push back. Keep the integral between <code class="k">-iLimit</code> and <code class="k">iLimit</code>, or it winds up.',
+    hints: ['Add this line before the turn: <code class="k">integral = constrain(integral + error, -iLimit, iLimit);</code>', '<code class="k">float turn = Kp * error + Ki * integral + Kd * (error - lastError);</code>', 'Then try <code class="k">Ki</code> values in the Tune tab, starting with 1.'],
+    check: 'On the weak-motor Dowee, with Kp at 20 or less and Ki above 0: lap the Oval with less than 6 mm of wiggle, and the integral stays within ±50',
     ok: (W, m) => {
       if (!(W.robots[0].cfg.mismatch >= 30) || W.variant !== 'oval') return false;
       const kp = globalOf(W, 'Kp'), ki = globalOf(W, 'Ki'), it = globalOf(W, 'integral');
       if (it != null) m.maxI = Math.max(m.maxI || 0, Math.abs(it));
-      if (kp == null || ki == null || !(kp <= 0.05) || !(ki > 0) || m.maxI > 50000) return false;
+      if (kp == null || ki == null || !(kp <= 20) || !(ki > 0) || m.maxI > 50) return false;
       return W.state.laps && W.state.laps.some(l => l.rms < 6);
     } },
   { title: 'Race', text: 'Swap back to the normal Dowee and switch the track to the <b>Snake</b>. Raise <code class="k">baseSpeed</code> and tune Kp, Ki and Kd in the Tune tab. Every lap is logged, so you can compare.',
-    hints: ['Faster needs more steering: try <code class="k">baseSpeed = 200</code> with <code class="k">Kp = 0.1</code> and <code class="k">Kd = 2</code>.', 'If it wiggles more with I, make Ki smaller (or 0). The weak-motor problem is gone on the normal Dowee, and racers often don\'t need I at all.', 'Still too slow? Go up to <code class="k">baseSpeed = 230</code> and raise <code class="k">Kd</code> to 2.5 so it doesn\'t overshoot.'],
-    check: 'Lap the Snake in under 14.5 seconds on the normal Dowee', ok: W => W.variant === 'snake' && !(W.robots[0].cfg.mismatch > 0) && snakeUnder(14.5)(W) },
+    hints: ['Raise <code class="k">baseSpeed</code> to about 220, set Kp back to 70 and Kd to 1000, and Ki to 0.', 'If it wiggles more with I, make Ki smaller (or 0). The weak-motor problem is gone on the normal Dowee.'],
+    check: 'Lap the Snake in under 12 seconds on the normal Dowee', ok: W => W.variant === 'snake' && !(W.robots[0].cfg.mismatch > 0) && snakeUnder(12)(W) },
 ];
+
+// Advanced PID 4: weight each sensor by how dark it sees the floor, instead of on/off. Smoother.
+const PIDI_GREY = aswap(PIDI_FULL.replace(/\{\{(\d+)\}\}/g, (m, n) => PID_BLANKS[n - 1].a[0]).replace('float Ki = 0.5;', 'float Ki = 0;  ').replace('int baseSpeed = 200;', 'int baseSpeed = 220;').replace('// Advanced PID line follower: P, I and D, with calibration', '// Advanced PID 4: shades of grey'),
+  '  if (seen > 0) position = (float)sum / seen;   // no line: keep the last position\n}',
+  `  if (seen > 0) position = (float)sum / seen;   // no line: keep the last position
+
+  // TODO: on/off only knows "on the line" or "not". A sensor half over the line reads grey,
+  // and that tells you more. Instead of the average above, weight each sensor by how dark it is:
+  //   for each sensor:  long dark = constrain(map(analogRead(A0 + i), minV[i], maxV[i], 0, 1000), 0, 1000);
+  //                     add  dark * (i + 1)  to a weighted sum, and  dark  to a total
+  //   then (when seen > 0):  position = (float)weighted / total;
+}`);
 
 const ADV_PID = [
   { id: 'apid1', title: 'Advanced PID 1: Fill in the blanks (worksheet)', level: 'Advanced PID', arena: 'line', variant: 'snake', code: PIDI_EDITOR, worksheet: true,
-    intro: 'Here is a complete PID line follower, with <b>P</b>, <b>I</b> and <b>D</b> and sensor calibration, but 10 pieces are missing. Fill in each box, press <b>Check my answers</b>, then put the program in your editor and race it.' + I_WORTH,
+    intro: 'Here is a complete PID line follower, with calibration and <b>P</b>, <b>I</b> and <b>D</b>, but 10 pieces are missing. Fill in each box, press <b>Check my answers</b>, then put the program in your editor and race it.' + I_WORTH,
     steps: ['Fill in the boxes in the worksheet below. Each one has a question.', 'Press <b>Check my answers</b>. Green means right. Orange gives you a hint.', 'Press <b>Put it in my code</b> and <b>Upload &amp; run</b>.', ...PIDI_STEPS],
-    goal: 'Lap the Snake in under 16 seconds', check: snakeUnder(16) },
+    goal: 'Lap the Snake in under 14 seconds', check: snakeUnder(14) },
   { id: 'apid2', title: 'Advanced PID 2: Fill in the blanks (in the editor)', level: 'Advanced PID', arena: 'line', variant: 'snake', code: PIDI_EDITOR,
     intro: 'The same complete PID line follower, but this time you fill in the blanks right in the code, like a real programmer. Every <code class="k">____</code> needs an answer. The comment above it says what goes there.' + I_WORTH,
     steps: ['Find every <code class="k">____</code> in the editor (there are 10).', 'Replace each one with your answer. Press <b>Verify</b> to check the code without running it.', 'If the error says a line still has a blank, read the BLANK comment above that line.', 'Press <b>Upload &amp; run</b>.', ...PIDI_STEPS],
     hints: PID_BLANKS.map((b, i) => `Blank ${i + 1}: ${b.hint}`),
-    goal: 'Lap the Snake in under 16 seconds', check: snakeUnder(16) },
+    goal: 'Lap the Snake in under 14 seconds', check: snakeUnder(14) },
   { id: 'apid3', title: 'Advanced PID 3: Build your own PID racer', level: 'Advanced PID', arena: 'line', variant: 'oval', code: PIDI_GUIDED, guide: PIDI_GUIDE,
     intro: 'Now you write the whole controller yourself, from calibration to the I part. Follow the guide below one step at a time. Each step ticks itself off when your program does it.',
     steps: ['Work through the 5 steps in the guide. Run your program after each step.', 'Stuck? Every step has hints.'],
-    goal: 'Finish all 5 steps: the last one is a Snake lap under 14.5 seconds', check: W => W.variant === 'snake' && !(W.robots[0].cfg.mismatch > 0) && snakeUnder(14.5)(W) },
+    goal: 'Finish all 5 steps: the last one is a Snake lap under 12 seconds', check: W => W.variant === 'snake' && !(W.robots[0].cfg.mismatch > 0) && snakeUnder(12)(W) },
+  { id: 'apid4', title: 'Advanced PID 4: Shades of grey', level: 'Advanced PID', arena: 'line', variant: 'oval', code: PIDI_GREY,
+    intro: 'On/off sensors make the position jump in steps: 3, then 3.5, then 4. But a sensor half over the line reads <b>grey</b>, somewhere between white and black. If each sensor counts as much as it is dark, the position slides smoothly between sensors, and Dowee wobbles less. It uses the white and black that <code class="k">calibrate()</code> learned.',
+    steps: ['Run it with <b>Trail</b> on and note the wiggle (in mm) in the lap list.', 'Fill in the <b>TODO</b> at the end of <code class="k">readLine()</code>.', 'Run it again and compare the wiggle.'],
+    hints: ['Keep the on/off part: <code class="k">seen</code> still tells you when the line is lost or at a crossing.', '<code class="k">long weighted = 0, total = 0;</code> then in a loop: <code class="k">long dark = constrain(map(analogRead(A0 + i), minV[i], maxV[i], 0, 1000), 0, 1000); weighted += dark * (i + 1); total += dark;</code>', 'Then <code class="k">if (seen &gt; 0) position = (float)weighted / total;</code>'],
+    goal: 'At baseSpeed 220 or more, lap the Oval with less than 4 mm of wiggle', check: W => W.variant === 'oval' && (globalOf(W, 'baseSpeed') || 0) >= 220 && W.state.laps && W.state.laps.some(l => l.rms < 4) },
 ];
 LESSONS.splice(LESSONS.findIndex(l => l.id === 'pid') + 1, 0, ...ADV_PID);
-if (typeof module !== 'undefined') Object.assign(module.exports, { PIDI_FULL, PIDI_EDITOR, PIDI_GUIDED, PID_BLANKS, PIDI_GUIDE, canonAnswer, blankRight, fillBlanks, globalOf });
+if (typeof module !== 'undefined') Object.assign(module.exports, { PIDI_FULL, PIDI_EDITOR, PIDI_GUIDED, PIDI_GREY, PID_BLANKS, PIDI_GUIDE, canonAnswer, blankRight, fillBlanks, globalOf });

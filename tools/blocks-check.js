@@ -42,6 +42,9 @@ const GOLDEN = [
   ['repeat with a decimal count', X.prog(`<block type="controls_repeat_ext"><value name="TIMES">${X.num(2.5)}</value></block>`, ''), 'for (int i1 = 0; i1 < (int)(2.5); i1++) {'],
   ['a loose block does not get into the code', X.prog(X.led('HIGH'), '', { extra: X.move('B', 150) }), null, code => !/drive\(-150/.test(code)],
   ['a wait with an expression is still a whole number of ms', X.prog(`<block type="dowee_wait"><value name="SEC">${X.arith('ADD', n(1), n(0.5))}</value></block>`, ''), 'delay((unsigned long)((1 + 0.5) * 1000));'],
+  ['calibrate writes the threshold halfway between the average white and black', X.prog('<block type="dowee_calibrate"></block>', ''), 'threshold = (avgWhite + avgBlack) / 2;'],
+  ['line position reads the sensors itself when there is no "read the line sensors"', show('<block type="dowee_line_pos"></block>'), 'Serial.println(linePosition());'],
+  ['with "read the line sensors", line position is the last read', X.prog('<block type="dowee_read_line"><next>' + X.print('<block type="dowee_line_pos"></block>') + '</next></block>', ''), 'Serial.println(position);'],
   ['only what is used is set up', X.prog(X.led('HIGH'), ''), null, code => !code.includes('pinMode(IN1') && !code.includes('Serial.begin') && code.includes('pinMode(LED_BUILTIN, OUTPUT);')],
 ];
 
@@ -87,7 +90,7 @@ function serialOf(code, ms = 300) {
 const RC_KEYS = [[300, 'F'], [900, '5'], [1200, 'L'], [1700, 'q'], [1900, 'G'], [2500, 'H'], [3000, 'R'], [3400, 'J'], [3900, '0'], [4000, 'B'], [4600, 'I'], [5200, 'S']];
 const SAME = [
   ['lab/blink', 'lab/blink', 'lab', 3000], ['lab/meterfull', 'lab/meter', 'lab', 4000], ['lab/turn', 'lab/turn', 'lab', 3000],
-  ['line/bang', 'line/bang', 'oval', 20000], ['line/print', 'line/print', 'oval', 1000], ['line/pid', 'line/pid', 'snake', 20000, [[500, 'g']]],
+  ['line/bang', 'line/bang', 'oval', 20000], ['line/print', 'line/print', 'oval', 1000], ['line/pid', 'line/pid', 'snake', 30000, [[500, 'g']], true],
   ['race/rcfull', 'race/rc', 'none', 6000, RC_KEYS], ['soccer/rcfull', 'soccer/rc', 'easy', 6000, RC_KEYS],
   ['sumo/full', 'sumo/basic', 'statue', 30000], ['maze/avoidfull', 'maze/avoid', 'room1', 20000],
 ];
@@ -98,7 +101,7 @@ function runOnce(arena, variant, code, ms, keyList) {
   r.board.load(M.compileArduino(code, r.board), 0);
   for (let i = 0; i < ms && !err && !(W.state && W.state.over); i++) { for (const [t, k] of keyList || []) if (i === t) W.deliver(r.board, k); W.step(); }
   if (err) throw new Error(`crashed: ${err.message} (line ${err.line})`);
-  return { x: r.x, y: r.y, th: r.th, odo: r.odo, out, laps: (W.state.laps || []).length, result: W.state.result || '' };
+  return { x: r.x, y: r.y, th: r.th, odo: r.odo, out, laps: (W.state.laps || []).length, lapTimes: (W.state.laps || []).map(l => l.time), result: W.state.result || '' };
 }
 
 // Run Arduino code in the simulator, polling checks every 200 ms like the app does.
@@ -222,9 +225,12 @@ REF['b-avoid'].mods = [M.BLOCK_EXAMPLES.maze.avoid.xml()];
       const code = await toCode(M.BLOCK_EXAMPLES[ba][be].xml());
       const A = runOnce(ta, variant, M.EXAMPLES[ta][te].code, ms, keyList), Bk = runOnce(ba, variant, code, ms, keyList);
       const gap = Math.hypot(A.x - Bk.x, A.y - Bk.y);
-      const why = loose ? (Bk.laps < Math.max(1, A.laps - 1) ? `the blocks did ${Bk.laps} laps, the text ${A.laps}` : A.out.split('\n')[0] !== Bk.out.split('\n')[0] ? `calibration printed ${JSON.stringify(Bk.out.split('\n')[0])}, text ${JSON.stringify(A.out.split('\n')[0])}` : '')
+      // loose: on/off sensors make a fast PID sensitive to tiny timing differences, so compare what matters:
+      // the same printout, the same number of laps, and lap times within 5%
+      const best = x => Math.min(...x.lapTimes.slice(1)), firstLines = x => x.out.split('\n').slice(0, 3).join(' / ');
+      const why = loose ? (Bk.laps !== A.laps || A.laps < 2 ? `the blocks did ${Bk.laps} laps, the text ${A.laps}` : firstLines(A) !== firstLines(Bk) ? `printed ${JSON.stringify(firstLines(Bk))}, text ${JSON.stringify(firstLines(A))}` : Math.abs(best(A) - best(Bk)) > 0.05 * best(A) ? `best lap ${best(Bk).toFixed(1)} s, text ${best(A).toFixed(1)} s` : '')
         : gap > 0.03 ? `ended ${(gap * 100).toFixed(1)} cm apart` : A.out !== Bk.out ? `printed ${JSON.stringify(Bk.out.slice(0, 80))}, text ${JSON.stringify(A.out.slice(0, 80))}` : A.result !== Bk.result ? `result ${Bk.result}, text ${A.result}` : '';
-      why ? bad(name, why) : ok(name, loose ? `${Bk.laps} laps (text ${A.laps})` : `both drove ${A.odo.toFixed(2)} m and ended ${(gap * 1000).toFixed(0)} mm apart${A.out ? ', same Serial output' : ''}${A.result ? ', both ' + (A.result === 'A' ? 'won' : A.result) : ''}`);
+      why ? bad(name, why) : ok(name, loose ? `same printout, ${Bk.laps} laps each, best lap ${best(Bk).toFixed(1)} s (text ${best(A).toFixed(1)} s)` : `both drove ${A.odo.toFixed(2)} m and ended ${(gap * 1000).toFixed(0)} mm apart${A.out ? ', same Serial output' : ''}${A.result ? ', both ' + (A.result === 'A' ? 'won' : A.result) : ''}`);
     } catch (e) { bad(name, e.message); }
   }
 

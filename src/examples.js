@@ -25,33 +25,20 @@ const PINMODES = `  pinMode(IN1, OUTPUT);
   pinMode(IN3, OUTPUT);
   pinMode(IN4, OUTPUT);`;
 
-// The PID 4 lesson ("Calibrate and race") builds on PID steps 1-3, which use this program:
-// error from -2000 to 2000, P and D every loop. The sample above it moved on; the lesson keeps this one.
-const PID_LESSON_CODE = `// PID line follower with sensor calibration
-// Five IR sensors on A0 (left) to A4 (right). Higher reading = darker floor.
-// Real sensors all read a bit differently, so Dowee first sweeps over the line
-// and learns the darkest and brightest value each sensor sees.
-${MOTOR_SETUP}
-
-// ---- Tune these in the Tune tab while the robot drives ----
-float Kp = 0.08;      // turn harder when far from the line
-float Kd = 1.5;       // calms down the wiggle
-int baseSpeed = 150;  // cruising speed, 0-255
-
-int minV[5] = {1023, 1023, 1023, 1023, 1023};
-int maxV[5] = {0, 0, 0, 0, 0};
-int lastError = 0;
-
-void setup() {
-${PINMODES}
-  pinMode(LED_BUILTIN, OUTPUT);
-  Serial.begin(9600);
-  calibrate();
-}
-
-${DRIVE_FN}
-
-// Sweep left and right over the line for 2 seconds, remembering min and max.
+// ---- The DOWEE way to read the line (shared by the PID sample, the PID lessons and the blocks) ----
+// 1. calibrate(): sweep over the line, remember each sensor's white (min) and black (max) reading,
+//    then threshold = halfway between the average white and the average black.
+// 2. readLine(): every sensor is on the line (1) or not (0); the line's position is the average
+//    of the sensors that see it: 1 (far left) .. 3 (middle) .. 5 (far right).
+const LINE_GLOBALS = `// ---- The line sensors ----
+int minV[5] = {1023, 1023, 1023, 1023, 1023};   // each sensor's white reading (its smallest)
+int maxV[5] = {0, 0, 0, 0, 0};                  // each sensor's black reading (its biggest)
+int threshold = 500;   // above this = the sensor sees the line (calibrate() works out the real one)
+int onLine[5];         // 1 = this sensor sees the line, 0 = it sees the white floor
+int seen = 0;          // how many sensors see the line
+float position = 3;    // where the line is: 1 (far left) .. 3 (middle) .. 5 (far right)`;
+const CALIBRATE_FN = `// Sweep left and right over the line for 2 seconds, so every sensor sees white and black.
+// Then the threshold is halfway between the average white and the average black.
 void calibrate() {
   digitalWrite(LED_BUILTIN, HIGH);
   unsigned long start = millis();
@@ -66,72 +53,59 @@ void calibrate() {
     }
   }
   drive(0, 0);
+  long whiteSum = 0;
+  long blackSum = 0;
   for (int i = 0; i < 5; i++) {
-    if (maxV[i] - minV[i] < 100) maxV[i] = minV[i] + 100;   // sensor never saw the line
-    Serial.print(minV[i]);
-    Serial.print("-");
-    Serial.print(maxV[i]);
-    Serial.print(i < 4 ? "  " : "\\n");
+    whiteSum += minV[i];
+    blackSum += maxV[i];
   }
+  int avgWhite = whiteSum / 5;
+  int avgBlack = blackSum / 5;
+  threshold = (avgWhite + avgBlack) / 2;
+  Serial.print("white ");
+  Serial.print(avgWhite);
+  Serial.print("  black ");
+  Serial.print(avgBlack);
+  Serial.print("  threshold ");
+  Serial.println(threshold);
   digitalWrite(LED_BUILTIN, LOW);
   delay(300);
-}
-
-// One sensor scaled to 0 (white) .. 1000 (black)
-int readSensor(int i) {
-  long v = map(analogRead(A0 + i), minV[i], maxV[i], 0, 1000);
-  return constrain(v, 0, 1000);
-}
-
-// Where is the line? -2000 (far left) .. 0 (center) .. 2000 (far right)
-int readLine() {
-  long weighted = 0;
-  long total = 0;
+}`;
+const READLINE_FN = `// Reads all 5 sensors: each one sees the line (1) or not (0).
+// The line's position is the average of the sensors that see it:
+// only sensor 1 gives 1, sensors 2 and 3 give 2.5, only the middle one gives 3.
+void readLine() {
+  int sum = 0;
+  seen = 0;
   for (int i = 0; i < 5; i++) {
-    int v = readSensor(i);
-    if (v < 100) v = 0;                 // ignore small noise
-    weighted += (long)v * (i - 2) * 1000;
-    total += v;
+    onLine[i] = analogRead(A0 + i) > threshold ? 1 : 0;
+    seen += onLine[i];
+    sum += onLine[i] * (i + 1);
   }
-  if (total < 300) {                    // line lost: keep turning the way we last saw it
-    return lastError > 0 ? 2000 : -2000;
-  }
-  return weighted / total;
-}
+  if (seen > 0) position = (float)sum / seen;   // no line: keep the last position
+}`;
 
-void loop() {
-  int error = readLine();               // + means the line is to the RIGHT
-  int turn = Kp * error + Kd * (error - lastError);
-  lastError = error;
-  drive(baseSpeed + turn, baseSpeed - turn);
-  delay(2);
-}
-`;
 const EXAMPLES = {
   line: {
     pid: { name: 'PID line follower (5 sensors)', code: `// PID line follower with calibration
 // Five IR sensors on A0 (left) to A4 (right). Higher reading = darker floor.
 // 1. Press the start button on pin 2 (or type g in the Serial monitor).
-// 2. Dowee sweeps over the line and learns the darkest and brightest value each sensor sees.
+// 2. calibrate(): Dowee sweeps over the line and works out the threshold between white and black.
 // 3. It follows the line with a PID worked out every 10 ms. If the line is lost, it spins
 //    towards where it was last seen. At a crossing, it drives straight over.
 ${MOTOR_SETUP}
 
 // ---- Tune these in the Tune tab while the robot drives ----
-float Kp = 120;       // turn harder when far from the line (error 1 = one sensor off centre)
+float Kp = 70;        // turn harder when far from the line (error 1 = one sensor off centre)
 float Ki = 0;         // the I part: 0 = off (Dowee's motors are matched, so it only adds wobble)
-float Kd = 1300;      // calms the wobble: the change in error over one 10 ms step, times Kd
+float Kd = 1000;      // calms the wobble: the change in error over one 10 ms step, times Kd
 int baseSpeed = 240;  // cruising speed, 0-255
 int turnSpeed = 170;  // spin speed when the line is lost
 int sampleMs = 10;    // work out the PID every 10 ms
 
 const int startButton = 2;   // a button between pin 2 and GND: reads LOW while pressed
 
-int minV[5] = {1023, 1023, 1023, 1023, 1023};
-int maxV[5] = {0, 0, 0, 0, 0};
-int onLine[5];        // 1 = this sensor sees the line
-int seen = 0;         // how many sensors see the line
-float position = 3;   // where the line is: 1 (far left) .. 3 (middle) .. 5 (far right)
+${LINE_GLOBALS}
 
 float lastError = 0;
 float integral = 0;
@@ -159,54 +133,9 @@ void waitForStart() {
   Serial.println("Go!");
 }
 
-// Sweep left and right over the line for 2 seconds, remembering min and max.
-void calibrate() {
-  digitalWrite(LED_BUILTIN, HIGH);
-  unsigned long start = millis();
-  while (millis() - start < 2000) {
-    unsigned long t = millis() - start;
-    if (t < 250 || (t >= 750 && t < 1250) || t >= 1750) drive(-120, 120);
-    else drive(120, -120);
-    for (int i = 0; i < 5; i++) {
-      int v = analogRead(A0 + i);
-      if (v < minV[i]) minV[i] = v;
-      if (v > maxV[i]) maxV[i] = v;
-    }
-  }
-  drive(0, 0);
-  for (int i = 0; i < 5; i++) {
-    if (maxV[i] - minV[i] < 100) maxV[i] = minV[i] + 100;   // sensor never saw the line
-    Serial.print(minV[i]);
-    Serial.print("-");
-    Serial.print(maxV[i]);
-    Serial.print(i < 4 ? "  " : "\\n");
-  }
-  digitalWrite(LED_BUILTIN, LOW);
-  delay(300);
-}
+${CALIBRATE_FN}
 
-// One sensor scaled to 0 (white) .. 1000 (black)
-int readSensor(int i) {
-  long v = map(analogRead(A0 + i), minV[i], maxV[i], 0, 1000);
-  return constrain(v, 0, 1000);
-}
-
-// Reads all 5 sensors: which ones see the line, and where the line is
-// (with fractions in between sensors, like 2.6).
-void readLine() {
-  long weighted = 0;
-  long total = 0;
-  seen = 0;
-  for (int i = 0; i < 5; i++) {
-    int v = readSensor(i);
-    onLine[i] = v > 500 ? 1 : 0;
-    seen += onLine[i];
-    if (v < 100) v = 0;                 // ignore small noise
-    weighted += (long)v * (i + 1);
-    total += v;
-  }
-  if (seen > 0) position = (float)weighted / total;   // no line: keep the last position
-}
+${READLINE_FN}
 
 void loop() {
   readLine();
@@ -243,10 +172,11 @@ void loop() {
 }
 ` },
     bang: { name: 'Simple 2-sensor follower', code: `// Beginner line follower: uses only the two outer-middle sensors.
-// A1 = left-middle, A3 = right-middle. HIGH = sees the black line.
+// A1 = left-middle, A3 = right-middle. A reading above the threshold = the sensor sees the black line.
 ${MOTOR_SETUP}
 
 int speed = 150;
+int threshold = 500;   // halfway between white (about 100) and black (about 950)
 
 void setup() {
 ${PINMODES}
@@ -255,12 +185,12 @@ ${PINMODES}
 ${DRIVE_FN}
 
 void loop() {
-  int left = digitalRead(A1);
-  int right = digitalRead(A3);
+  int left = analogRead(A1) > threshold ? 1 : 0;    // 1 = sees the line
+  int right = analogRead(A3) > threshold ? 1 : 0;
 
-  if (left == HIGH && right == LOW) {
+  if (left == 1 && right == 0) {
     drive(0, speed);          // line is on the left: turn left
-  } else if (right == HIGH && left == LOW) {
+  } else if (right == 1 && left == 0) {
     drive(speed, 0);          // line is on the right: turn right
   } else {
     drive(speed, speed);      // go straight
@@ -488,4 +418,4 @@ void loop() {
 };
 EXAMPLES.soccer.rc = { ...EXAMPLES.race.rc, name: 'Bluetooth RC (soccer)' };
 const DEFAULT_EXAMPLE = { line: 'pid', race: 'rc', soccer: 'rc', sumo: 'basic', maze: 'avoid', lab: 'meter' };
-if (typeof module !== 'undefined') { module.exports.EXAMPLES = EXAMPLES; module.exports.PID_LESSON_CODE = PID_LESSON_CODE; }
+if (typeof module !== 'undefined') Object.assign(module.exports, { EXAMPLES, LINE_GLOBALS, CALIBRATE_FN, READLINE_FN });

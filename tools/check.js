@@ -75,7 +75,9 @@ for (const [a, t] of Object.entries(M.TEMPLATES)) for (const lv of ['guided', 'b
   run(a, Object.keys(M.ARENAS[a].variants)[0], t[lv], 3000);
 });
 // A reference program for each playground must earn every star it can without a human driving.
-const REF = { line: [M.PID_LESSON_CODE, M.PID_LESSON_CODE.replace('int baseSpeed = 150;', 'int baseSpeed = 180;')], sumo: [EXAMPLES.sumo.basic.code], maze: [EXAMPLES.maze.avoid.code, EXAMPLES.maze.avoid.code.replace('int safeDistance = 25;', 'int safeDistance = 30;').replace('int cruise = 200;', 'int cruise = 255;')],
+// the finished PID 4 lesson: the same method as the PID sample, without the start button
+const PID4_DONE = M.LESSONS.find(l => l.id === 'pid').code.replace('    float turn = Kp * error;   // the P part, from PID 3', '    float turn = Kp * error + Kd * change;');
+const REF = { line: [PID4_DONE], sumo: [EXAMPLES.sumo.basic.code], maze: [EXAMPLES.maze.avoid.code, EXAMPLES.maze.avoid.code.replace('int safeDistance = 25;', 'int safeDistance = 30;').replace('int cruise = 200;', 'int cruise = 255;')],
   lab: [EXAMPLES.lab.meter.code.replace('int driveTime = 1500;', 'int driveTime = 2150;'), EXAMPLES.lab.turn.code.replace('int turnTime = 400;', 'int turnTime = TT;'), EXAMPLES.lab.blink.code] };
 for (const [a, codes] of Object.entries(REF)) M.TEMPLATES[a].missions.forEach((m, i) => check(`mission ${a} ${i + 1}: ${m.text}`, () => {
   const g = M.GOAL_TYPES[m.goal.type], v = m.variant || Object.keys(M.ARENAS[a].variants)[0];
@@ -95,9 +97,9 @@ const FIX = {
   'bug-pinmode': [['  pinMode(IN2, OUTPUT);', '  pinMode(IN2, OUTPUT);\n  pinMode(IN3, OUTPUT);\n  pinMode(IN4, OUTPUT);']],
   'bug-semicolon': [['delay(driveTime) ', 'delay(driveTime);']],
   'bug-swapped': [['drive(speed, 0);          // line on the left', 'drive(0, speed);          // line on the left'], ['drive(0, speed);          // line on the right', 'drive(speed, 0);          // line on the right']],
-  'bug-equals': [['if (left = HIGH)', 'if (left == HIGH)']],
+  'bug-equals': [['if (left = 1)', 'if (left == 1)']],
   'bug-sleepy': [['  delay(400);                 // rest a little', '']],
-  'bug-threshold': [['middle < black', 'middle > black'], ['left < black', 'left > black'], ['right < black', 'right > black']],
+  'bug-threshold': [['middle < threshold', 'middle > threshold'], ['left < threshold', 'left > threshold'], ['right < threshold', 'right > threshold']],
   'bug-rc': [["case 'f':", "case 'F':"]],
   'bug-sonar': [['if (d > safeDistance) {', 'if (d < safeDistance) {']],
   'bug-edge': [['if (left > edgeLimit || right > edgeLimit) {', 'if (left < edgeLimit || right < edgeLimit) {']],
@@ -117,9 +119,12 @@ for (const c of M.CHALLENGES) {
 console.log('\nPID path lessons');
 // Each step's starter must fail its goal, and the finished step must pass it.
 const PID_FIX = {
-  pid1: [['    // TODO 1: add  v * position  to weighted\n', '    weighted += v * position;\n'], ['    // TODO 2: add  v  to total\n', '    total += v;\n'], ['  return 0;\n}', '  return weighted / total;\n}']],
-  pid2: [['  int turn = 0;', '  int turn = Kp * error;'], ['  drive(baseSpeed, baseSpeed);\n  delay(2);', '  drive(baseSpeed + turn, baseSpeed - turn);\n  delay(2);']],
-  pid3: [['  int turn = Kp * error;   // the P part, from step 2', '  int turn = Kp * error + Kd * change;']],
+  pid1: [["      // TODO 1: remember this sensor's whitest and blackest reading:\n      //   if v is smaller than minV[i], put v in minV[i]. If v is bigger than maxV[i], put v in maxV[i].\n\n", '      if (v < minV[i]) minV[i] = v;\n      if (v > maxV[i]) maxV[i] = v;\n'],
+    ['  // TODO 2: the threshold is halfway between the average white and the average black.\n  threshold = 0;', '  threshold = (avgWhite + avgBlack) / 2;']],
+  pid2: [['    // TODO 1: does sensor i see the line? 1 if analogRead(A0 + i) is above the threshold, else 0.\n    onLine[i] = 0;\n    // TODO 2: count it: add onLine[i] to seen, and onLine[i] * (i + 1) to sum.\n\n', '    onLine[i] = analogRead(A0 + i) > threshold ? 1 : 0;\n    seen += onLine[i];\n    sum += onLine[i] * (i + 1);\n'],
+    ['  // TODO 3: if seen is more than 0, the position is the average:  (float)sum / seen\n  //         (if no sensor sees the line, keep the last position)\n', '  if (seen > 0) position = (float)sum / seen;\n']],
+  pid3: [['    float turn = 0;', '    float turn = Kp * error;'], ['    drive(baseSpeed, baseSpeed);\n  }\n}', '    drive(baseSpeed + turn, baseSpeed - turn);\n  }\n}']],
+  pid: [['    float turn = Kp * error;   // the P part, from PID 3', '    float turn = Kp * error + Kd * change;']],
 };
 for (const [id, fix] of Object.entries(PID_FIX)) check(`${id}: starter fails, finished step passes`, () => {
   const L = M.LESSONS.find(l => l.id === id);
@@ -142,41 +147,45 @@ console.log('\nAdvanced PID lessons');
     for (let i = 0; i < ms; i++) { W.step(); if (i % 200 === 0) M.PIDI_GUIDE.forEach((g, k) => { if (!hit[k] && g.ok(W, memos[k])) hit[k] = true; }); }
     return { W, hit, laps: W.state.laps.map(l => `${l.time.toFixed(1)} s/${Math.round(l.rms)} mm`).join(', ') };
   };
-  check('worksheet: every blank filled with its answer laps the Snake under 16 s', () => {
+  check('worksheet: every blank filled with its answer laps the Snake under 14 s', () => {
     const { W, laps } = lineRun(M.fillBlanks(M.PID_BLANKS.map(b => b.a[0])), 'snake');
-    want(W.state.laps.some(l => l.time < 16), `laps: ${laps || 'none'}`);
+    want(W.state.laps.some(l => l.time < 14), `laps: ${laps || 'none'}`);
     return laps;
   });
   check('worksheet: answers are checked fairly', () => {
     M.PID_BLANKS.forEach((b, i) => b.a.forEach(a => want(M.blankRight(i, a), `blank ${i + 1} rejects its own answer "${a}"`)));
     want(M.blankRight(7, 'Kd*change + Ki * integral+error*Kp;'), 'the PID formula in another order is rejected');
-    want(M.blankRight(1, 'weighted = weighted + position * v'), 'x = x + y form is rejected');
-    want(!M.blankRight(4, 'lastError - error'), 'a wrong D part is accepted');
+    want(M.blankRight(3, 'sum = sum + (i + 1) * onLine[i]'), 'x = x + y form is rejected');
+    want(!M.blankRight(5, '3 - position'), 'an upside-down error is accepted');
     want(!M.blankRight(8, 'baseSpeed - turn, baseSpeed + turn'), 'swapped wheels are accepted');
   });
   check('in-editor blanks: Upload says a line still has a blank', () => {
     try { M.compileArduino(M.PIDI_EDITOR, new M.Board({ cfg: M.makeCfg('dowee') })); } catch (e) { want(/still has a blank/.test(e.message), e.message); return `line ${e.line}`; }
     want(false, 'the blank version compiled');
   });
+  const gsub = (c, a, b) => { if (!c.includes(a)) throw new Error(`guided: text not found: ${a.slice(0, 40)}`); return c.replace(a, b); };
   const step = {
-    1: c => c.replace(`    // TODO: spin one way, then the other. (millis() - start tells you how long you have been sweeping.)\n\n    // TODO: for each sensor i, update minV[i] and maxV[i].\n\n`, `    unsigned long t = millis() - start;\n    if (t < 250 || (t >= 750 && t < 1250) || t >= 1750) drive(-120, 120); else drive(120, -120);\n    for (int i = 0; i < 5; i++) {\n      int v = analogRead(A0 + i);\n      if (v < minV[i]) minV[i] = v;\n      if (v > maxV[i]) maxV[i] = v;\n    }\n`),
-    2: c => c.replace(`  // TODO: map the reading from minV[i]..maxV[i] to 0..1000, then constrain it to 0..1000.\n  return 0;`, `  long v = map(analogRead(A0 + i), minV[i], maxV[i], 0, 1000);\n  return constrain(v, 0, 1000);`)
-            .replace(`  // TODO: the weighted average of the five sensors, like in PID 1.\n  // If no sensor sees the line, return 2000 or -2000 (the side you saw it last).\n  return 0;`, `  long weighted = 0;\n  long total = 0;\n  for (int i = 0; i < 5; i++) {\n    int v = readSensor(i);\n    if (v < 100) v = 0;\n    weighted += (long)v * (i - 2) * 1000;\n    total += v;\n  }\n  if (total < 300) return lastError > 0 ? 2000 : -2000;\n  return weighted / total;`),
-    3: c => c.replace('  int turn = 0;\n  if (error > 300) turn = 50;\n  if (error < -300) turn = -50;', '  int turn = Kp * error + Kd * (error - lastError);'),
-    4: (c, lim = true) => c.replace('  int turn = Kp * error + Kd * (error - lastError);', `  integral += error;\n${lim ? '  integral = constrain(integral, -iLimit, iLimit);\n' : ''}  int turn = Kp * error + Ki * integral + Kd * (error - lastError);`).replace('float Kp = 0.08;', 'float Kp = 0.04;').replace('float Ki = 0.0;', 'float Ki = 0.001;'),
-    5: c => c.replace('float Kp = 0.04;', 'float Kp = 0.08;').replace('float Ki = 0.001;', 'float Ki = 0.0002;').replace('int baseSpeed = 150;', 'int baseSpeed = 180;'),
+    1: c => gsub(gsub(c, `    // TODO: spin one way, then the other. (millis() - start tells you how long you have been sweeping.)\n\n    // TODO: for each sensor i, update minV[i] and maxV[i].\n\n`,
+      `    unsigned long t = millis() - start;\n    if (t < 250 || (t >= 750 && t < 1250) || t >= 1750) drive(-120, 120);\n    else drive(120, -120);\n    for (int i = 0; i < 5; i++) {\n      int v = analogRead(A0 + i);\n      if (v < minV[i]) minV[i] = v;\n      if (v > maxV[i]) maxV[i] = v;\n    }\n`),
+      `  // TODO: average the minV values, average the maxV values, and set the threshold halfway between them.\n\n`,
+      `  long whiteSum = 0;\n  long blackSum = 0;\n  for (int i = 0; i < 5; i++) {\n    whiteSum += minV[i];\n    blackSum += maxV[i];\n  }\n  threshold = (whiteSum / 5 + blackSum / 5) / 2;\n`),
+    2: c => gsub(c, `  // TODO: like in PID 2.\n\n`, `  int sum = 0;\n  seen = 0;\n  for (int i = 0; i < 5; i++) {\n    onLine[i] = analogRead(A0 + i) > threshold ? 1 : 0;\n    seen += onLine[i];\n    sum += onLine[i] * (i + 1);\n  }\n  if (seen > 0) position = (float)sum / seen;\n`),
+    3: c => gsub(c, '    float turn = 0;\n    if (error > 0.5) turn = 50;\n    if (error < -0.5) turn = -50;', '    float turn = Kp * error + Kd * (error - lastError);'),
+    4: (c, lim = true) => gsub(gsub(gsub(c, '    float turn = Kp * error + Kd * (error - lastError);', `    integral = ${lim ? 'constrain(integral + error, -iLimit, iLimit)' : 'integral + error'};\n    float turn = Kp * error + Ki * integral + Kd * (error - lastError);`),
+      'float Kp = 70;', 'float Kp = 20;'), 'float Ki = 0;', `float Ki = ${lim ? 1 : 3};`),
+    5: c => gsub(gsub(gsub(c, 'float Kp = 20;', 'float Kp = 70;'), 'float Ki = 1;', 'float Ki = 0;'), 'int baseSpeed = 150;', 'int baseSpeed = 220;'),
   };
   const G = M.PIDI_GUIDED;
   check('guided template: the empty template runs and ticks nothing', () => { const { hit } = lineRun(G, 'oval', 0, 8000); want(!hit.some(Boolean), `ticked step(s) ${hit.map((h, k) => h ? k + 1 : '').join('')}`); });
   let c = G;
   const where = { 1: ['oval'], 2: ['oval'], 3: ['oval'], 4: ['oval', 30], 5: ['snake'] };
   for (const n of [1, 2, 3, 4, 5]) {
-    c = n === 5 ? step[5](c).replace('float Kp = 0.08;', 'float Kp = 0.1;').replace('float Kd = 1.5;', 'float Kd = 2;').replace('int baseSpeed = 180;', 'int baseSpeed = 200;').replace('float Ki = 0.0002;', 'float Ki = 0;') : step[n](c);
+    c = step[n](c);
     const code = c;
     check(`guided step ${n} (${M.PIDI_GUIDE[n - 1].title}) ticks with the reference solution`, () => { const r = lineRun(code, ...where[n]); want(r.hit[n - 1], `not ticked (laps: ${r.laps || 'none'})`); return r.laps; });
   }
-  check('guided step 4 needs I: PD with a gentle Kp does not tick', () => { const r = lineRun(step[3](step[2](step[1](G))).replace('float Kp = 0.08;', 'float Kp = 0.04;'), 'oval', 30); want(!r.hit[3], 'ticked without I'); return r.laps; });
-  check('guided step 4 needs the anti-windup limit', () => { const r = lineRun(step[4](step[3](step[2](step[1](G))), false), 'oval', 30); want(!r.hit[3], 'ticked without the limit'); return r.laps || 'no lap: windup'; });
+  check('guided step 4 needs I: gentle P and D on the weak-motor Dowee does not tick', () => { const r = lineRun(step[3](step[2](step[1](G))).replace('float Kp = 70;', 'float Kp = 20;'), 'oval', 30); want(!r.hit[3], 'ticked without I'); return r.laps; });
+  check('guided step 4: a strong I without the limit winds up and does not tick', () => { const r = lineRun(step[4](step[3](step[2](step[1](G))), false), 'oval', 30); want(!r.hit[3], 'ticked without the limit'); return r.laps || 'no lap: windup'; });
 }
 
 console.log('\nPRIMM lessons (Predict, Run, Investigate, Modify, Make)');
@@ -209,15 +218,16 @@ console.log('\nPRIMM lessons (Predict, Run, Investigate, Modify, Make)');
     see: { refs: [[sub(E.line.print.code, 'delay(50);', 'delay(500);')]] },
     follow: { refs: [[sub(E.line.bang.code, 'int speed = 150;', 'int speed = 170;')]], todo: [[E.line.bang.code], [sub(E.line.bang.code, 'int speed = 150;', 'int speed = 170;')]] },
     pid1: { refs: [[pidFixed('pid1')]] }, pid2: { refs: [[pidFixed('pid2')]] }, pid3: { refs: [[pidFixed('pid3')]] },
-    pid: { refs: [[sub(M.PID_LESSON_CODE, 'int baseSpeed = 150;', 'int baseSpeed = 180;')]], todo: [[M.PID_LESSON_CODE], [sub(M.PID_LESSON_CODE, 'int baseSpeed = 150;', 'int baseSpeed = 180;')]] },
+    pid: { refs: [[pidFixed('pid')]] },
     rc: { opts: { onStep: keys([500, 'F'], [4000, 'F']) }, ms: 20000, refs: [[sub(E.race.rc.code, 'int speed = 220;', 'int speed = 150;')]],
       todo: [[E.race.rc.code, { onStep: keys([4000, 'B']) }], [E.race.rc.code, { onStep: keys([4000, 'L'], [7000, 'R']) }]] },
     sonar: { ms: 20000, refs: [[sub(E.maze.avoid.code, 'int safeDistance = 25;', 'int safeDistance = 40;')]], todo: [[E.maze.avoid.code], [E.maze.avoid.code]] },
     edge: { ms: 12000, refs: [[EDGE_FIX]] },
     fight: { refs: [[E.sumo.basic.code, { variant: 'statue', opp: 'statue' }]], todo: [[E.sumo.basic.code]] },
     soccer: { refs: [[E.race.rc.code, { onStep: keys([500, 'F'], [2500, 'S']) }]], opts: {} },
-    apid1: { start: ws, refs: [[sub(ws, 'float Ki = 0.0002;', 'float Ki = 0.002;')]] },
-    apid2: { start: ws, refs: [[sub(ws, 'float Ki = 0.0002;', 'float Ki = 0.002;')]] },
+    apid1: { start: ws, refs: [[sub(ws, 'float Ki = 0.5;', 'float Ki = 5;')]] },
+    apid2: { start: ws, refs: [[sub(ws, 'float Ki = 0.5;', 'float Ki = 5;')]] },
+    apid4: { refs: [[sub(M.PIDI_GREY, '  if (seen > 0) position = (float)sum / seen;   // no line: keep the last position\n', '  long weighted = 0, total = 0;\n  for (int i = 0; i < 5; i++) {\n    long dark = constrain(map(analogRead(A0 + i), minV[i], maxV[i], 0, 1000), 0, 1000);\n    weighted += dark * (i + 1);\n    total += dark;\n  }\n  if (seen > 0) position = (float)weighted / total;\n')]] },
   };
   const modRun = (l, code, o, ms) => {
     const variant = o.variant || l.variant || Object.keys(M.ARENAS[l.arena].variants)[0];

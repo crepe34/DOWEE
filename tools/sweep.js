@@ -3,7 +3,7 @@ const base = M.EXAMPLES.line.pid.code;
 const lv = process.argv[2] || 'real';
 const sets = JSON.parse(process.argv[3]);
 for (const [kp, kd, sp] of sets) {
-  const code = base.replace('float Kp = 120;', `float Kp = ${kp};`).replace('float Kd = 1300;', `float Kd = ${kd};`).replace('int baseSpeed = 240;', `int baseSpeed = ${sp};`);
+  const code = base.replace('float Kp = 70;', `float Kp = ${kp};`).replace('float Kd = 1000;', `float Kd = ${kd};`).replace('int baseSpeed = 240;', `int baseSpeed = ${sp};`);
   let out = [];
   for (const tr of ['oval', 'snake', 'figure8']) for (const u of [1, 2, 3, 4]) {
     const W = M.buildWorld('line', tr, { realism: lv, unitA: u, runSeed: u * 3 }, M.makeCfg('dowee'), M.makeCfg('dowee'), 'none');

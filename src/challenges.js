@@ -24,10 +24,11 @@ ${fix.driveFn || DRIVE_FN}
 void loop() {
 }
 `;
-const bangWith = (loopBody, extra) => `// 2-sensor line follower. A1 = left-middle, A3 = right-middle. HIGH = sees the black line.
+const bangWith = (loopBody, extra) => `// 2-sensor line follower. A1 = left-middle, A3 = right-middle. Above the threshold = sees the black line.
 ${MOTOR_SETUP}
 
 int speed = 150;
+int threshold = 500;   // halfway between white (about 100) and black (about 950)
 
 void setup() {
 ${PINMODES}
@@ -36,15 +37,15 @@ ${PINMODES}
 ${DRIVE_FN}
 
 void loop() {
-  int left = digitalRead(A1);
-  int right = digitalRead(A3);
+  int left = analogRead(A1) > threshold ? 1 : 0;    // 1 = sees the line
+  int right = analogRead(A3) > threshold ? 1 : 0;
 ${loopBody}${extra || ''}
 }
 `;
 const BANG_OK = `
-  if (left == HIGH && right == LOW) {
+  if (left == 1 && right == 0) {
     drive(0, speed);          // line on the left: turn left
-  } else if (right == HIGH && left == LOW) {
+  } else if (right == 1 && left == 0) {
     drive(speed, 0);          // line on the right: turn right
   } else {
     drive(speed, speed);      // go straight
@@ -75,8 +76,8 @@ const CHALLENGES = [
     goal: 'Complete one full lap', check: lapOnce },
   { id: 'bug-equals', title: 'Bug: one = or two?', arena: 'line', variant: 'oval',
     intro: 'Dowee keeps going round in circles. In C, <code class="k">=</code> and <code class="k">==</code> mean very different things. Find the wrong one.',
-    code: bangWith(BANG_OK.replace('if (left == HIGH && right == LOW)', 'if (left = HIGH)')),
-    hints: ['Look closely at every <code class="k">if</code>.', '<code class="k">=</code> puts a value into a variable. <code class="k">==</code> asks "are these equal?".', 'The first <code class="k">if</code> says <code class="k">left = HIGH</code>, which makes left HIGH every time. Make it <code class="k">left == HIGH</code>.'],
+    code: bangWith(BANG_OK.replace('if (left == 1 && right == 0)', 'if (left = 1)')),
+    hints: ['Look closely at every <code class="k">if</code>.', '<code class="k">=</code> puts a value into a variable. <code class="k">==</code> asks "are these equal?".', 'The first <code class="k">if</code> says <code class="k">left = 1</code>, which makes left 1 every time. Make it <code class="k">left == 1</code>.'],
     goal: 'Complete one full lap', check: lapOnce },
   { id: 'bug-sleepy', title: 'Bug: the sleepy follower', arena: 'line', variant: 'oval',
     intro: 'This follower has the right idea, but it misses the turns. It only looks at the line every now and then.',
@@ -89,7 +90,7 @@ const CHALLENGES = [
 ${MOTOR_SETUP}
 
 int speed = 140;
-int black = 500;
+int threshold = 500;   // halfway between white (about 100) and black (about 950)
 
 void setup() {
 ${PINMODES}
@@ -103,16 +104,16 @@ void loop() {
   int middle = analogRead(A2);
   int right = analogRead(A3);
 
-  if (middle < black) {
+  if (middle < threshold) {
     drive(speed, speed);
-  } else if (left < black) {
+  } else if (left < threshold) {
     drive(0, speed);
-  } else if (right < black) {
+  } else if (right < threshold) {
     drive(speed, 0);
   }
 }
 `,
-    hints: ['Open <b>Sensors &amp; pins</b>: what number does a sensor on the black line show?', '"Sees black" means the number is <b>bigger</b> than <code class="k">black</code>.', 'Change all three <code class="k">&lt;</code> to <code class="k">&gt;</code>.'],
+    hints: ['Open <b>Sensors &amp; pins</b>: what number does a sensor on the black line show?', '"Sees black" means the number is <b>bigger</b> than <code class="k">threshold</code>.', 'Change all three <code class="k">&lt;</code> to <code class="k">&gt;</code>.'],
     goal: 'Complete one full lap', check: lapOnce },
   { id: 'bug-rc', title: 'Bug: forward is broken', arena: 'race', variant: 'none',
     intro: 'Every key works except <b>forward</b>. Look carefully at the letter the program waits for.',

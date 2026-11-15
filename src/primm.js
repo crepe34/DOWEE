@@ -83,7 +83,7 @@ const PRIMM = {
     predict: { q: 'What will Dowee do on the Oval?', options: ['Follow the line with a little wiggle', 'Glide perfectly smoothly along the line', 'Drive straight off the track'], answer: 0, why: 'This follower only knows "turn left", "turn right" or "straight", so it zig-zags along the line.' },
     investigate: [
       { q: 'Only the <b>left</b> sensor sees the line. What does Dowee do?', options: ['Turns left: <code class="k">drive(0, speed)</code>', 'Turns right: <code class="k">drive(speed, 0)</code>', 'Goes straight'], answer: 0, why: 'With the left wheel stopped and the right one driving, Dowee turns left, back towards the line.' },
-      { q: 'What does <code class="k">&amp;&amp;</code> mean in an <code class="k">if</code>?', options: ['AND: both parts must be true', 'OR: one part is enough', 'NOT'], answer: 0, why: '<code class="k">left == HIGH &amp;&amp; right == LOW</code> is only true when both are true.' },
+      { q: 'What does <code class="k">&amp;&amp;</code> mean in an <code class="k">if</code>?', options: ['AND: both parts must be true', 'OR: one part is enough', 'NOT'], answer: 0, why: '<code class="k">left == 1 &amp;&amp; right == 0</code> is only true when both are true.' },
     ],
     modify: [
       { text: 'Make Dowee faster: lap the Oval in <b>under 25 seconds</b>. Too fast and it misses the turn!', check: W => W.state.laps && W.state.laps.some(l => l.time < 25) },
@@ -97,50 +97,44 @@ const PRIMM = {
     },
   },
   pid1: {
-    predict: { q: 'The three TODOs in <code class="k">readLine()</code> are still empty. What will Dowee do?', options: ['Drive round in circles', 'Follow the line', 'Stand still'], answer: 0, why: '<code class="k">total</code> stays 0, so readLine() thinks it lost the line and always says "far left". Dowee keeps turning left.' },
+    predict: { q: 'The threshold is 0 for now. What will Dowee do?', options: ['Drive straight off the line', 'Follow the line', 'Stand still'], answer: 0, why: 'Every reading is above 0, so every sensor says "I see the line". The middle sensor sees it too, so Dowee goes straight on, even off the track.' },
     investigate: [
-      { q: 'Only the middle sensor (i = 2) sees black. What is the error?', options: ['0', '2000', '-2000'], answer: 0, why: 'Its position is (2 - 2) × 1000 = 0, so the weighted average is 0: the line is right in the middle.' },
-      { q: 'The error is <b>positive</b>, like 1500. Where is the line?', options: ['On the right', 'On the left', 'Under the middle sensor'], answer: 0, why: 'A3 and A4 on the right have the positions 1000 and 2000.' },
+      { q: 'White reads about 100 and black about 950. Where should the threshold be?', options: ['About 525: halfway', 'About 950', 'About 100'], answer: 0, why: '(100 + 950) / 2 = 525. Anything darker than that counts as the line.' },
+      { q: 'Why calibrate, instead of always using 500?', options: ['Sensors and floors all read a bit differently', 'To make the program longer', 'Because the line changes colour'], answer: 0, why: 'On a shiny floor, in a bright room or with a different sensor, white and black give other numbers. Calibrating finds the right threshold every time.' },
+    ],
+    modify: [
+      { text: 'Fill in both TODOs so Dowee follows the line for 5 seconds.', check: PQ.onLine(5000) },
+    ],
+  },
+  pid2: {
+    predict: { q: '<code class="k">readLine()</code> never sets <code class="k">onLine</code> yet. What will Dowee do?', options: ['Drive straight off the line', 'Follow the line', 'Spin on the spot'], answer: 0, why: 'No sensor ever "sees" the line, so the position stays 3, the error stays 0, and Dowee goes straight on.' },
+    investigate: [
+      { q: 'Sensors 2 and 3 see the line. What is the position?', options: ['2.5', '5', '3'], answer: 0, why: '(2 + 3) / 2 = 2.5. The error is 2.5 - 3 = -0.5: the line is a little to the left.' },
+      { q: 'The error is <b>+2</b>. Where is the line?', options: ['Under the far-right sensor', 'Under the far-left sensor', 'In the middle'], answer: 0, why: 'Position 5 is the far-right sensor, and 5 - 3 = 2.' },
     ],
     modify: [
       { text: 'Fill in the 3 TODOs so Dowee follows the line for 5 seconds.', check: PQ.onLine(5000) },
     ],
   },
-  pid2: {
+  pid3: {
     predict: { q: '<code class="k">turn</code> is always 0 for now. What will Dowee do on the Oval?', options: ['Drive straight off the line', 'Follow the line smoothly', 'Spin on the spot'], answer: 0, why: 'Both wheels get the same speed, so Dowee never steers.' },
     investigate: [
-      { q: 'The error is 1000 and Kp is 0.05. What is <code class="k">Kp * error</code>?', options: ['50', '1000', '0.05'], answer: 0, why: '0.05 × 1000 = 50, so one wheel goes 50 faster and the other 50 slower.' },
+      { q: 'The error is 1 and Kp is 15. What is <code class="k">Kp * error</code>?', options: ['15', '1', '150'], answer: 0, why: '15 × 1 = 15, so one wheel goes 15 faster and the other 15 slower.' },
       { q: 'The line is on the right, so turn is positive. Which wheel must go faster?', options: ['The left wheel', 'The right wheel', 'Both the same'], answer: 0, why: 'A faster left wheel turns Dowee to the right, towards the line: <code class="k">drive(baseSpeed + turn, baseSpeed - turn)</code>.' },
     ],
     modify: [
       { text: 'Fill in the 2 TODOs so Dowee gets halfway round the Oval without losing the line.', check: W => W.state.lap && !W.state.lap.lost && W.state.lap.progress() > 0.5 },
     ],
   },
-  pid3: {
-    predict: { q: 'This step starts with P only and a big Kp (0.08). What will Dowee do?', options: ['Wobble more and more', 'Drive perfectly smoothly', 'Not move at all'], answer: 0, why: 'A strong P turns hard towards the line, crosses it and turns back too late. Each swing gets bigger.' },
-    investigate: [
-      { q: 'When is <code class="k">change</code> (error − lastError) big?', options: ['When the line moves away fast', 'When Dowee is exactly on the line', 'When Kd is big'], answer: 0, why: 'change is how much the error grew since the last loop. D uses it to brake the turn early.' },
-    ],
-    modify: [
-      { text: 'Add the D part so Dowee stays close to the line for 8 seconds.', check: PQ.onLine(8000) },
-    ],
-  },
   pid: {
-    predict: { q: 'What will Dowee do first when you press Run?', options: ['Sweep left and right on the spot', 'Race off straight away', 'Wait and do nothing'], answer: 0, why: 'It <b>calibrates</b> for 2 seconds: it learns what black and white look like for each of its sensors.' },
+    predict: { q: 'This step starts with P only, at speed 240. What will Dowee do on the Snake?', options: ['Swing across the line again and again', 'Race smoothly', 'Not move at all'], answer: 0, why: 'A strong P at high speed turns hard towards the line, crosses it and has to turn back. Nothing brakes the turn yet.' },
     investigate: [
-      { q: 'Why does every sensor get its own min and max?', options: ['Real sensors all read a little differently', 'To make the code longer', 'Because the line changes colour'], answer: 0, why: 'After calibrating, every sensor gives 0 on white and 1000 on black, even if one is a bit weaker.' },
-      { q: 'In the Tune tab, what happens when you set <code class="k">Kd</code> to 0?', options: ['Dowee wiggles more', 'Dowee wiggles less', 'Dowee stops'], answer: 0, why: 'D brakes the turn before Dowee overshoots. Without it, Dowee swings across the line.' },
+      { q: 'When is <code class="k">change</code> (error − lastError) big?', options: ['When the line moves away fast', 'When Dowee is exactly on the line', 'When Kd is big'], answer: 0, why: 'change is how much the error grew in the last 10 ms. D uses it to brake the turn before Dowee overshoots.' },
+      { q: 'What does Dowee do when no sensor sees the line?', options: ['Spins towards where it last saw the line', 'Stops', 'Drives straight on'], answer: 0, why: '<code class="k">lostSide</code> remembers which edge sensor saw the line last, so Dowee spins back that way.' },
     ],
     modify: [
-      { text: 'Make it faster: set <code class="k">baseSpeed</code> to 180 or more and stay on the line for 5 seconds.', check: (W, m) => (PQ.num(W, 'baseSpeed') || 0) >= 180 && PQ.onLine(5000)(W, m) },
+      { text: 'Add the D part so Dowee laps the Snake with less than 15 mm of wiggle.', check: W => W.state.laps && W.state.laps.some(l => l.rms < 15) },
     ],
-    todo: {
-      predict: { q: 'The TODO sets <code class="k">turn = 0</code>. What will Dowee do?', options: ['Calibrate, then drive straight off the line', 'Calibrate, then follow the line', 'Not move at all'], answer: 0, why: 'Calibrating works, but with turn = 0 both wheels get the same speed and Dowee never steers.' },
-      modify: [
-        { text: 'Fill in the TODO so Dowee follows the Snake for 5 seconds.', check: PQ.onLine(5000) },
-        { text: 'Make it faster: <code class="k">baseSpeed</code> 180 or more, still on the line.', check: (W, m) => (PQ.num(W, 'baseSpeed') || 0) >= 180 && PQ.onLine(5000)(W, m) },
-      ],
-    },
   },
   rc: {
     predict: { q: 'You press the up arrow. The controller sends the letter <b>F</b>. What does Dowee do?', options: ['Drives forward', 'Spins left', 'Nothing'], answer: 0, why: '<code class="k">case \'F\':</code> runs <code class="k">drive(speed, speed);</code>: both wheels forward.' },
@@ -214,19 +208,28 @@ const PRIMM = {
     ],
   },
   apid1: {
-    predict: { q: 'The I part adds up the error over time. On a normal Dowee, what will a <b>big</b> Ki do?', options: ['Make it wiggle more', 'Make it drive smoother', 'Nothing at all'], answer: 0, why: 'On a line the error keeps changing sides, so the sum swings around and pushes Dowee off course. Measured: 3 mm of wiggle without I, 15–26 mm with it.' },
+    predict: { q: 'The I part adds up the error over time. On a normal Dowee, what will a <b>big</b> Ki do?', options: ['Make it wiggle more', 'Make it drive smoother', 'Nothing at all'], answer: 0, why: 'On a line the error keeps changing sides, so the sum swings around and pushes Dowee off course. That is why the limit (iLimit) and a small Ki matter.' },
     modify: [
-      { text: 'In the <b>Tune</b> tab, set <code class="k">Ki</code> to 0.002 or more and watch the wiggle grow.', check: W => (PQ.num(W, 'Ki') || 0) >= 0.0019 && W.time > 6000 },
+      { text: 'In the <b>Tune</b> tab, set <code class="k">Ki</code> to 5 or more and watch the wiggle grow.', check: W => (PQ.num(W, 'Ki') || 0) >= 5 && W.time > 6000 },
     ],
   },
   apid2: {
     predict: { q: 'What will happen if you press <b>Upload &amp; run</b> before filling in the blanks?', options: ['It won\'t upload: there is a blank to fill', 'Dowee follows the line anyway', 'Dowee drives backwards'], answer: 0, why: 'A program with <code class="k">____</code> in it is not finished, so the compiler stops and tells you which line.' },
     modify: [
-      { text: 'Set <code class="k">Ki</code> to 0.002 or more in the Tune tab and watch the wiggle grow.', check: W => (PQ.num(W, 'Ki') || 0) >= 0.0019 && W.time > 6000 },
+      { text: 'Set <code class="k">Ki</code> to 5 or more in the Tune tab and watch the wiggle grow.', check: W => (PQ.num(W, 'Ki') || 0) >= 5 && W.time > 6000 },
     ],
   },
   apid3: {
-    predict: { q: 'The template only drives straight or turns hard. What will it do before you write the steps?', options: ['Zig-zag along the line, if it stays on at all', 'Race smoothly', 'Not move'], answer: 0, why: 'Without a weighted average and PID it only knows "line far left" or "line far right".' },
+    predict: { q: 'The template only drives straight or turns hard. What will it do before you write the steps?', options: ['Zig-zag along the line, if it stays on at all', 'Race smoothly', 'Not move'], answer: 0, why: 'Until you write calibrate() and readLine(), Dowee has no threshold and no position, so it only knows "line far left" or "line far right" at best.' },
+  },
+  apid4: {
+    predict: { q: 'Each sensor will count as much as it is dark, instead of on or off. What will change?', options: ['Dowee wobbles less', 'Dowee wobbles more', 'Nothing'], answer: 0, why: 'A sensor half over the line reads grey. Counting that grey moves the position smoothly between sensors, instead of in jumps of 0.5.' },
+    investigate: [
+      { q: 'After calibrating, a sensor reads exactly halfway between its white and its black. How dark is it on the 0–1000 scale?', options: ['About 500', '0', '1000'], answer: 0, why: '<code class="k">map(v, minV[i], maxV[i], 0, 1000)</code> turns its white into 0 and its black into 1000, so halfway is 500.' },
+    ],
+    modify: [
+      { text: 'Fill in the TODO, then at baseSpeed 220 or more lap the Oval with less than 4 mm of wiggle.', check: W => (PQ.num(W, 'baseSpeed') || 0) >= 220 && W.state.laps && W.state.laps.some(l => l.rms < 4) },
+    ],
   },
 };
 // Fix-the-bug challenges: Predict what goes wrong, Investigate, then the fix is the goal (Make).
@@ -235,7 +238,7 @@ const BUG_PRIMM = {
   'bug-pinmode': { predict: ['It drives in a curve', 'It drives straight', 'It stays still'], why: 'Without pinMode, IN3 and IN4 can\'t send their signal, so only one motor knows which way to go.', iq: 'What must every pin have before digitalWrite?', io: ['pinMode(pin, OUTPUT) in setup()', 'A delay', 'Serial.begin'] },
   'bug-semicolon': { predict: ['It won\'t upload: there is an error', 'It drives forward and stops', 'It drives backwards'], why: 'One line is missing its semicolon, so the program can\'t be understood.', iq: 'How does almost every line in Arduino C end?', io: ['With a ;', 'With a .', 'With nothing'] },
   'bug-swapped': { predict: ['It turns away from the line', 'It follows the line', 'It stands still'], why: 'The left and right turns are swapped, so every correction goes the wrong way.', iq: 'To turn LEFT, which wheel should be slower?', io: ['The left wheel', 'The right wheel', 'Both the same'] },
-  'bug-equals': { predict: ['It goes round in circles', 'It follows the line', 'It drives straight off'], why: '<code class="k">left = HIGH</code> puts HIGH into left every time, so the first if is always true.', iq: 'What does a single = do?', io: ['Puts a value into a variable', 'Asks if two things are equal', 'Adds two numbers'] },
+  'bug-equals': { predict: ['It goes round in circles', 'It follows the line', 'It drives straight off'], why: '<code class="k">left = 1</code> puts 1 into left every time, so the first if is always true.', iq: 'What does a single = do?', io: ['Puts a value into a variable', 'Asks if two things are equal', 'Adds two numbers'] },
   'bug-sleepy': { predict: ['It misses the turns', 'It follows the line perfectly', 'It doesn\'t move'], why: 'During delay(400) Dowee keeps driving without looking at the line.', iq: 'What does Dowee do during delay(400)?', io: ['Keeps driving without looking', 'Stops and waits', 'Reads the sensors faster'] },
   'bug-threshold': { predict: ['It loses the line', 'It follows the line', 'It drives backwards'], why: 'It checks for numbers smaller than black, but black gives a big number.', iq: 'A sensor on black reads about…', io: ['950: a big number', '100: a small number', '0'] },
   'bug-rc': { predict: ['Forward does nothing', 'Every key works', 'It drives backwards'], why: 'The program waits for a small f, but the controller sends a capital F.', iq: 'Are \'f\' and \'F\' the same letter for the Arduino?', io: ['No, they are different', 'Yes, the same'] },
@@ -260,7 +263,7 @@ const LESSON_PATH = [
   { name: 'Line following', about: 'From a simple follower to a full PID racer.', ids: ['follow', 'pid1', 'pid2', 'pid3', 'pid'], missions: ['line'] },
   { name: 'Remote control', about: 'Drive Dowee over Bluetooth and play soccer.', ids: ['rc', 'soccer'], missions: ['race', 'soccer'] },
   { name: 'Sumo', about: 'Stay in the ring and push the other robot out.', ids: ['edge', 'fight'], missions: ['sumo'] },
-  { name: 'Advanced PID', about: 'Write P, I and D yourself. For confident coders.', ids: ['apid1', 'apid2', 'apid3'], extra: true },
+  { name: 'Advanced PID', about: 'Write P, I and D yourself. For confident coders.', ids: ['apid1', 'apid2', 'apid3', 'apid4'], extra: true },
   { name: 'Fix the bug', about: 'Each program has one mistake. Can you find it?', ids: CHALLENGES.map(c => c.id), extra: true },
 ];
 if (typeof module !== 'undefined') Object.assign(module.exports, { PRIMM, LESSON_PATH, PQ });
