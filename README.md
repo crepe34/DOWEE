@@ -26,6 +26,7 @@ The example programs also run on a real Dowee wired as shown in the Wiring tab.
     - **any pin by number** (or from a variable): `digitalWrite`/`digitalRead`/`analogRead`/`analogWrite`/`pinMode`/`pulseIn` on every pin, so a block program can drive the L298N motor pins itself or trigger the ultrasonic by hand, with `HIGH`/`LOW` as values;
     - the C language parts: `switch`/`case` ("check … is …", with numbers or letters), `do … while`, `? :` ("choose"), bit operators (`&`, `|`, `^`, `<<`, `>>`, `~`), `break`/`continue`;
     - variables with a type (whole number, big whole number `long` for `millis()`, decimal, true/false, text), lists of whole numbers or decimals (fill with `1, 2, 3`, change an item, size), and "make your own block" (functions with inputs and a return value).
+  - **The PID sample** (Line following) waits for a start button on pin 2 (in DOWEE, type `g` in the Serial monitor), calibrates, then follows the line's position (1 to 5) with a PID worked out every 10 ms. It searches for a lost line on the side it was last seen, and drives straight over crossings.
   - **Everything a text program does can be built with blocks.** Every text sample has a complete block translation, including the PID line follower with calibration. `npm test` runs each one next to its text sample and checks they end in the same place and print the same thing, and `npm test` fails if any Arduino function the text editor knows has no block.
   - **The translator is careful:** brackets are kept where they change the result, ÷ divides like a calculator (7 ÷ 2 = 3.5), list items count from 1, variable names are made safe, only the setup a program needs is written, and a warning appears on any block that won't run or that drops a fraction.
   - **Beginner or Full toolbox**, chosen per class. **Turn into code** switches to typed code and keeps the blocks.
@@ -99,7 +100,7 @@ Open `app/index.html` in a browser (keep `app/styles.css` next to it). It works 
 npm run build                 # rebuilds app/ (index.html + styles.css) and server/public/meta.json from src/
 npm test                      # build, simulator checks, and the blocks checks (tools/blocks-check.js, needs Playwright)
 node tools/test.js line       # runs headless simulations (line, sumo, maze, race, soccer, lab, straight)
-node tools/sweep.js real '[[0.08,1.5,150]]'   # tries PID settings (Kp, Kd, speed) across robot units
+node tools/sweep.js real '[[120,1300,240]]'   # tries PID settings (Kp, Kd, speed) of the PID sample across robot units
 npm run loadtest -- 50 60     # fakes a class of 50 students for 60 s against a throwaway server
 ```
 

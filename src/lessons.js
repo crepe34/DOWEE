@@ -52,7 +52,7 @@ const LESSONS = [
     intro: 'The simplest line follower: if the line is on the left, turn left. If it is on the right, turn right. Otherwise go straight.',
     steps: ['Run it. The robot wiggles around the oval.', 'Make <code class="k">speed</code> bigger. At some point it misses the turn — why?', 'Turn on <b>Trail</b> to see the path it really drove.'],
     goal: 'Complete one full lap', check: W => W.state.laps && W.state.laps.length >= 1 },
-  { id: 'pid', title: 'PID 4: Calibrate and race', level: 'PID line follower', arena: 'line', variant: 'snake', example: 'pid',
+  { id: 'pid', title: 'PID 4: Calibrate and race', level: 'PID line follower', arena: 'line', variant: 'snake', code: PID_LESSON_CODE,
     intro: 'You can write P and D now. Real sensors all read a bit differently, so a racing follower first <b>calibrates</b>: it sweeps over the line and learns the darkest and brightest value of each sensor. Then it is time to tune for speed.',
     steps: ['Run it. First Dowee sweeps left and right for 2 seconds: it is <b>calibrating</b>, learning what black and white look like for each of its sensors. The Serial monitor shows what it learned.', 'Open the <b>Tune</b> tab. Move the sliders <b>while the robot drives</b>.', 'Set <code class="k">Kd</code> to 0. What happens to the wiggle? Put it back.', 'Raise <code class="k">baseSpeed</code> and adjust Kp and Kd. Every lap is logged so you can compare.', 'When you are happy, press <b>Write values into code</b>.'],
     goal: 'Lap the Snake track in under 15 seconds', check: W => W.state.laps && W.state.laps.some(l => l.time < 15) },
@@ -212,7 +212,7 @@ const LESSON_TODO = {
 }`),
     hints: ['Look at the <b>Sensors &amp; pins</b> tab: which sensor turns HIGH when the line is on the left?', 'Use <code class="k">&amp;&amp;</code> for "and": <code class="k">if (left == HIGH &amp;&amp; right == LOW) { … }</code>', '<pre>if (left == HIGH &amp;&amp; right == LOW) {\n  drive(0, speed);\n} else if (right == HIGH &amp;&amp; left == LOW) {\n  drive(speed, 0);\n} else {\n  drive(speed, speed);\n}</pre>'],
     steps: ['Read the three <b>TODO</b>s in <code class="k">loop()</code> and write them as <code class="k">if</code> / <code class="k">else if</code> / <code class="k">else</code>.', 'Press <b>Upload &amp; run</b>. Does Dowee follow the oval?', 'Make <code class="k">speed</code> bigger. At some point it misses the turn — why?', 'Turn on <b>Trail</b> to see the path it really drove.'] },
-  pid: { code: EXAMPLES.line.pid.code.replace('  int turn = Kp * error + Kd * (error - lastError);', `  // TODO: work out how hard to turn. Right now turn is 0, so Dowee never steers!
+  pid: { code: PID_LESSON_CODE.replace('  int turn = Kp * error + Kd * (error - lastError);', `  // TODO: work out how hard to turn. Right now turn is 0, so Dowee never steers!
   //   P part: Kp * error              (far from the line = turn harder)
   //   D part: Kd * (error - lastError) (calms the wiggle down)
   //   Add the two parts together.

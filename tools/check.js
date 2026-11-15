@@ -19,14 +19,20 @@ function check(name, fn) {
   catch (e) { failed++; console.log(`  FAIL  ${name} — ${e.message}`); }
 }
 const want = (cond, msg) => { if (!cond) throw new Error(msg); };
+// The PID sample waits for its start button; in the simulator you type g instead.
+const typeG = (W, i) => { if (i === 500) W.deliver(W.robots[0].board, 'g'); };
 const dist = r => Math.hypot(r.x - r.start.x, r.y - r.start.y);
 
 for (const lv of ['ideal', 'real']) {
   console.log(`\n${lv === 'ideal' ? 'Ideal robot (default)' : 'Realistic world'}`);
-  for (const track of ['oval', 'snake', 'figure8']) check(`PID line follower laps ${track}`, () => {
-    const { W } = run('line', track, EXAMPLES.line.pid.code, 45000, { lv });
+  for (const track of ['oval', 'snake', 'figure8']) check(`PID line follower laps ${track} (started with g)`, () => {
+    const { W } = run('line', track, EXAMPLES.line.pid.code, 45000, { lv, onStep: typeG });
     want(W.state.laps.length >= 2, `only ${W.state.laps.length} laps in 45 s`);
     return W.state.laps.map(l => l.time.toFixed(1) + ' s').join(', ');
+  });
+  check('PID line follower waits for the start', () => {
+    const { r } = run('line', 'oval', EXAMPLES.line.pid.code, 5000, { lv });
+    want(r.odo < 0.01, `it drove ${r.odo.toFixed(2)} m before being started`);
   });
   check('2-sensor follower laps the oval', () => {
     const { W } = run('line', 'oval', EXAMPLES.line.bang.code, 60000, { lv });
@@ -69,7 +75,7 @@ for (const [a, t] of Object.entries(M.TEMPLATES)) for (const lv of ['guided', 'b
   run(a, Object.keys(M.ARENAS[a].variants)[0], t[lv], 3000);
 });
 // A reference program for each playground must earn every star it can without a human driving.
-const REF = { line: [EXAMPLES.line.pid.code, EXAMPLES.line.pid.code.replace('int baseSpeed = 150;', 'int baseSpeed = 180;')], sumo: [EXAMPLES.sumo.basic.code], maze: [EXAMPLES.maze.avoid.code, EXAMPLES.maze.avoid.code.replace('int safeDistance = 25;', 'int safeDistance = 30;').replace('int cruise = 200;', 'int cruise = 255;')],
+const REF = { line: [M.PID_LESSON_CODE, M.PID_LESSON_CODE.replace('int baseSpeed = 150;', 'int baseSpeed = 180;')], sumo: [EXAMPLES.sumo.basic.code], maze: [EXAMPLES.maze.avoid.code, EXAMPLES.maze.avoid.code.replace('int safeDistance = 25;', 'int safeDistance = 30;').replace('int cruise = 200;', 'int cruise = 255;')],
   lab: [EXAMPLES.lab.meter.code.replace('int driveTime = 1500;', 'int driveTime = 2150;'), EXAMPLES.lab.turn.code.replace('int turnTime = 400;', 'int turnTime = TT;'), EXAMPLES.lab.blink.code] };
 for (const [a, codes] of Object.entries(REF)) M.TEMPLATES[a].missions.forEach((m, i) => check(`mission ${a} ${i + 1}: ${m.text}`, () => {
   const g = M.GOAL_TYPES[m.goal.type], v = m.variant || Object.keys(M.ARENAS[a].variants)[0];
@@ -203,7 +209,7 @@ console.log('\nPRIMM lessons (Predict, Run, Investigate, Modify, Make)');
     see: { refs: [[sub(E.line.print.code, 'delay(50);', 'delay(500);')]] },
     follow: { refs: [[sub(E.line.bang.code, 'int speed = 150;', 'int speed = 170;')]], todo: [[E.line.bang.code], [sub(E.line.bang.code, 'int speed = 150;', 'int speed = 170;')]] },
     pid1: { refs: [[pidFixed('pid1')]] }, pid2: { refs: [[pidFixed('pid2')]] }, pid3: { refs: [[pidFixed('pid3')]] },
-    pid: { refs: [[sub(E.line.pid.code, 'int baseSpeed = 150;', 'int baseSpeed = 180;')]], todo: [[E.line.pid.code], [sub(E.line.pid.code, 'int baseSpeed = 150;', 'int baseSpeed = 180;')]] },
+    pid: { refs: [[sub(M.PID_LESSON_CODE, 'int baseSpeed = 150;', 'int baseSpeed = 180;')]], todo: [[M.PID_LESSON_CODE], [sub(M.PID_LESSON_CODE, 'int baseSpeed = 150;', 'int baseSpeed = 180;')]] },
     rc: { opts: { onStep: keys([500, 'F'], [4000, 'F']) }, ms: 20000, refs: [[sub(E.race.rc.code, 'int speed = 220;', 'int speed = 150;')]],
       todo: [[E.race.rc.code, { onStep: keys([4000, 'B']) }], [E.race.rc.code, { onStep: keys([4000, 'L'], [7000, 'R']) }]] },
     sonar: { ms: 20000, refs: [[sub(E.maze.avoid.code, 'int safeDistance = 25;', 'int safeDistance = 40;')]], todo: [[E.maze.avoid.code], [E.maze.avoid.code]] },
@@ -245,7 +251,7 @@ console.log('\nPRIMM lessons (Predict, Run, Investigate, Modify, Make)');
 
 console.log('\nRepeatability');
 check('Ideal robot: same code, same result', () => {
-  const a = run('line', 'snake', EXAMPLES.line.pid.code, 30000, { seed: 11 }), b = run('line', 'snake', EXAMPLES.line.pid.code, 30000, { seed: 999 });
+  const a = run('line', 'snake', EXAMPLES.line.pid.code, 30000, { seed: 11, onStep: typeG }), b = run('line', 'snake', EXAMPLES.line.pid.code, 30000, { seed: 999, onStep: typeG });
   const key = x => JSON.stringify([x.W.state.laps, x.r.x.toFixed(9), x.r.y.toFixed(9)]);
   want(key(a) === key(b), 'two ideal runs differ');
   return 'identical laps and final position';

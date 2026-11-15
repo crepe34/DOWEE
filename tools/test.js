@@ -17,7 +17,7 @@ function sim(arena, variant, code, ms, opts={}) {
 const arg = process.argv[2];
 if (arg==='line') {
   for (const v of ['oval','snake','figure8','sharp']) {
-    const res = sim('line', v, EXAMPLES.line.pid.code, 40000);
+    const res = sim('line', v, EXAMPLES.line.pid.code, 40000, { onStep: (W, i) => { if (i === 500) W.deliver(W.robots[0].board, 'g'); } });
     console.log(v, 'laps', res.W.state.laps.map(l=>l.time.toFixed(2)+'s/'+l.rms.toFixed(0)+'mm').join(' '), 'lost', res.W.state.lap.lost, 'real', res.real, 'ms loops', res.r.board.loops, res.hints);
   }
   const res = sim('line','oval',EXAMPLES.line.bang.code, 30000);

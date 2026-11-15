@@ -25,9 +25,9 @@ const PINMODES = `  pinMode(IN1, OUTPUT);
   pinMode(IN3, OUTPUT);
   pinMode(IN4, OUTPUT);`;
 
-const EXAMPLES = {
-  line: {
-    pid: { name: 'PID line follower (5 sensors)', code: `// PID line follower with sensor calibration
+// The PID 4 lesson ("Calibrate and race") builds on PID steps 1-3, which use this program:
+// error from -2000 to 2000, P and D every loop. The sample above it moved on; the lesson keeps this one.
+const PID_LESSON_CODE = `// PID line follower with sensor calibration
 // Five IR sensors on A0 (left) to A4 (right). Higher reading = darker floor.
 // Real sensors all read a bit differently, so Dowee first sweeps over the line
 // and learns the darkest and brightest value each sensor sees.
@@ -105,6 +105,141 @@ void loop() {
   lastError = error;
   drive(baseSpeed + turn, baseSpeed - turn);
   delay(2);
+}
+`;
+const EXAMPLES = {
+  line: {
+    pid: { name: 'PID line follower (5 sensors)', code: `// PID line follower with calibration
+// Five IR sensors on A0 (left) to A4 (right). Higher reading = darker floor.
+// 1. Press the start button on pin 2 (or type g in the Serial monitor).
+// 2. Dowee sweeps over the line and learns the darkest and brightest value each sensor sees.
+// 3. It follows the line with a PID worked out every 10 ms. If the line is lost, it spins
+//    towards where it was last seen. At a crossing, it drives straight over.
+${MOTOR_SETUP}
+
+// ---- Tune these in the Tune tab while the robot drives ----
+float Kp = 120;       // turn harder when far from the line (error 1 = one sensor off centre)
+float Ki = 0;         // the I part: 0 = off (Dowee's motors are matched, so it only adds wobble)
+float Kd = 1300;      // calms the wobble: the change in error over one 10 ms step, times Kd
+int baseSpeed = 240;  // cruising speed, 0-255
+int turnSpeed = 170;  // spin speed when the line is lost
+int sampleMs = 10;    // work out the PID every 10 ms
+
+const int startButton = 2;   // a button between pin 2 and GND: reads LOW while pressed
+
+int minV[5] = {1023, 1023, 1023, 1023, 1023};
+int maxV[5] = {0, 0, 0, 0, 0};
+int onLine[5];        // 1 = this sensor sees the line
+int seen = 0;         // how many sensors see the line
+float position = 3;   // where the line is: 1 (far left) .. 3 (middle) .. 5 (far right)
+
+float lastError = 0;
+float integral = 0;
+char lostSide = 's';  // where the line was last seen at the edge: 'l', 'r', or 's' (not yet)
+unsigned long lastPid = 0;
+
+void setup() {
+${PINMODES}
+  pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(startButton, INPUT_PULLUP);
+  Serial.begin(9600);
+  waitForStart();
+  calibrate();
+}
+
+${DRIVE_FN}
+
+// Wait for the start button (pin 2 goes LOW) or the letter g in the Serial monitor.
+void waitForStart() {
+  Serial.println("Press the button on pin 2, or type g, to start.");
+  while (true) {
+    if (digitalRead(startButton) == LOW) break;
+    if (Serial.available() > 0 && Serial.read() == 'g') break;
+  }
+  Serial.println("Go!");
+}
+
+// Sweep left and right over the line for 2 seconds, remembering min and max.
+void calibrate() {
+  digitalWrite(LED_BUILTIN, HIGH);
+  unsigned long start = millis();
+  while (millis() - start < 2000) {
+    unsigned long t = millis() - start;
+    if (t < 250 || (t >= 750 && t < 1250) || t >= 1750) drive(-120, 120);
+    else drive(120, -120);
+    for (int i = 0; i < 5; i++) {
+      int v = analogRead(A0 + i);
+      if (v < minV[i]) minV[i] = v;
+      if (v > maxV[i]) maxV[i] = v;
+    }
+  }
+  drive(0, 0);
+  for (int i = 0; i < 5; i++) {
+    if (maxV[i] - minV[i] < 100) maxV[i] = minV[i] + 100;   // sensor never saw the line
+    Serial.print(minV[i]);
+    Serial.print("-");
+    Serial.print(maxV[i]);
+    Serial.print(i < 4 ? "  " : "\\n");
+  }
+  digitalWrite(LED_BUILTIN, LOW);
+  delay(300);
+}
+
+// One sensor scaled to 0 (white) .. 1000 (black)
+int readSensor(int i) {
+  long v = map(analogRead(A0 + i), minV[i], maxV[i], 0, 1000);
+  return constrain(v, 0, 1000);
+}
+
+// Reads all 5 sensors: which ones see the line, and where the line is
+// (with fractions in between sensors, like 2.6).
+void readLine() {
+  long weighted = 0;
+  long total = 0;
+  seen = 0;
+  for (int i = 0; i < 5; i++) {
+    int v = readSensor(i);
+    onLine[i] = v > 500 ? 1 : 0;
+    seen += onLine[i];
+    if (v < 100) v = 0;                 // ignore small noise
+    weighted += (long)v * (i + 1);
+    total += v;
+  }
+  if (seen > 0) position = (float)weighted / total;   // no line: keep the last position
+}
+
+void loop() {
+  readLine();
+
+  // Remember which edge sensor saw the line last
+  if (onLine[0] == 1 && onLine[4] == 0) lostSide = 'l';
+  if (onLine[4] == 1 && onLine[0] == 0) lostSide = 'r';
+
+  // Line lost: spin towards where it was last seen until a middle sensor finds it
+  if (seen == 0 && lostSide != 's') {
+    if (lostSide == 'r') drive(turnSpeed, -turnSpeed);
+    else drive(-turnSpeed, turnSpeed);
+    while (onLine[1] == 0 && onLine[2] == 0 && onLine[3] == 0) readLine();
+    lastError = position - 3;
+    return;
+  }
+
+  // A crossing (every sensor sees black): drive straight over it
+  if (seen == 5) {
+    drive(baseSpeed, baseSpeed);
+    while (seen == 5) readLine();
+    return;
+  }
+
+  // The PID, every sampleMs milliseconds
+  if (millis() - lastPid >= sampleMs) {
+    lastPid = millis();
+    float error = position - 3;            // + means the line is to the RIGHT
+    integral = constrain(integral + error, -40, 40);   // anti-windup
+    float turn = Kp * error + Ki * integral + Kd * (error - lastError);
+    lastError = error;
+    drive(baseSpeed + turn, baseSpeed - turn);
+  }
 }
 ` },
     bang: { name: 'Simple 2-sensor follower', code: `// Beginner line follower: uses only the two outer-middle sensors.
@@ -353,4 +488,4 @@ void loop() {
 };
 EXAMPLES.soccer.rc = { ...EXAMPLES.race.rc, name: 'Bluetooth RC (soccer)' };
 const DEFAULT_EXAMPLE = { line: 'pid', race: 'rc', soccer: 'rc', sumo: 'basic', maze: 'avoid', lab: 'meter' };
-if (typeof module !== 'undefined') module.exports.EXAMPLES = EXAMPLES;
+if (typeof module !== 'undefined') { module.exports.EXAMPLES = EXAMPLES; module.exports.PID_LESSON_CODE = PID_LESSON_CODE; }

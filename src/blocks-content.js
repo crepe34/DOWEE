@@ -33,6 +33,7 @@ const X = {
   vt: new Map([['vc', 'int'], ['vb', 'int'], ['ve', 'int'], ['vt', 'float'], ['vd', 'int'], ['vs', 'int'],
     ['kp', 'float'], ['kd', 'float'], ['bs', 'int'], ['le', 'float'], ['er', 'float'], ['tu', 'float'], ['mn', 'list'], ['mx', 'list'], ['vv', 'int'], ['st', 'long'], ['tt', 'long'], ['ww', 'int'], ['to', 'int'],
     ['ts', 'int'], ['tm', 'int'], ['cm', 'int'], ['tx', 'String'], ['sp', 'int'],
+    ['ki', 'float'], ['smp', 'int'], ['sb', 'int'], ['ol', 'list'], ['sn', 'int'], ['ps', 'float'], ['ig', 'float'], ['ls', 'int'], ['lp', 'long'], ['wl', 'long'], ['tl', 'long'],
     ['lf', 'int'], ['rt', 'int'], ['el', 'int'], ['ar', 'int'], ['ss', 'int'], ['dl', 'long'], ['sd', 'int'], ['cr', 'int'], ['dt', 'int'], ['ch', 'int']]),
   vars: list => (list.length ? `<variables>${list.map(([id, name, type]) => `<variable type="${type || ''}" id="${id}">${name}</variable>`).join('')}</variables>` : ''),
   f: (id, name) => `<field name="VAR" id="${id}" variabletype="${X.vt.get(id) || ''}">${name}</field>`,
@@ -137,48 +138,82 @@ const FULL = {
       XB.ms(30)), { vars: [['sd', 'safeDistance', 'int'], ['cr', 'cruise', 'int'], ['dl', 'd', 'long']] });
   },
 };
-// The PID line follower with calibration, the same program as the text example (line/pid), made of blocks.
+// The PID line follower with calibration: the same program as the text example (line/pid), made of blocks.
 function pidBlocks() {
   const g = (id, nm) => X.get(id, nm), i = g('i', 'i'), n = g('pn', 'n');
-  const mn = k => XB.item('mn', 'minV', k), mx = k => XB.item('mx', 'maxV', k);
+  const mn = k => XB.item('mn', 'minV', k), mx = k => XB.item('mx', 'maxV', k), on = k => XB.item('ol', 'onLine', k);
+  const L = c => B('dowee_char', { f: { L: c } }), eq = (a, b) => X.cmp('EQ', a, b), and2 = (a, b) => XB.and(a, b);
+  const whileDo = (cond, body) => B('controls_whileUntil', { f: { MODE: 'WHILE' }, v: { BOOL: cond }, s: { DO: body } });
+  const brk = () => '<block type="controls_flow_statements"><field name="FLOW">BREAK</field></block>';
+  const set = (id, nm, v) => X.set(id, nm, v), change = (id, nm, d) => B('dowee_var_change', { f: { VAR: X.f(id, nm) }, v: { DELTA: d } });
+  const err = () => X.arith('MINUS', g('ps', 'position'), 3);
+  const waitForStart = X.defn('waitForStart', seq(
+    X.print(XB.text('Press the button on pin 2, or type g, to start.')),
+    whileDo(B('logic_boolean', { f: { BOOL: 'TRUE' } }), seq(
+      X.ifs([[eq(B('dowee_dread', { v: { PIN: g('sb', 'startButton') } }), B('dowee_hilo', { f: { V: 'LOW' } })), brk()]]),
+      X.ifs([[and2(B('dowee_serial_has'), eq(B('dowee_serial_read', { f: { OP: 'read' } }), L('g'))), brk()]]))),
+    X.print(XB.text('Go!'))), 360);
   const calibrate = X.defn('calibrate', seq(
     XB.forI('i', 1, 5, seq(XB.setItem('mn', 'minV', i, 1023), XB.setItem('mx', 'maxV', i, 0))),
     X.led('HIGH'),
-    X.set('st', 'start', XB.millis()),
-    B('controls_whileUntil', { f: { MODE: 'WHILE' }, v: { BOOL: X.lt(X.arith('MINUS', XB.millis(), g('st', 'start')), 2000) }, s: { DO: seq(
-      X.set('tt', 't', X.arith('MINUS', XB.millis(), g('st', 'start'))),
-      X.ifs([[X.or(X.or(X.lt(g('tt', 't'), 250), XB.and(X.cmp('GTE', g('tt', 't'), 750), X.lt(g('tt', 't'), 1250))), X.cmp('GTE', g('tt', 't'), 1750)), X.motors(-120, 120)]], X.motors(120, -120)),
+    set('st', 'start', XB.millis()),
+    whileDo(X.lt(X.arith('MINUS', XB.millis(), g('st', 'start')), 2000), seq(
+      set('tt', 't', X.arith('MINUS', XB.millis(), g('st', 'start'))),
+      X.ifs([[X.or(X.or(X.lt(g('tt', 't'), 250), and2(X.cmp('GTE', g('tt', 't'), 750), X.lt(g('tt', 't'), 1250))), X.cmp('GTE', g('tt', 't'), 1750)), X.motors(-120, 120)]], X.motors(120, -120)),
       XB.forI('i', 1, 5, seq(
-        X.set('vv', 'v', XB.sensorN(i)),
+        set('vv', 'v', XB.sensorN(i)),
         X.ifs([[X.lt(g('vv', 'v'), mn(i)), XB.setItem('mn', 'minV', i, g('vv', 'v'))]]),
-        X.ifs([[X.cmp('GT', g('vv', 'v'), mx(i)), XB.setItem('mx', 'maxV', i, g('vv', 'v'))]]))),
-    ) } }),
+        X.ifs([[X.cmp('GT', g('vv', 'v'), mx(i)), XB.setItem('mx', 'maxV', i, g('vv', 'v'))]]))))),
     X.stop(),
     // a sensor that never saw the line gets a range of 100; then show each sensor's range in the Serial monitor
     XB.forI('i', 1, 5, seq(X.ifs([[X.lt(X.arith('MINUS', mx(i), mn(i)), 100), XB.setItem('mx', 'maxV', i, X.arith('ADD', mn(i), 100))]]),
       XB.print(mn(i)), XB.print(XB.text('-')), XB.print(mx(i)), X.ifs([[X.lt(i, 5), XB.print(XB.text('  '))]], X.print(XB.text(''))))),
     X.led('LOW'),
-    XB.ms(300)), 520);
-  const readSensor = XB.defr('readSensor', [['pn', 'n']], '', B('math_constrain', { v: { VALUE: B('dowee_map', { v: { V: XB.sensorN(n), FL: mn(n), FH: mx(n), TL: 0, TH: 1000 } }), LOW: 0, HIGH: 1000 } }), 1180);
-  const readLine = XB.defr('readLine', [], seq(
-    X.set('ww', 'weighted', 0), X.set('to', 'total', 0),
+    XB.ms(300)), 700);
+  // one sensor scaled to 0 (white) .. 1000 (black)
+  const readSensor = XB.defr('readSensor', [['pn', 'n']], '', B('math_constrain', { v: { VALUE: B('dowee_map', { v: { V: XB.sensorN(n), FL: mn(n), FH: mx(n), TL: 0, TH: 1000 } }), LOW: 0, HIGH: 1000 } }), 1300);
+  // which sensors see the line, and where the line is (1 far left .. 3 middle .. 5 far right)
+  const readLine = X.defn('readLine', seq(
+    set('wl', 'weighted', 0), set('tl', 'total', 0), set('sn', 'seen', 0),
     XB.forI('i', 1, 5, seq(
-      X.set('vv', 'v', XB.callr('readSensor', [['n', i]])),
-      X.ifs([[X.lt(g('vv', 'v'), 100), X.set('vv', 'v', 0)]]),
-      B('dowee_var_change', { f: { VAR: X.f('ww', 'weighted') }, v: { DELTA: X.arith('MULTIPLY', g('vv', 'v'), X.arith('MINUS', i, 3)) } }),
-      B('dowee_var_change', { f: { VAR: X.f('to', 'total') }, v: { DELTA: g('vv', 'v') } }))),
-    // line lost: keep turning the way we last saw it
-    B('procedures_ifreturn', { m: '<mutation value="1"></mutation>', v: { CONDITION: X.lt(g('to', 'total'), 300), VALUE: B('logic_ternary', { v: { IF: X.cmp('GT', g('le', 'lastError'), 0), THEN: 2000, ELSE: -2000 } }) } })),
-    X.arith('MULTIPLY', X.arith('DIVIDE', g('ww', 'weighted'), g('to', 'total')), 1000), 1300);
+      set('vv', 'v', XB.callr('readSensor', [['n', i]])),
+      XB.setItem('ol', 'onLine', i, B('logic_ternary', { v: { IF: X.cmp('GT', g('vv', 'v'), 500), THEN: 1, ELSE: 0 } })),
+      change('sn', 'seen', on(i)),
+      X.ifs([[X.lt(g('vv', 'v'), 100), set('vv', 'v', 0)]]),
+      change('wl', 'weighted', X.arith('MULTIPLY', g('vv', 'v'), i)),
+      change('tl', 'total', g('vv', 'v')))),
+    X.ifs([[X.cmp('GT', g('sn', 'seen'), 0), set('ps', 'position', X.arith('DIVIDE', g('wl', 'weighted'), g('tl', 'total')))]])), 1420);
+  const ts = () => g('ts', 'turnSpeed'), bs = () => g('bs', 'baseSpeed');
   return X.prog(
-    seq(X.set('kp', 'Kp', 0.08), X.set('kd', 'Kd', 1.5), X.set('bs', 'baseSpeed', 150), X.call('calibrate')),
-    seq(X.set('er', 'error', XB.callr('readLine', [])),
-      X.set('tu', 'turn', X.arith('ADD', X.arith('MULTIPLY', g('kp', 'Kp'), g('er', 'error')), X.arith('MULTIPLY', g('kd', 'Kd'), X.arith('MINUS', g('er', 'error'), g('le', 'lastError'))))),
-      X.set('le', 'lastError', g('er', 'error')),
-      X.motors(X.arith('ADD', g('bs', 'baseSpeed'), g('tu', 'turn')), X.arith('MINUS', g('bs', 'baseSpeed'), g('tu', 'turn'))),
-      XB.ms(2)),
-    { vars: [['kp', 'Kp', 'float'], ['kd', 'Kd', 'float'], ['bs', 'baseSpeed', 'int'], ['le', 'lastError', 'float'], ['er', 'error', 'float'], ['tu', 'turn', 'float'], ['mn', 'minV', 'list'], ['mx', 'maxV', 'list'],
-      ['i', 'i', ''], ['vv', 'v', 'int'], ['st', 'start', 'long'], ['tt', 't', 'long'], ['ww', 'weighted', 'int'], ['to', 'total', 'int'], ['pn', 'n', '']], extra: calibrate + readSensor + readLine });
+    seq(set('kp', 'Kp', 120), set('ki', 'Ki', 0), set('kd', 'Kd', 1300), set('bs', 'baseSpeed', 240), set('ts', 'turnSpeed', 170), set('smp', 'sampleMs', 10),
+      set('sb', 'startButton', 2), set('ps', 'position', 3), set('ls', 'lostSide', L('s')),
+      B('dowee_pmode', { f: { MODE: 'INPUT_PULLUP' }, v: { PIN: g('sb', 'startButton') } }),
+      X.call('waitForStart'), X.call('calibrate')),
+    seq(X.call('readLine'),
+      // remember which edge sensor saw the line last
+      X.ifs([[and2(eq(on(1), 1), eq(on(5), 0)), set('ls', 'lostSide', L('l'))]]),
+      X.ifs([[and2(eq(on(5), 1), eq(on(1), 0)), set('ls', 'lostSide', L('r'))]]),
+      X.ifs([
+        // line lost: spin towards where it was last seen until a middle sensor finds it
+        [and2(eq(g('sn', 'seen'), 0), X.cmp('NEQ', g('ls', 'lostSide'), L('s'))), seq(
+          X.ifs([[eq(g('ls', 'lostSide'), L('r')), X.motors(ts(), neg(ts()))]], X.motors(neg(ts()), ts())),
+          whileDo(and2(and2(eq(on(2), 0), eq(on(3), 0)), eq(on(4), 0)), X.call('readLine')),
+          set('le', 'lastError', err()))],
+        // a crossing (every sensor sees black): drive straight over it
+        [eq(g('sn', 'seen'), 5), seq(X.motors(bs(), bs()), whileDo(eq(g('sn', 'seen'), 5), X.call('readLine')))],
+        // the PID, every sampleMs milliseconds
+        [X.cmp('GTE', X.arith('MINUS', XB.millis(), g('lp', 'lastPid')), g('smp', 'sampleMs')), seq(
+          set('lp', 'lastPid', XB.millis()),
+          set('er', 'error', err()),
+          set('ig', 'integral', B('math_constrain', { v: { VALUE: X.arith('ADD', g('ig', 'integral'), g('er', 'error')), LOW: -40, HIGH: 40 } })),
+          set('tu', 'turn', X.arith('ADD', X.arith('ADD', X.arith('MULTIPLY', g('kp', 'Kp'), g('er', 'error')), X.arith('MULTIPLY', g('ki', 'Ki'), g('ig', 'integral'))),
+            X.arith('MULTIPLY', g('kd', 'Kd'), X.arith('MINUS', g('er', 'error'), g('le', 'lastError'))))),
+          set('le', 'lastError', g('er', 'error')),
+          X.motors(X.arith('ADD', bs(), g('tu', 'turn')), X.arith('MINUS', bs(), g('tu', 'turn'))))]])),
+    { vars: [['kp', 'Kp', 'float'], ['ki', 'Ki', 'float'], ['kd', 'Kd', 'float'], ['bs', 'baseSpeed', 'int'], ['ts', 'turnSpeed', 'int'], ['smp', 'sampleMs', 'int'], ['sb', 'startButton', 'int'],
+      ['mn', 'minV', 'list'], ['mx', 'maxV', 'list'], ['ol', 'onLine', 'list'], ['sn', 'seen', 'int'], ['ps', 'position', 'float'], ['le', 'lastError', 'float'], ['ig', 'integral', 'float'],
+      ['ls', 'lostSide', 'int'], ['lp', 'lastPid', 'long'], ['er', 'error', 'float'], ['tu', 'turn', 'float'], ['i', 'i', ''], ['vv', 'v', 'int'], ['st', 'start', 'long'], ['tt', 't', 'long'],
+      ['wl', 'weighted', 'long'], ['tl', 'total', 'long'], ['pn', 'n', '']], extra: waitForStart + calibrate + readSensor + readLine });
 }
 const BX = {
   rc: () => X.prog('', X.btRead(X.ifs([[X.bt('F'), X.move('F', 220)], [X.bt('B'), X.move('B', 220)], [X.bt('L'), X.move('SL', 130)], [X.bt('R'), X.move('SR', 130)], [X.bt('G'), X.move('TL', 220)], [X.bt('I'), X.move('TR', 220)], [X.bt('S'), X.stop()]]))),

@@ -7,7 +7,7 @@ DOWEE is a virtual robotics lab for teaching kids aged 9–20. Students program 
 - `npm run build`: rebuilds the simulator into `app/` (`index.html` + `styles.css`) and `server/public/meta.json` from `src/`. Run it after every change in `src/`. Never edit `app/` by hand.
 - `npm start`: starts the classroom server (`--port`, `--data <folder>`, `--no-open`). The teacher dashboard is at `http://localhost:8080/teacher`.
 - `npm test`: the build, the headless simulator checks (`tools/check.js`) and the blocks checks (`tools/blocks-check.js`). The blocks checks use Playwright when it can be loaded, and are skipped otherwise. `node tools/test.js <line|sumo|maze|race|soccer|lab|straight>` with `LV=ideal|real|tough`.
-- `node tools/sweep.js real '[[Kp,Kd,speed]]'`: tries PID settings across robot units.
+- `node tools/sweep.js real '[[Kp,Kd,speed]]'`: tries PID settings of the PID sample (defaults 120, 1300, 240) across robot units.
 - `npm run loadtest -- <students> <seconds> <busy>`: fakes a class against a throwaway server (`tools/load-test.js`) and reports request times, hand/handout delays, Wi-Fi traffic, CPU and memory. Run it after changing the server's live updates.
 
 ## How it fits together
@@ -89,6 +89,7 @@ Done:
 - The examples menu (`fillExamples(others)` in `src/ui.js`) lists only the current playground's samples; "More from other playgrounds…" lists the rest, and picking one opens its playground first (`goToSampleArena`).
 - Students write their own code (`samplesLocked()` in `src/ui.js`): in a class, students (and guests) start from the class's template (Guided or Blank, set by the teacher) and only see the samples the teacher unlocked (`settings.unlocked`) or sent. Built-in lessons give them a TODO version (`todo` in `src/lessons.js`). The teacher and solo/offline use keep every sample.
 - Missions with stars and the hint ladder in the Lessons tab. Stars and hint use are reported to the teacher (`/api/stars`, `/api/hint`); the roster, Results and CSV show them. The teacher can turn hints off (`settings.hints`).
+- The PID sample (`EXAMPLES.line.pid`) waits for a start (button on pin 2 = LOW, or `g` typed in the Serial monitor; tests deliver `g` at 500 ms), calibrates, then runs a PID every `sampleMs` (10 ms) on the line position 1–5 (set point 3), with a lost-line search towards `lostSide` and driving straight over crossings. Kp 120, Ki 0, Kd 1300, baseSpeed 240. It came from a teacher's own program. The PID 4 lesson keeps the older sample as `PID_LESSON_CODE` (in `examples.js`), because PID steps 1–3 build towards that one (error −2000…2000, P and D every loop).
 - PID path (`PID_LESSONS` in `src/lessons.js`): pid1 the weighted-average error, pid2 P, pid3 D, then pid (calibrate and race). Each step's goal is out of reach for the step before; `npm test` checks the starters fail and the finished steps pass. New line follower classes get all four in their plan.
 - Advanced PID (`src/advanced-pid.js`, after `lessons.js` in the build):
   - apid1: worksheet with blank boxes (`PIDI_FULL` with `{{n}}`, `PID_BLANKS`, `canonAnswer`);

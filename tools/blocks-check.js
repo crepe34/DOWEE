@@ -87,7 +87,7 @@ function serialOf(code, ms = 300) {
 const RC_KEYS = [[300, 'F'], [900, '5'], [1200, 'L'], [1700, 'q'], [1900, 'G'], [2500, 'H'], [3000, 'R'], [3400, 'J'], [3900, '0'], [4000, 'B'], [4600, 'I'], [5200, 'S']];
 const SAME = [
   ['lab/blink', 'lab/blink', 'lab', 3000], ['lab/meterfull', 'lab/meter', 'lab', 4000], ['lab/turn', 'lab/turn', 'lab', 3000],
-  ['line/bang', 'line/bang', 'oval', 20000], ['line/print', 'line/print', 'oval', 1000], ['line/pid', 'line/pid', 'oval', 30000, [], true],
+  ['line/bang', 'line/bang', 'oval', 20000], ['line/print', 'line/print', 'oval', 1000], ['line/pid', 'line/pid', 'snake', 20000, [[500, 'g']]],
   ['race/rcfull', 'race/rc', 'none', 6000, RC_KEYS], ['soccer/rcfull', 'soccer/rc', 'easy', 6000, RC_KEYS],
   ['sumo/full', 'sumo/basic', 'statue', 30000], ['maze/avoidfull', 'maze/avoid', 'room1', 20000],
 ];
@@ -138,7 +138,7 @@ const EXPECT = {
     pins: ['lab', 4000, W => still(W) && Math.hypot(W.robots[0].x - W.robots[0].start.x, W.robots[0].y - W.robots[0].start.y) > 0.5],
   },
   line: { follow2: ['oval', 60000, lap], follow3: ['oval', 60000, lap], pfollow: ['oval', 60000, lap], blinkfollow: ['oval', 60000, W => lap(W) && W.robots[0].board.ledToggles >= 10],
-    pid: ['oval', 60000, lap], bang: ['oval', 60000, lap], print: ['oval', 2000, W => W.robots[0].board.serialLines >= 20] },
+    pid: ['oval', 60000, lap, { onStep: keys([500, 'g']) }], bang: ['oval', 60000, lap], print: ['oval', 2000, W => W.robots[0].board.serialLines >= 20] },
   maze: { avoidfull: ['room1', 40000, W => W.robots[0].odo > 3], avoid: ['room1', 40000, W => W.robots[0].odo > 3], cautious: ['room1', 40000, W => W.robots[0].odo > 2] },
   sumo: { basic: ['statue', 60000, W => W.state.result === 'A', { until: W => W.state.over }], full: ['statue', 60000, W => W.state.result === 'A', { until: W => W.state.over }] },
   race: { rc: ['none', 6000, W => W.robots[0].odo > 0.3, { onStep: keys([3500, 'F']) }], rcswitch: ['none', 6000, W => W.robots[0].odo > 0.3, { onStep: keys([3500, 'F']) }], rcfull: ['none', 6000, W => W.robots[0].odo > 0.3, { onStep: keys([3500, 'F']) }] },

@@ -4522,9 +4522,9 @@ const PINMODES = `  pinMode(IN1, OUTPUT);
   pinMode(IN3, OUTPUT);
   pinMode(IN4, OUTPUT);`;
 
-const EXAMPLES = {
-  line: {
-    pid: { name: 'PID line follower (5 sensors)', code: `// PID line follower with sensor calibration
+// The PID 4 lesson ("Calibrate and race") builds on PID steps 1-3, which use this program:
+// error from -2000 to 2000, P and D every loop. The sample above it moved on; the lesson keeps this one.
+const PID_LESSON_CODE = `// PID line follower with sensor calibration
 // Five IR sensors on A0 (left) to A4 (right). Higher reading = darker floor.
 // Real sensors all read a bit differently, so Dowee first sweeps over the line
 // and learns the darkest and brightest value each sensor sees.
@@ -4602,6 +4602,141 @@ void loop() {
   lastError = error;
   drive(baseSpeed + turn, baseSpeed - turn);
   delay(2);
+}
+`;
+const EXAMPLES = {
+  line: {
+    pid: { name: 'PID line follower (5 sensors)', code: `// PID line follower with calibration
+// Five IR sensors on A0 (left) to A4 (right). Higher reading = darker floor.
+// 1. Press the start button on pin 2 (or type g in the Serial monitor).
+// 2. Dowee sweeps over the line and learns the darkest and brightest value each sensor sees.
+// 3. It follows the line with a PID worked out every 10 ms. If the line is lost, it spins
+//    towards where it was last seen. At a crossing, it drives straight over.
+${MOTOR_SETUP}
+
+// ---- Tune these in the Tune tab while the robot drives ----
+float Kp = 120;       // turn harder when far from the line (error 1 = one sensor off centre)
+float Ki = 0;         // the I part: 0 = off (Dowee's motors are matched, so it only adds wobble)
+float Kd = 1300;      // calms the wobble: the change in error over one 10 ms step, times Kd
+int baseSpeed = 240;  // cruising speed, 0-255
+int turnSpeed = 170;  // spin speed when the line is lost
+int sampleMs = 10;    // work out the PID every 10 ms
+
+const int startButton = 2;   // a button between pin 2 and GND: reads LOW while pressed
+
+int minV[5] = {1023, 1023, 1023, 1023, 1023};
+int maxV[5] = {0, 0, 0, 0, 0};
+int onLine[5];        // 1 = this sensor sees the line
+int seen = 0;         // how many sensors see the line
+float position = 3;   // where the line is: 1 (far left) .. 3 (middle) .. 5 (far right)
+
+float lastError = 0;
+float integral = 0;
+char lostSide = 's';  // where the line was last seen at the edge: 'l', 'r', or 's' (not yet)
+unsigned long lastPid = 0;
+
+void setup() {
+${PINMODES}
+  pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(startButton, INPUT_PULLUP);
+  Serial.begin(9600);
+  waitForStart();
+  calibrate();
+}
+
+${DRIVE_FN}
+
+// Wait for the start button (pin 2 goes LOW) or the letter g in the Serial monitor.
+void waitForStart() {
+  Serial.println("Press the button on pin 2, or type g, to start.");
+  while (true) {
+    if (digitalRead(startButton) == LOW) break;
+    if (Serial.available() > 0 && Serial.read() == 'g') break;
+  }
+  Serial.println("Go!");
+}
+
+// Sweep left and right over the line for 2 seconds, remembering min and max.
+void calibrate() {
+  digitalWrite(LED_BUILTIN, HIGH);
+  unsigned long start = millis();
+  while (millis() - start < 2000) {
+    unsigned long t = millis() - start;
+    if (t < 250 || (t >= 750 && t < 1250) || t >= 1750) drive(-120, 120);
+    else drive(120, -120);
+    for (int i = 0; i < 5; i++) {
+      int v = analogRead(A0 + i);
+      if (v < minV[i]) minV[i] = v;
+      if (v > maxV[i]) maxV[i] = v;
+    }
+  }
+  drive(0, 0);
+  for (int i = 0; i < 5; i++) {
+    if (maxV[i] - minV[i] < 100) maxV[i] = minV[i] + 100;   // sensor never saw the line
+    Serial.print(minV[i]);
+    Serial.print("-");
+    Serial.print(maxV[i]);
+    Serial.print(i < 4 ? "  " : "\\n");
+  }
+  digitalWrite(LED_BUILTIN, LOW);
+  delay(300);
+}
+
+// One sensor scaled to 0 (white) .. 1000 (black)
+int readSensor(int i) {
+  long v = map(analogRead(A0 + i), minV[i], maxV[i], 0, 1000);
+  return constrain(v, 0, 1000);
+}
+
+// Reads all 5 sensors: which ones see the line, and where the line is
+// (with fractions in between sensors, like 2.6).
+void readLine() {
+  long weighted = 0;
+  long total = 0;
+  seen = 0;
+  for (int i = 0; i < 5; i++) {
+    int v = readSensor(i);
+    onLine[i] = v > 500 ? 1 : 0;
+    seen += onLine[i];
+    if (v < 100) v = 0;                 // ignore small noise
+    weighted += (long)v * (i + 1);
+    total += v;
+  }
+  if (seen > 0) position = (float)weighted / total;   // no line: keep the last position
+}
+
+void loop() {
+  readLine();
+
+  // Remember which edge sensor saw the line last
+  if (onLine[0] == 1 && onLine[4] == 0) lostSide = 'l';
+  if (onLine[4] == 1 && onLine[0] == 0) lostSide = 'r';
+
+  // Line lost: spin towards where it was last seen until a middle sensor finds it
+  if (seen == 0 && lostSide != 's') {
+    if (lostSide == 'r') drive(turnSpeed, -turnSpeed);
+    else drive(-turnSpeed, turnSpeed);
+    while (onLine[1] == 0 && onLine[2] == 0 && onLine[3] == 0) readLine();
+    lastError = position - 3;
+    return;
+  }
+
+  // A crossing (every sensor sees black): drive straight over it
+  if (seen == 5) {
+    drive(baseSpeed, baseSpeed);
+    while (seen == 5) readLine();
+    return;
+  }
+
+  // The PID, every sampleMs milliseconds
+  if (millis() - lastPid >= sampleMs) {
+    lastPid = millis();
+    float error = position - 3;            // + means the line is to the RIGHT
+    integral = constrain(integral + error, -40, 40);   // anti-windup
+    float turn = Kp * error + Ki * integral + Kd * (error - lastError);
+    lastError = error;
+    drive(baseSpeed + turn, baseSpeed - turn);
+  }
 }
 ` },
     bang: { name: 'Simple 2-sensor follower', code: `// Beginner line follower: uses only the two outer-middle sensors.
@@ -4850,7 +4985,7 @@ void loop() {
 };
 EXAMPLES.soccer.rc = { ...EXAMPLES.race.rc, name: 'Bluetooth RC (soccer)' };
 const DEFAULT_EXAMPLE = { line: 'pid', race: 'rc', soccer: 'rc', sumo: 'basic', maze: 'avoid', lab: 'meter' };
-if (typeof module !== 'undefined') module.exports.EXAMPLES = EXAMPLES;
+if (typeof module !== 'undefined') { module.exports.EXAMPLES = EXAMPLES; module.exports.PID_LESSON_CODE = PID_LESSON_CODE; }
 
 /* =====================================================================
    Student templates: the starting program for each playground when a
@@ -5352,7 +5487,7 @@ const LESSONS = [
     intro: 'The simplest line follower: if the line is on the left, turn left. If it is on the right, turn right. Otherwise go straight.',
     steps: ['Run it. The robot wiggles around the oval.', 'Make <code class="k">speed</code> bigger. At some point it misses the turn — why?', 'Turn on <b>Trail</b> to see the path it really drove.'],
     goal: 'Complete one full lap', check: W => W.state.laps && W.state.laps.length >= 1 },
-  { id: 'pid', title: 'PID 4: Calibrate and race', level: 'PID line follower', arena: 'line', variant: 'snake', example: 'pid',
+  { id: 'pid', title: 'PID 4: Calibrate and race', level: 'PID line follower', arena: 'line', variant: 'snake', code: PID_LESSON_CODE,
     intro: 'You can write P and D now. Real sensors all read a bit differently, so a racing follower first <b>calibrates</b>: it sweeps over the line and learns the darkest and brightest value of each sensor. Then it is time to tune for speed.',
     steps: ['Run it. First Dowee sweeps left and right for 2 seconds: it is <b>calibrating</b>, learning what black and white look like for each of its sensors. The Serial monitor shows what it learned.', 'Open the <b>Tune</b> tab. Move the sliders <b>while the robot drives</b>.', 'Set <code class="k">Kd</code> to 0. What happens to the wiggle? Put it back.', 'Raise <code class="k">baseSpeed</code> and adjust Kp and Kd. Every lap is logged so you can compare.', 'When you are happy, press <b>Write values into code</b>.'],
     goal: 'Lap the Snake track in under 15 seconds', check: W => W.state.laps && W.state.laps.some(l => l.time < 15) },
@@ -5512,7 +5647,7 @@ const LESSON_TODO = {
 }`),
     hints: ['Look at the <b>Sensors &amp; pins</b> tab: which sensor turns HIGH when the line is on the left?', 'Use <code class="k">&amp;&amp;</code> for "and": <code class="k">if (left == HIGH &amp;&amp; right == LOW) { … }</code>', '<pre>if (left == HIGH &amp;&amp; right == LOW) {\n  drive(0, speed);\n} else if (right == HIGH &amp;&amp; left == LOW) {\n  drive(speed, 0);\n} else {\n  drive(speed, speed);\n}</pre>'],
     steps: ['Read the three <b>TODO</b>s in <code class="k">loop()</code> and write them as <code class="k">if</code> / <code class="k">else if</code> / <code class="k">else</code>.', 'Press <b>Upload &amp; run</b>. Does Dowee follow the oval?', 'Make <code class="k">speed</code> bigger. At some point it misses the turn — why?', 'Turn on <b>Trail</b> to see the path it really drove.'] },
-  pid: { code: EXAMPLES.line.pid.code.replace('  int turn = Kp * error + Kd * (error - lastError);', `  // TODO: work out how hard to turn. Right now turn is 0, so Dowee never steers!
+  pid: { code: PID_LESSON_CODE.replace('  int turn = Kp * error + Kd * (error - lastError);', `  // TODO: work out how hard to turn. Right now turn is 0, so Dowee never steers!
   //   P part: Kp * error              (far from the line = turn harder)
   //   D part: Kd * (error - lastError) (calms the wiggle down)
   //   Add the two parts together.
@@ -6074,6 +6209,7 @@ const X = {
   vt: new Map([['vc', 'int'], ['vb', 'int'], ['ve', 'int'], ['vt', 'float'], ['vd', 'int'], ['vs', 'int'],
     ['kp', 'float'], ['kd', 'float'], ['bs', 'int'], ['le', 'float'], ['er', 'float'], ['tu', 'float'], ['mn', 'list'], ['mx', 'list'], ['vv', 'int'], ['st', 'long'], ['tt', 'long'], ['ww', 'int'], ['to', 'int'],
     ['ts', 'int'], ['tm', 'int'], ['cm', 'int'], ['tx', 'String'], ['sp', 'int'],
+    ['ki', 'float'], ['smp', 'int'], ['sb', 'int'], ['ol', 'list'], ['sn', 'int'], ['ps', 'float'], ['ig', 'float'], ['ls', 'int'], ['lp', 'long'], ['wl', 'long'], ['tl', 'long'],
     ['lf', 'int'], ['rt', 'int'], ['el', 'int'], ['ar', 'int'], ['ss', 'int'], ['dl', 'long'], ['sd', 'int'], ['cr', 'int'], ['dt', 'int'], ['ch', 'int']]),
   vars: list => (list.length ? `<variables>${list.map(([id, name, type]) => `<variable type="${type || ''}" id="${id}">${name}</variable>`).join('')}</variables>` : ''),
   f: (id, name) => `<field name="VAR" id="${id}" variabletype="${X.vt.get(id) || ''}">${name}</field>`,
@@ -6178,48 +6314,82 @@ const FULL = {
       XB.ms(30)), { vars: [['sd', 'safeDistance', 'int'], ['cr', 'cruise', 'int'], ['dl', 'd', 'long']] });
   },
 };
-// The PID line follower with calibration, the same program as the text example (line/pid), made of blocks.
+// The PID line follower with calibration: the same program as the text example (line/pid), made of blocks.
 function pidBlocks() {
   const g = (id, nm) => X.get(id, nm), i = g('i', 'i'), n = g('pn', 'n');
-  const mn = k => XB.item('mn', 'minV', k), mx = k => XB.item('mx', 'maxV', k);
+  const mn = k => XB.item('mn', 'minV', k), mx = k => XB.item('mx', 'maxV', k), on = k => XB.item('ol', 'onLine', k);
+  const L = c => B('dowee_char', { f: { L: c } }), eq = (a, b) => X.cmp('EQ', a, b), and2 = (a, b) => XB.and(a, b);
+  const whileDo = (cond, body) => B('controls_whileUntil', { f: { MODE: 'WHILE' }, v: { BOOL: cond }, s: { DO: body } });
+  const brk = () => '<block type="controls_flow_statements"><field name="FLOW">BREAK</field></block>';
+  const set = (id, nm, v) => X.set(id, nm, v), change = (id, nm, d) => B('dowee_var_change', { f: { VAR: X.f(id, nm) }, v: { DELTA: d } });
+  const err = () => X.arith('MINUS', g('ps', 'position'), 3);
+  const waitForStart = X.defn('waitForStart', seq(
+    X.print(XB.text('Press the button on pin 2, or type g, to start.')),
+    whileDo(B('logic_boolean', { f: { BOOL: 'TRUE' } }), seq(
+      X.ifs([[eq(B('dowee_dread', { v: { PIN: g('sb', 'startButton') } }), B('dowee_hilo', { f: { V: 'LOW' } })), brk()]]),
+      X.ifs([[and2(B('dowee_serial_has'), eq(B('dowee_serial_read', { f: { OP: 'read' } }), L('g'))), brk()]]))),
+    X.print(XB.text('Go!'))), 360);
   const calibrate = X.defn('calibrate', seq(
     XB.forI('i', 1, 5, seq(XB.setItem('mn', 'minV', i, 1023), XB.setItem('mx', 'maxV', i, 0))),
     X.led('HIGH'),
-    X.set('st', 'start', XB.millis()),
-    B('controls_whileUntil', { f: { MODE: 'WHILE' }, v: { BOOL: X.lt(X.arith('MINUS', XB.millis(), g('st', 'start')), 2000) }, s: { DO: seq(
-      X.set('tt', 't', X.arith('MINUS', XB.millis(), g('st', 'start'))),
-      X.ifs([[X.or(X.or(X.lt(g('tt', 't'), 250), XB.and(X.cmp('GTE', g('tt', 't'), 750), X.lt(g('tt', 't'), 1250))), X.cmp('GTE', g('tt', 't'), 1750)), X.motors(-120, 120)]], X.motors(120, -120)),
+    set('st', 'start', XB.millis()),
+    whileDo(X.lt(X.arith('MINUS', XB.millis(), g('st', 'start')), 2000), seq(
+      set('tt', 't', X.arith('MINUS', XB.millis(), g('st', 'start'))),
+      X.ifs([[X.or(X.or(X.lt(g('tt', 't'), 250), and2(X.cmp('GTE', g('tt', 't'), 750), X.lt(g('tt', 't'), 1250))), X.cmp('GTE', g('tt', 't'), 1750)), X.motors(-120, 120)]], X.motors(120, -120)),
       XB.forI('i', 1, 5, seq(
-        X.set('vv', 'v', XB.sensorN(i)),
+        set('vv', 'v', XB.sensorN(i)),
         X.ifs([[X.lt(g('vv', 'v'), mn(i)), XB.setItem('mn', 'minV', i, g('vv', 'v'))]]),
-        X.ifs([[X.cmp('GT', g('vv', 'v'), mx(i)), XB.setItem('mx', 'maxV', i, g('vv', 'v'))]]))),
-    ) } }),
+        X.ifs([[X.cmp('GT', g('vv', 'v'), mx(i)), XB.setItem('mx', 'maxV', i, g('vv', 'v'))]]))))),
     X.stop(),
     // a sensor that never saw the line gets a range of 100; then show each sensor's range in the Serial monitor
     XB.forI('i', 1, 5, seq(X.ifs([[X.lt(X.arith('MINUS', mx(i), mn(i)), 100), XB.setItem('mx', 'maxV', i, X.arith('ADD', mn(i), 100))]]),
       XB.print(mn(i)), XB.print(XB.text('-')), XB.print(mx(i)), X.ifs([[X.lt(i, 5), XB.print(XB.text('  '))]], X.print(XB.text(''))))),
     X.led('LOW'),
-    XB.ms(300)), 520);
-  const readSensor = XB.defr('readSensor', [['pn', 'n']], '', B('math_constrain', { v: { VALUE: B('dowee_map', { v: { V: XB.sensorN(n), FL: mn(n), FH: mx(n), TL: 0, TH: 1000 } }), LOW: 0, HIGH: 1000 } }), 1180);
-  const readLine = XB.defr('readLine', [], seq(
-    X.set('ww', 'weighted', 0), X.set('to', 'total', 0),
+    XB.ms(300)), 700);
+  // one sensor scaled to 0 (white) .. 1000 (black)
+  const readSensor = XB.defr('readSensor', [['pn', 'n']], '', B('math_constrain', { v: { VALUE: B('dowee_map', { v: { V: XB.sensorN(n), FL: mn(n), FH: mx(n), TL: 0, TH: 1000 } }), LOW: 0, HIGH: 1000 } }), 1300);
+  // which sensors see the line, and where the line is (1 far left .. 3 middle .. 5 far right)
+  const readLine = X.defn('readLine', seq(
+    set('wl', 'weighted', 0), set('tl', 'total', 0), set('sn', 'seen', 0),
     XB.forI('i', 1, 5, seq(
-      X.set('vv', 'v', XB.callr('readSensor', [['n', i]])),
-      X.ifs([[X.lt(g('vv', 'v'), 100), X.set('vv', 'v', 0)]]),
-      B('dowee_var_change', { f: { VAR: X.f('ww', 'weighted') }, v: { DELTA: X.arith('MULTIPLY', g('vv', 'v'), X.arith('MINUS', i, 3)) } }),
-      B('dowee_var_change', { f: { VAR: X.f('to', 'total') }, v: { DELTA: g('vv', 'v') } }))),
-    // line lost: keep turning the way we last saw it
-    B('procedures_ifreturn', { m: '<mutation value="1"></mutation>', v: { CONDITION: X.lt(g('to', 'total'), 300), VALUE: B('logic_ternary', { v: { IF: X.cmp('GT', g('le', 'lastError'), 0), THEN: 2000, ELSE: -2000 } }) } })),
-    X.arith('MULTIPLY', X.arith('DIVIDE', g('ww', 'weighted'), g('to', 'total')), 1000), 1300);
+      set('vv', 'v', XB.callr('readSensor', [['n', i]])),
+      XB.setItem('ol', 'onLine', i, B('logic_ternary', { v: { IF: X.cmp('GT', g('vv', 'v'), 500), THEN: 1, ELSE: 0 } })),
+      change('sn', 'seen', on(i)),
+      X.ifs([[X.lt(g('vv', 'v'), 100), set('vv', 'v', 0)]]),
+      change('wl', 'weighted', X.arith('MULTIPLY', g('vv', 'v'), i)),
+      change('tl', 'total', g('vv', 'v')))),
+    X.ifs([[X.cmp('GT', g('sn', 'seen'), 0), set('ps', 'position', X.arith('DIVIDE', g('wl', 'weighted'), g('tl', 'total')))]])), 1420);
+  const ts = () => g('ts', 'turnSpeed'), bs = () => g('bs', 'baseSpeed');
   return X.prog(
-    seq(X.set('kp', 'Kp', 0.08), X.set('kd', 'Kd', 1.5), X.set('bs', 'baseSpeed', 150), X.call('calibrate')),
-    seq(X.set('er', 'error', XB.callr('readLine', [])),
-      X.set('tu', 'turn', X.arith('ADD', X.arith('MULTIPLY', g('kp', 'Kp'), g('er', 'error')), X.arith('MULTIPLY', g('kd', 'Kd'), X.arith('MINUS', g('er', 'error'), g('le', 'lastError'))))),
-      X.set('le', 'lastError', g('er', 'error')),
-      X.motors(X.arith('ADD', g('bs', 'baseSpeed'), g('tu', 'turn')), X.arith('MINUS', g('bs', 'baseSpeed'), g('tu', 'turn'))),
-      XB.ms(2)),
-    { vars: [['kp', 'Kp', 'float'], ['kd', 'Kd', 'float'], ['bs', 'baseSpeed', 'int'], ['le', 'lastError', 'float'], ['er', 'error', 'float'], ['tu', 'turn', 'float'], ['mn', 'minV', 'list'], ['mx', 'maxV', 'list'],
-      ['i', 'i', ''], ['vv', 'v', 'int'], ['st', 'start', 'long'], ['tt', 't', 'long'], ['ww', 'weighted', 'int'], ['to', 'total', 'int'], ['pn', 'n', '']], extra: calibrate + readSensor + readLine });
+    seq(set('kp', 'Kp', 120), set('ki', 'Ki', 0), set('kd', 'Kd', 1300), set('bs', 'baseSpeed', 240), set('ts', 'turnSpeed', 170), set('smp', 'sampleMs', 10),
+      set('sb', 'startButton', 2), set('ps', 'position', 3), set('ls', 'lostSide', L('s')),
+      B('dowee_pmode', { f: { MODE: 'INPUT_PULLUP' }, v: { PIN: g('sb', 'startButton') } }),
+      X.call('waitForStart'), X.call('calibrate')),
+    seq(X.call('readLine'),
+      // remember which edge sensor saw the line last
+      X.ifs([[and2(eq(on(1), 1), eq(on(5), 0)), set('ls', 'lostSide', L('l'))]]),
+      X.ifs([[and2(eq(on(5), 1), eq(on(1), 0)), set('ls', 'lostSide', L('r'))]]),
+      X.ifs([
+        // line lost: spin towards where it was last seen until a middle sensor finds it
+        [and2(eq(g('sn', 'seen'), 0), X.cmp('NEQ', g('ls', 'lostSide'), L('s'))), seq(
+          X.ifs([[eq(g('ls', 'lostSide'), L('r')), X.motors(ts(), neg(ts()))]], X.motors(neg(ts()), ts())),
+          whileDo(and2(and2(eq(on(2), 0), eq(on(3), 0)), eq(on(4), 0)), X.call('readLine')),
+          set('le', 'lastError', err()))],
+        // a crossing (every sensor sees black): drive straight over it
+        [eq(g('sn', 'seen'), 5), seq(X.motors(bs(), bs()), whileDo(eq(g('sn', 'seen'), 5), X.call('readLine')))],
+        // the PID, every sampleMs milliseconds
+        [X.cmp('GTE', X.arith('MINUS', XB.millis(), g('lp', 'lastPid')), g('smp', 'sampleMs')), seq(
+          set('lp', 'lastPid', XB.millis()),
+          set('er', 'error', err()),
+          set('ig', 'integral', B('math_constrain', { v: { VALUE: X.arith('ADD', g('ig', 'integral'), g('er', 'error')), LOW: -40, HIGH: 40 } })),
+          set('tu', 'turn', X.arith('ADD', X.arith('ADD', X.arith('MULTIPLY', g('kp', 'Kp'), g('er', 'error')), X.arith('MULTIPLY', g('ki', 'Ki'), g('ig', 'integral'))),
+            X.arith('MULTIPLY', g('kd', 'Kd'), X.arith('MINUS', g('er', 'error'), g('le', 'lastError'))))),
+          set('le', 'lastError', g('er', 'error')),
+          X.motors(X.arith('ADD', bs(), g('tu', 'turn')), X.arith('MINUS', bs(), g('tu', 'turn'))))]])),
+    { vars: [['kp', 'Kp', 'float'], ['ki', 'Ki', 'float'], ['kd', 'Kd', 'float'], ['bs', 'baseSpeed', 'int'], ['ts', 'turnSpeed', 'int'], ['smp', 'sampleMs', 'int'], ['sb', 'startButton', 'int'],
+      ['mn', 'minV', 'list'], ['mx', 'maxV', 'list'], ['ol', 'onLine', 'list'], ['sn', 'seen', 'int'], ['ps', 'position', 'float'], ['le', 'lastError', 'float'], ['ig', 'integral', 'float'],
+      ['ls', 'lostSide', 'int'], ['lp', 'lastPid', 'long'], ['er', 'error', 'float'], ['tu', 'turn', 'float'], ['i', 'i', ''], ['vv', 'v', 'int'], ['st', 'start', 'long'], ['tt', 't', 'long'],
+      ['wl', 'weighted', 'long'], ['tl', 'total', 'long'], ['pn', 'n', '']], extra: waitForStart + calibrate + readSensor + readLine });
 }
 const BX = {
   rc: () => X.prog('', X.btRead(X.ifs([[X.bt('F'), X.move('F', 220)], [X.bt('B'), X.move('B', 220)], [X.bt('L'), X.move('SL', 130)], [X.bt('R'), X.move('SR', 130)], [X.bt('G'), X.move('TL', 220)], [X.bt('I'), X.move('TR', 220)], [X.bt('S'), X.stop()]]))),
