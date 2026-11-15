@@ -269,6 +269,13 @@ $('#acts').addEventListener('click', async e => {
   else if (b.dataset.lock) { const on = C().lock !== b.dataset.lock; try { await api('POST', '/api/teacher/class', { lock: on ? b.dataset.lock : null }); toast(on ? 'Every student now works on this activity' : 'Students can choose freely again'); } catch (err) { toast(err.message); } }
 });
 $('#addAct').addEventListener('click', () => editActivity(-1));
+// A ready-made seminar plan replaces the class's lesson plan (it also opens the playground it needs).
+$('#loadSeminar').addEventListener('click', async e => {
+  const name = e.currentTarget.dataset.seminar, info = ((T.st && T.st.seminars) || {})[name];
+  const n = C().activities.length;
+  if (n && !confirm(`Replace the ${n} activities in this class's lesson plan with the ${info ? info.title.toLowerCase() : 'seminar'}${info ? ` (${info.count} activities)` : ''}?`)) return;
+  try { const r = await api('POST', '/api/teacher/seminar', { name }); toast(`Loaded the seminar: ${r.count} activities`); } catch (err) { toast(err.message); }
+});
 function editActivity(index) {
   const firstArena = classArenas().find(x => x !== 'lab') || 'lab';
   const isNew = index < 0, a = isNew ? { id: '', title: '', arena: firstArena, variant: '', realism: '', intro: '', steps: [], starter: { kind: firstArena === 'line' ? 'example' : 'none', example: firstArena === 'line' ? 'bang' : undefined }, goal: firstArena === 'line' ? { type: 'laps', n: 1 } : { type: 'none' } } : JSON.parse(JSON.stringify(C().activities[index]));
@@ -286,6 +293,7 @@ function editActivity(index) {
         <label class="fld">Starter program<select id="aStarter"><option value="none">Keep the student's own code</option><option value="lesson">The built-in lesson's program</option><option value="example">An example program</option><option value="code">My own code (below)</option></select></label>
         <label class="fld" id="aExRow">Example<select id="aExample"></select></label>
         <label class="fld wide" id="aCodeRow">Your starter code<textarea class="code" id="aCode" placeholder="Arduino code students start from">${esc(a.starter && a.starter.code || '')}</textarea></label>
+        <label class="fld wide">Discussion question (optional, shown first as "Talk about it")<input id="aDiscuss" maxlength="400" placeholder="A short question to talk about before the activity" value="${esc(a.discuss || '')}"></label>
         <label class="fld wide">Instructions for students<textarea id="aIntro" rows="2" maxlength="2000" placeholder="What is this activity about?">${esc(a.intro || '')}</textarea></label>
         <label class="fld wide">Steps (one per line)<textarea id="aSteps" rows="4" placeholder="Run the program&#10;Change the speed&#10;…">${esc((a.steps || []).join('\n'))}</textarea></label>
       </div>
@@ -336,7 +344,7 @@ function editActivity(index) {
     const act = {
       id: a.id || Math.random().toString(16).slice(2, 10), title: $('#aTitle').value.trim(), builtin: $('#aBuiltin').value || undefined,
       arena: $('#aArena').value, variant: $('#aVariant').value, realism: $('#aReal').value,
-      intro: $('#aIntro').value.trim(), steps: $('#aSteps').value.split('\n').map(x => x.trim()).filter(Boolean),
+      intro: $('#aIntro').value.trim(), discuss: $('#aDiscuss').value.trim(), steps: $('#aSteps').value.split('\n').map(x => x.trim()).filter(Boolean),
       starter: { kind, example: kind === 'example' ? $('#aExample').value : undefined, code: kind === 'code' ? $('#aCode').value : undefined },
       goal,
     };

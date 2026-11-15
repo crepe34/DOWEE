@@ -252,6 +252,39 @@ REF['b-avoid'].mods = [M.BLOCK_EXAMPLES.maze.avoid.xml()];
       if (good) ok(`${L.id}: ${L.title}`, `${mods.length} Modify step(s) and the goal`);
     } catch (err) { bad(L.id, err.message); }
   }
+  // The block versions of the line lessons (the seminar): the starter misses the goal, the solution reaches it,
+  // and it does what the text solution does (the same calibration printout, laps and lap time within 5%).
+  console.log('\nBlock versions of the line lessons');
+  const { textSolution } = require('./lesson-fixes.js');
+  const goalRun = (L, code, variant) => {
+    const W = M.buildWorld(L.arena, variant, { realism: 'ideal', unitA: 1, runSeed: 7 }, M.makeCfg('dowee'), M.makeCfg('dowee'), 'none');
+    const r = W.robots[0]; let out = '', err = null;
+    r.board.onSerial = x => { out += x; r.board.serialLines += (x.match(/\n/g) || []).length; }; r.board.onError = e => { err = e; };
+    r.board.load(M.compileArduino(code, r.board), 0);
+    let hit = false;
+    for (let i = 0; i < 60000 && !err && !hit; i++) { W.step(); if (i % 200 === 0) { try { hit = !!L.check(W); } catch (e) { /* not yet */ } } }
+    if (err) throw new Error(`crashed: ${err.message} (line ${err.line})`);
+    return { hit, out, laps: W.state.laps || [] };
+  };
+  const GOAL_TRACK = { apid3: 'snake' };
+  for (const [id, v] of Object.entries(M.LESSON_BLOCKS)) {
+    const L = M.LESSONS.find(l => l.id === id), name = `${id}: ${L ? L.title : '?'}`;
+    if (!L) { bad(name, 'no such lesson'); continue; }
+    try {
+      const variant = GOAL_TRACK[id] || L.variant, sol = goalRun(L, await toCode(v.solution()), variant);
+      if (!sol.hit) { bad(name, `the block solution does not reach the goal: ${L.goal} (laps ${sol.laps.map(l => l.time.toFixed(1)).join(', ') || 'none'})`); continue; }
+      const starts = [v.starter, v.todo].filter(x => x && x !== v.solution);
+      let failedStart = '';
+      for (const st of starts) if (goalRun(L, await toCode(st()), variant).hit) failedStart = 'a block starter already reaches the goal';
+      if (failedStart) { bad(name, failedStart); continue; }
+      const text = textSolution(M, id);
+      if (!text) { ok(name, `${starts.length ? 'the starter misses the goal, ' : ''}the solution reaches it`); continue; }
+      const T = goalRun(L, text, variant), first = x => x.out.split('\n')[0], best = x => Math.min(...x.laps.map(l => l.time));
+      const why = !T.hit ? 'the text solution does not reach the goal' : first(T) !== first(sol) ? `printed ${JSON.stringify(first(sol))}, text ${JSON.stringify(first(T))}`
+        : Math.abs(best(T) - best(sol)) > 0.05 * best(T) ? `best lap ${best(sol).toFixed(1)} s, text ${best(T).toFixed(1)} s` : '';
+      why ? bad(name, why) : ok(name, `starter misses the goal; solution reaches it like the text (best lap ${best(sol).toFixed(1)} s, text ${best(T).toFixed(1)} s${first(T) ? ', same printout' : ''})`);
+    } catch (e) { bad(name, e.message); }
+  }
   if (errs.length) bad('page', errs.join('; '));
   await b.close();
   console.log(failed ? `\n${failed} blocks check(s) failed` : '\nAll blocks checks passed');

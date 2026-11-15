@@ -103,6 +103,7 @@ function activityToLesson(a) {
     id: 'act:' + a.id, actId: a.id, title: a.title || (base && base.title) || 'Activity', level: 'From your teacher',
     arena: a.arena || (base && base.arena) || 'lab', variant: a.variant || (base && base.variant), realism: a.realism || '',
     intro: a.intro ? esc(a.intro) : base ? base.intro : '',
+    discuss: a.discuss ? esc(a.discuss) : '',
     steps: a.steps && a.steps.length ? a.steps.map(esc) : base ? base.steps : [],
     goal: useBuiltinGoal ? base.goal : gt.text(g),
     check: useBuiltinGoal ? base.check : (W => gt.check(W, g)),

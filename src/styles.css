@@ -558,3 +558,14 @@ details.menu.right .menu-list { left: auto; right: 0; }
 .pid-table th, .pid-table td { padding: 4px 5px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
 .pid-table tbody th { text-align: left; white-space: normal; font-weight: 700; color: var(--ink); }
 .pid-table thead th { font-weight: 800; color: var(--muted); font-size: 11.5px; }
+
+/* the teacher's discussion question for a class activity */
+.discuss { margin: 4px 0 10px; padding: 9px 12px; border-radius: 12px; background: var(--signal-soft); border: 2px solid var(--yellow); }
+.discuss b { font-family: var(--font-display); font-size: 15px; color: var(--ink); }
+.discuss p { margin: 4px 0 0; font-weight: 700; }
+
+/* Big arena for the projector (View menu or F): only the arena and its dock */
+.work.big-arena { grid-template-columns: minmax(0, 1fr) !important; }
+.work.big-arena > .lesson-pane, .work.big-arena > .code-pane, .work.big-arena > .lesson-tab { display: none !important; }
+.work.big-arena > .stage-pane { display: grid !important; grid-template-rows: auto minmax(300px, 1fr) minmax(160px, 24%); }
+.work.big-arena #hud { font-size: 17px; }

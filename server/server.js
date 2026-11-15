@@ -62,6 +62,15 @@ function robotInfo(c) {
   const label = !custom ? base.label : `${base.label}${added.length ? ' + ' + added.join(', ') : ''}${removed.length ? ' (no ' + removed.join(', ') + ')' : ''}`;
   return { robot: robotOf(c), robotLabel: label, robotBase: base.label, custom, arenas };
 }
+const { SEMINAR_PLANS } = require('./seminars.js');
+function seminarActivities(name) {
+  const P = SEMINAR_PLANS[name]; if (!P) return null;
+  return P.activities.map(a => {
+    const b = a.builtin && BUILTIN[a.builtin];
+    return cleanActivity(b ? { id: newId(4), title: b[0], builtin: a.builtin, arena: b[1], variant: b[2], realism: '', intro: '', steps: [], starter: { kind: 'lesson' }, goal: { type: 'builtin' }, discuss: a.discuss }
+      : { id: newId(4), realism: '', steps: [], ...a });
+  });
+}
 function seedActivities(robot) {
   return ROBOT_TYPES[robot].seed.map(id => ({ id: newId(4), title: BUILTIN[id][0], builtin: id, arena: BUILTIN[id][1], variant: BUILTIN[id][2], realism: '', intro: '', steps: [], starter: { kind: 'lesson' }, goal: { type: 'builtin' } }));
 }
@@ -206,7 +215,7 @@ const meState = me => (me ? { id: me.id, name: me.name, team: me.team, hand: !!m
 function teacherState() {
   const c = cls(), on = onlineIds();
   return {
-    version: VERSION, port: PORT, lan: lanUrls(), teacherKey: db.teacherKey, dataFile: DATA_FILE,
+    version: VERSION, port: PORT, seminars: Object.fromEntries(Object.entries(SEMINAR_PLANS).map(([k, v]) => [k, { title: v.title, count: v.activities.length }])), lan: lanUrls(), teacherKey: db.teacherKey, dataFile: DATA_FILE,
     robotTypes: Object.fromEntries(Object.entries(ROBOT_TYPES).map(([k, v]) => [k, { label: v.label, arenas: v.arenas }])),
     classes: Object.values(db.classes).map(k => ({ id: k.id, name: k.name, robotLabel: robotInfo(k).robotLabel, students: Object.keys(k.students).length, created: k.created })),
     active: {
@@ -232,7 +241,7 @@ function cleanActivity(a) {
   return {
     id: str(a.id, 16) || newId(4), title: str(a.title, 80) || 'Activity', builtin: a.builtin ? str(a.builtin, 30) : undefined,
     arena, variant: str(a.variant, 20), realism: REALISM.includes(a.realism) ? a.realism : '',
-    intro: str(a.intro, LIM.text), steps: Array.isArray(a.steps) ? a.steps.slice(0, 12).map(x => str(x, 400)).filter(Boolean) : [],
+    intro: str(a.intro, LIM.text), discuss: str(a.discuss, 400), steps: Array.isArray(a.steps) ? a.steps.slice(0, 12).map(x => str(x, 400)).filter(Boolean) : [],
     starter: { kind: ['none', 'lesson', 'example', 'code', 'blocks'].includes(st.kind) ? st.kind : 'none', example: st.example ? str(st.example, 30) : undefined, code: st.code ? str(st.code, LIM.code) : undefined, xml: st.xml ? str(st.xml, LIM.xml) : undefined },
     goal,
   };
@@ -437,6 +446,13 @@ async function handle(req, res) {
   if (p.startsWith('/api/teacher/')) {
     if (!isTeacher(req)) return fail(res, 403, 'Teacher only.');
     if (M === 'GET' && p === '/api/teacher/state') return send(res, 200, teacherState());
+    if (M === 'POST' && p === '/api/teacher/seminar') {
+      const acts = seminarActivities(str(body.name, 20)); if (!acts) return fail(res, 400, 'There is no seminar plan with that name.');
+      const need = SEMINAR_PLANS[body.name].arena;
+      if (!allowedArenas(c).includes(need)) { c.arenaPick = [...allowedArenas(c), need]; c.settings = cleanSettings(c.settings, allowedArenas(c)); }
+      c.activities = acts.slice(0, LIM.activities); c.lock = null;
+      save(); broadcast(); return send(res, 200, { ok: true, count: acts.length });
+    }
     if (M === 'POST' && p === '/api/teacher/class') {
       if (body.name !== undefined) c.name = str(body.name, 60) || c.name;
       if (body.robot !== undefined && ROBOT_TYPES[body.robot] && body.robot !== c.robot) { c.robot = body.robot; c.arenaPick = null; }   // a new robot type starts from its own playgrounds

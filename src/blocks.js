@@ -148,7 +148,11 @@ function defineDoweeBlocks() {
 // C operator precedence (smaller binds tighter), as Blockly orders.
 // Whole numbers only: Blockly rounds orders down. They are spaced by 2 so ±1 can say 'same level is fine' (left side) or 'same level needs brackets' (right side of - * /).
 const O = { ATOMIC: 0, UNARY: 4, MULT: 10, ADD: 12, SHIFT: 14, REL: 16, EQ: 18, BAND: 20, BXOR: 22, BOR: 24, AND: 26, OR: 28, COND: 30, NONE: 99 };
-const C_RESERVED = new Set([...TYPE_WORDS, ...KEYWORDS, ...Object.keys(BUILTINS), ...Object.keys(CONSTS), 'drive', 'readDistanceCm', 'readLine', 'linePosition', 'sensorsOnLine', 'calibrate', 'minV', 'maxV', 'threshold', 'onLine', 'seen', 'position', 'setup', 'loop', 'Serial', 'String', 'btCommand', 'BLACK', 'ENA', 'ENB', 'IN1', 'IN2', 'IN3', 'IN4', 'TRIG', 'ECHO', 'LIST_SIZE']);
+const C_RESERVED = new Set([...TYPE_WORDS, ...KEYWORDS, ...Object.keys(BUILTINS), ...Object.keys(CONSTS), 'drive', 'readDistanceCm', 'readLine', 'linePosition', 'sensorsOnLine', 'calibrate', 'sweep', 'minV', 'maxV', 'threshold', 'onLine', 'seen', 'position', 'setup', 'loop', 'Serial', 'String', 'btCommand', 'BLACK', 'ENA', 'ENB', 'IN1', 'IN2', 'IN3', 'IN4', 'TRIG', 'ECHO', 'LIST_SIZE']);
+// The names the line blocks bring with them (LINE_GLOBALS, calibrate(), readLine()). They are only taken when
+// a line block is used, so a program that builds its own calibrate() and readLine() keeps the text names.
+const LINE_NAMES = new Set(['readLine', 'linePosition', 'sensorsOnLine', 'calibrate', 'sweep', 'minV', 'maxV', 'threshold', 'onLine', 'seen', 'position']);
+const LINE_BLOCKS = new Set(['dowee_calibrate', 'dowee_line_pos', 'dowee_line_seen', 'dowee_read_line', 'dowee_on_line', 'dowee_black']);
 const LIST_SIZE = 20;
 const isWhole = s => /^-?\d+$/.test(s);
 const isNum = s => /^-?\d+(\.\d+)?$/.test(s);
@@ -404,8 +408,10 @@ function makeGenerator() {
 
 // Names: block variable names become safe, unique C names that don't clash with Arduino words or each other.
 function makeNames(ws) {
-  const used = new Set(C_RESERVED), byId = new Map(), byName = new Map();
-  const clean = raw => { let n = (raw || 'x').trim().replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || 'x'; if (!/^[A-Za-z_]/.test(n)) n = 'v_' + n; let m = C_RESERVED.has(n) ? n + '_' : n, k = 2; while (used.has(m)) m = `${n}${k++}`; used.add(m); return m; };
+  const lineBlocks = ws.getAllBlocks(false).some(b => LINE_BLOCKS.has(b.type));
+  const RES = lineBlocks ? C_RESERVED : new Set([...C_RESERVED].filter(n => !LINE_NAMES.has(n)));
+  const used = new Set(RES), byId = new Map(), byName = new Map();
+  const clean = raw => { let n = (raw || 'x').trim().replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || 'x'; if (!/^[A-Za-z_]/.test(n)) n = 'v_' + n; let m = RES.has(n) ? n + '_' : n, k = 2; while (used.has(m)) m = `${n}${k++}`; used.add(m); return m; };
   for (const x of ws.getAllVariables()) { const e = { raw: x.name, c: clean(x.name), type: x.type || '', id: x.getId() }; byId.set(e.id, e); byName.set(x.name, e); }
   return {
     get: id => (byId.get(id) || { c: 'x' }).c,
@@ -687,9 +693,19 @@ function setToolboxLevel() {
   const lv = toolboxLevel(); if (lv === BK.level) return;
   BK.level = lv; BK.ws.updateToolbox(TOOLBOX(lv));
 }
+// The blocks a lesson opens with: a Blocks lesson's own, a class activity's sample, or the block version of a typed lesson
+// (its TODO version when the class gets the text TODO version).
+function lessonBlocksOf(L) {
+  const b = L && (L.base || L), st = L && L.starter; if (!b) return null;
+  if (b.blocksXml) return b.blocksXml;
+  if (st && st.kind === 'example') { const ex = (BLOCK_EXAMPLES[L.arena] || {})[st.example]; return ex ? ex.xml : null; }
+  if (st && st.kind !== 'lesson') return null;
+  const v = b.blockVersions; if (!v) return null;
+  return (usesTodo(L) && v.todo) || v.starter;
+}
 function lessonBlocksXml(a) {
-  const L = S.lesson && findLesson(S.lesson), b = L && (L.base || L);
-  return b && b.blocksXml && L.arena === a ? b.blocksXml() : null;
+  const L = S.lesson && findLesson(S.lesson), x = L && L.arena === a && lessonBlocksOf(L);
+  return x ? x() : null;
 }
 function loadWorkspace(a, r) {
   BK.suppress = true;

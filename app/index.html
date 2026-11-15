@@ -98,6 +98,7 @@
             <label class="chk"><input type="checkbox" id="optTrail" checked>Trail (the path Dowee drove)</label>
             <label class="chk"><input type="checkbox" id="optSensors" checked>Sensor view</label>
             <label class="chk"><input type="checkbox" id="optSound">Sound</label>
+            <label class="chk"><input type="checkbox" id="optBig">Big arena for the projector (F)</label>
           </div>
         </details>
         <span class="view-chip" id="viewChip" hidden></span>
@@ -6336,6 +6337,151 @@ const BLOCK_EXAMPLES = {
   },
   soccer: { rc: { name: 'Bluetooth remote control (simple)', starter: true, xml: BX.rc }, rcfull: { name: 'Bluetooth RC (soccer)', xml: FULL.rc } },
 };
+/* ---------------- block versions of the line lessons (the line follower seminar) ----------------
+   Each lesson gets a block starter with the same TODOs as its text starter (as 💬 comment blocks), and the
+   finished program. Programs that build their own calibrate() and readLine() use the same names as the text
+   (minV, maxV, threshold, onLine, seen, position), so the lesson goals and the Advanced PID guide can read them.
+   tools/blocks-check.js: every starter misses the goal, every solution reaches it and matches its text solution. */
+const LB = (() => {
+  [['qmn', 'list'], ['qmx', 'list'], ['qth', 'int'], ['qon', 'list'], ['qse', 'int'], ['qpo', 'float'], ['qsu', 'int'], ['qv', 'int'], ['qst', 'long'],
+    ['qws', 'long'], ['qbs', 'long'], ['qaw', 'int'], ['qab', 'int'], ['qer', 'float'], ['qch', 'float'], ['qtu', 'float'], ['qle', 'float'], ['qkp', 'float'],
+    ['qki', 'float'], ['qkd', 'float'], ['qsp', 'int'], ['qts', 'int'], ['qls', 'int'], ['qig', 'float'], ['qil', 'float'], ['qt', 'long'], ['qwe', 'long'], ['qto', 'long'], ['qdk', 'long']]
+    .forEach(([id, t]) => X.vt.set(id, t));
+  const VARS = { minV: ['qmn', 'list'], maxV: ['qmx', 'list'], threshold: ['qth', 'int'], onLine: ['qon', 'list'], seen: ['qse', 'int'], position: ['qpo', 'float'], sum: ['qsu', 'int'],
+    v: ['qv', 'int'], start: ['qst', 'long'], whiteSum: ['qws', 'long'], blackSum: ['qbs', 'long'], avgWhite: ['qaw', 'int'], avgBlack: ['qab', 'int'], error: ['qer', 'float'],
+    change: ['qch', 'float'], turn: ['qtu', 'float'], lastError: ['qle', 'float'], Kp: ['qkp', 'float'], Ki: ['qki', 'float'], Kd: ['qkd', 'float'], baseSpeed: ['qsp', 'int'],
+    turnSpeed: ['qts', 'int'], lostSide: ['qls', 'int'], integral: ['qig', 'float'], iLimit: ['qil', 'float'], t: ['qt', 'long'], weighted: ['qwe', 'long'], total: ['qto', 'long'], dark: ['qdk', 'long'], i: ['i', ''] };
+  const id = n => VARS[n][0];
+  const g = n => X.get(id(n), n), set = (n, x) => X.set(id(n), n, x);
+  const add = (n, x) => B('dowee_var_change', { f: { VAR: X.f(id(n), n) }, v: { DELTA: x } });
+  const item = (n, i = g('i')) => XB.item(id(n), n, i), setItem = (n, i, x) => XB.setItem(id(n), n, i, x);
+  const fill = (n, items) => B('dowee_list_fill', { f: { VAR: X.f(id(n), n), ITEMS: items } });
+  const todo = t => B('dowee_comment', { f: { T: t } });
+  const A = (op, a, b) => X.arith(op, a, b), cmp = X.cmp, ms = n => XB.ms(n);
+  const forEachSensor = body => XB.forI('i', 1, 5, body);
+  const whileDo = (c, body) => B('controls_whileUntil', { f: { MODE: 'WHILE' }, v: { BOOL: c }, s: { DO: body } });
+  const L = c => B('dowee_char', { f: { L: c } });
+  const ARGS = { sweep: [['qa1', 'left'], ['qa2', 'right'], ['qa3', 'ms']] };
+  const def = (name, body, y) => `<block type="procedures_defnoreturn" x="20" y="${y}"><mutation>${(ARGS[name] || []).map(([i, n]) => `<arg name="${n}" varid="${i}"></arg>`).join('')}</mutation><field name="NAME">${name}</field>${body ? `<statement name="STACK">${body}</statement>` : ''}</block>`;
+  const call = (name, ...vals) => `<block type="procedures_callnoreturn"><mutation name="${name}">${(ARGS[name] || []).map(([, n]) => `<arg name="${n}"></arg>`).join('')}</mutation>${vals.map((x, i) => `<value name="ARG${i}">${typeof x === 'number' ? X.num(x) : x}</value>`).join('')}</block>`;
+  const arg = n => X.get(ARGS.sweep.find(a => a[1] === n)[0], n);
+  const varList = names => [...names.map(n => [id(n), n, VARS[n][1]]), ...ARGS.sweep.map(([i, n]) => [i, n, ''])];
+  const bs = () => g('baseSpeed'), wheels = () => X.motors(A('ADD', bs(), g('turn')), A('MINUS', bs(), g('turn')));
+
+  // the line globals, as the first blocks of "when Dowee starts"
+  const lineStart = th => [fill('minV', '1023, 1023, 1023, 1023, 1023'), fill('maxV', '0, 0, 0, 0, 0'), set('threshold', th), set('seen', 0), set('position', 3)];
+  // sweep(left, right, ms): turn while remembering each sensor's whitest and blackest reading
+  const sweepDef = done => def('sweep', seq(X.motors(arg('left'), arg('right')), set('start', XB.millis()),
+    whileDo(X.lt(A('MINUS', XB.millis(), g('start')), arg('ms')), forEachSensor(seq(set('v', XB.sensorN(g('i'))),
+      ...(done ? [X.ifs([[X.lt(g('v'), item('minV')), setItem('minV', g('i'), g('v'))]]), X.ifs([[cmp('GT', g('v'), item('maxV')), setItem('maxV', g('i'), g('v'))]])]
+        : [todo('TODO 1: remember this sensor\'s whitest and blackest reading. If v is smaller than item i of minV, put v in item i of minV. If v is bigger than item i of maxV, put v in item i of maxV.')]))))), 760);
+  // calibrate(): sweep over the line, then the threshold halfway between the average white and the average black
+  const calibrateDef = done => def('calibrate', seq(X.led('HIGH'),
+    call('sweep', -120, 120, 250), call('sweep', 120, -120, 500), call('sweep', -120, 120, 500), call('sweep', 120, -120, 500), call('sweep', -120, 120, 250), X.motors(0, 0),
+    set('whiteSum', 0), set('blackSum', 0), forEachSensor(seq(add('whiteSum', item('minV')), add('blackSum', item('maxV')))),
+    set('avgWhite', idiv(g('whiteSum'), 5)), set('avgBlack', idiv(g('blackSum'), 5)),
+    ...(done ? [set('threshold', idiv(A('ADD', g('avgWhite'), g('avgBlack')), 2))]
+      : [todo('TODO 2: the threshold is halfway between the average white and the average black: (avgWhite + avgBlack) whole-number ÷ 2.'), set('threshold', 0)]),
+    XB.print(XB.text('white ')), XB.print(g('avgWhite')), XB.print(XB.text('  black ')), XB.print(g('avgBlack')), XB.print(XB.text('  threshold ')), X.print(g('threshold')),
+    X.led('LOW'), ms(300)), 1180);
+  // readLine(): which sensors see the line (onLine), how many (seen), and where it is (position, 1 to 5)
+  const readLineDef = done => def('readLine', seq(set('sum', 0), set('seen', 0),
+    forEachSensor(done ? seq(setItem('onLine', g('i'), B('logic_ternary', { v: { IF: cmp('GT', XB.sensorN(g('i')), g('threshold')), THEN: 1, ELSE: 0 } })),
+      add('seen', item('onLine')), add('sum', A('MULTIPLY', item('onLine'), g('i'))))
+      : seq(todo('TODO 1: does sensor i see the line? Set item i of onLine to 1 if line sensor i reads more than threshold, else 0.'), setItem('onLine', g('i'), 0),
+        todo('TODO 2: count it: change seen by item i of onLine, and change sum by item i of onLine × i.'))),
+    done ? X.ifs([[cmp('GT', g('seen'), 0), set('position', A('DIVIDE', g('sum'), g('seen')))]])
+      : todo('TODO 3: if seen is more than 0, set position to sum ÷ seen (the average). If no sensor sees the line, keep the last position.')), 520);
+  const prog = (start, loop, names, defs) => X.prog(seq(...start), seq(...loop), { vars: varList(names), extra: defs.join('') });
+  const KIT = ['minV', 'maxV', 'threshold', 'onLine', 'seen', 'position', 'sum', 'v', 'start', 'whiteSum', 'blackSum', 'avgWhite', 'avgBlack', 'i'];
+  const half = () => idiv(bs(), 4), on = (n, v = 1) => cmp('EQ', item('onLine', n), v);
+
+  const pid1 = done => prog([...lineStart(done ? 500 : 0), set('baseSpeed', 150), call('calibrate')],
+    [call('readLine'), todo('Simple steering with the sensors. In PID 2 you work out exactly where the line is.'),
+      X.ifs([[on(3), X.motors(bs(), bs())], [X.or(on(2), on(1)), X.motors(half(), bs())], [X.or(on(4), on(5)), X.motors(bs(), half())]])],
+    [...KIT, 'baseSpeed'], [sweepDef(done), readLineDef(true), calibrateDef(done)]);
+  const pid2 = done => prog([...lineStart(500), set('baseSpeed', 150), call('calibrate')],
+    [call('readLine'), set('error', A('MINUS', g('position'), 3)), X.print(g('error')), todo('Simple steering for now. In PID 3 you make it smooth.'),
+      X.ifs([[cmp('GT', g('error'), 0.5), X.motors(bs(), half())], [X.lt(g('error'), -0.5), X.motors(half(), bs())]], X.motors(bs(), bs()))],
+    [...KIT, 'baseSpeed', 'error'], [sweepDef(true), readLineDef(done), calibrateDef(true)]);
+  // PID 3 and 4 give calibrate() and readLine() ready-made, so their blocks use the ready-made line blocks
+  const pid3 = done => X.prog(seq(set('Kp', 15), set('baseSpeed', 150), B('dowee_calibrate')), seq(B('dowee_read_line'), set('error', A('MINUS', B('dowee_line_pos'), 3)),
+    todo('P = proportional: the farther the line, the harder Dowee steers.'),
+    ...(done ? [set('turn', A('MULTIPLY', g('Kp'), g('error'))), wheels()]
+      : [todo('TODO 1: work out how hard to turn: Kp × error'), set('turn', 0), todo('TODO 2: speed up one wheel and slow the other: left gets baseSpeed + turn, right gets baseSpeed − turn'), X.motors(bs(), bs())]),
+    ms(10)), { vars: varList(['Kp', 'baseSpeed', 'error', 'turn']) });
+  const onL = pin => B('dowee_on_line', { f: { PIN: pin } }), err = () => A('MINUS', B('dowee_line_pos'), 3), ts = () => g('turnSpeed'), and = XB.and;
+  const pid4 = done => X.prog(seq(set('Kp', 70), set('Kd', 1000), set('turnSpeed', 140), set('baseSpeed', 240), set('lastError', 0), set('lostSide', L('s')), B('dowee_calibrate')),
+    seq(B('dowee_read_line'),
+      todo('Remember which edge sensor saw the line last'),
+      X.ifs([[and(onL('A0'), X.not(onL('A4'))), set('lostSide', L('l'))]]), X.ifs([[and(onL('A4'), X.not(onL('A0'))), set('lostSide', L('r'))]]),
+      todo('Line lost (a sharp corner): spin on the spot towards where it was last seen, until a middle sensor finds it'),
+      X.ifs([[and(cmp('EQ', B('dowee_line_seen'), 0), cmp('NEQ', g('lostSide'), L('s'))), seq(
+        X.ifs([[cmp('EQ', g('lostSide'), L('r')), X.motors(ts(), neg(ts()))]], X.motors(neg(ts()), ts())),
+        whileDo(and(and(X.not(onL('A1')), X.not(onL('A2'))), X.not(onL('A3'))), B('dowee_read_line')),
+        set('lastError', err()))]]),
+      set('error', err()),
+      todo('D = derivative: how much did the error change since the last loop?'), set('change', A('MINUS', g('error'), g('lastError'))),
+      ...(done ? [set('turn', A('ADD', A('MULTIPLY', g('Kp'), g('error')), A('MULTIPLY', g('Kd'), g('change'))))]
+        : [set('turn', A('MULTIPLY', g('Kp'), g('error'))), todo('TODO: add the D part to turn: Kd × change')]),
+      set('lastError', g('error')), wheels(), ms(10)),
+    { vars: varList(['Kp', 'Kd', 'turnSpeed', 'baseSpeed', 'lastError', 'lostSide', 'error', 'change', 'turn']) });
+
+  // Advanced PID: the globals of PID_GLOBALS, and the loop of PIDI_FULL (P, I with a limit, D)
+  const pidStart = (kp, ki, kd, speed, th) => [set('Kp', kp), set('Ki', ki), set('Kd', kd), set('baseSpeed', speed), set('iLimit', 40), ...lineStart(th), set('error', 0), set('lastError', 0), set('integral', 0), call('calibrate')];
+  const PIDV = [...KIT, 'Kp', 'Ki', 'Kd', 'baseSpeed', 'iLimit', 'error', 'lastError', 'integral', 'change', 'turn'];
+  const pidLoop = () => [call('readLine'), set('error', A('MINUS', g('position'), 3)), set('change', A('MINUS', g('error'), g('lastError'))),
+    set('integral', B('math_constrain', { v: { VALUE: A('ADD', g('integral'), g('error')), LOW: neg(g('iLimit')), HIGH: g('iLimit') } })),
+    set('turn', A('ADD', A('ADD', A('MULTIPLY', g('Kp'), g('error')), A('MULTIPLY', g('Ki'), g('integral'))), A('MULTIPLY', g('Kd'), g('change')))),
+    wheels(), set('lastError', g('error')), ms(10)];
+  // apid3: the guided template (its calibrate() is one 2-second sweep timed with millis), and the finished racer (step 5)
+  const guidedCal = done => def('calibrate', seq(set('start', XB.millis()),
+    whileDo(X.lt(A('MINUS', XB.millis(), g('start')), 2000), done ? seq(set('t', A('MINUS', XB.millis(), g('start'))),
+      X.ifs([[X.or(X.or(X.lt(g('t'), 250), and(cmp('GTE', g('t'), 750), X.lt(g('t'), 1250))), cmp('GTE', g('t'), 1750)), X.motors(-120, 120)]], X.motors(120, -120)),
+      forEachSensor(seq(set('v', XB.sensorN(g('i'))), X.ifs([[X.lt(g('v'), item('minV')), setItem('minV', g('i'), g('v'))]]), X.ifs([[cmp('GT', g('v'), item('maxV')), setItem('maxV', g('i'), g('v'))]]))))
+      : seq(todo('TODO: spin one way, then the other. (millis − start tells you how long you have been sweeping.)'), todo('TODO: for each sensor i, update item i of minV and item i of maxV.'))),
+    X.motors(0, 0),
+    ...(done ? [set('whiteSum', 0), set('blackSum', 0), forEachSensor(seq(add('whiteSum', item('minV')), add('blackSum', item('maxV')))),
+      set('threshold', idiv(A('ADD', idiv(g('whiteSum'), 5), idiv(g('blackSum'), 5)), 2))]
+      : [todo('TODO: average the minV values, average the maxV values, and set the threshold halfway between them.')])), 1180);
+  const apid3 = done => prog([...pidStart(70, 0, 1000, done ? 220 : 150, 0)],
+    done ? pidLoop() : [call('readLine'), set('error', A('MINUS', g('position'), 3)),
+      todo('Simple steering for now, so you can test step 2. In STEP 3 you replace it with P and D. STEP 4: add I, with an anti-windup limit.'),
+      set('turn', 0), X.ifs([[cmp('GT', g('error'), 0.5), set('turn', 50)]]), X.ifs([[X.lt(g('error'), -0.5), set('turn', -50)]]), set('lastError', g('error')), wheels(), ms(10)],
+    [...PIDV, 't'], [done ? readLineDef(true) : def('readLine', todo('TODO: like in PID 2.'), 520), guidedCal(done)]);
+  // apid4: shades of grey. The finished on/off PID, plus the weighting by how dark each sensor sees the floor
+  const greyRead = done => def('readLine', seq(set('sum', 0), set('seen', 0),
+    forEachSensor(seq(setItem('onLine', g('i'), B('logic_ternary', { v: { IF: cmp('GT', XB.sensorN(g('i')), g('threshold')), THEN: 1, ELSE: 0 } })), add('seen', item('onLine')), add('sum', A('MULTIPLY', item('onLine'), g('i'))))),
+    ...(done ? [set('weighted', 0), set('total', 0), forEachSensor(seq(
+      set('dark', B('math_constrain', { v: { VALUE: B('dowee_map', { v: { V: XB.sensorN(g('i')), FL: item('minV'), FH: item('maxV'), TL: 0, TH: 1000 } }), LOW: 0, HIGH: 1000 } })),
+      add('weighted', A('MULTIPLY', g('dark'), g('i'))), add('total', g('dark')))),
+      X.ifs([[cmp('GT', g('seen'), 0), set('position', A('DIVIDE', g('weighted'), g('total')))]])]
+      : [X.ifs([[cmp('GT', g('seen'), 0), set('position', A('DIVIDE', g('sum'), g('seen')))]]),
+        todo('TODO: on/off only knows "on the line" or "not". A sensor half over the line reads grey, and that tells you more. Weight each sensor by how dark it is:'),
+        todo('for each sensor i: set dark to constrain(map(line sensor i, item i of minV, item i of maxV, 0, 1000), 0, 1000). Change weighted by dark × i, and total by dark.'),
+        todo('then, if seen is more than 0: set position to weighted ÷ total.')])), 520);
+  const apid4 = done => prog([...pidStart(70, 0, 1000, 220, 500)], pidLoop(), [...PIDV, 'weighted', 'total', 'dark'], [sweepDef(true), greyRead(done), calibrateDef(true)]);
+  // follow (classroom TODO version): the 2-sensor follower with the if / else as TODOs
+  const followTodo = () => X.prog(X.set('sp', 'speed', 150), seq(
+    X.set('lf', 'left', B('logic_ternary', { v: { IF: X.black('A1'), THEN: 1, ELSE: 0 } })), X.set('rt', 'right', B('logic_ternary', { v: { IF: X.black('A3'), THEN: 1, ELSE: 0 } })),
+    todo('TODO 1: if left is 1 and right is 0, the line is on the left: turn left with set wheels left 0, right speed.'),
+    todo('TODO 2: else if right is 1 and left is 0, the line is on the right: turn right.'),
+    todo('TODO 3: else (both see the same thing) go straight.')), { vars: [['sp', 'speed', 'int'], ['lf', 'left', 'int'], ['rt', 'right', 'int']] });
+  return { pid1, pid2, pid3, pid4, apid3, apid4, followTodo };
+})();
+// Lesson id → its block versions: starter (what the lesson opens with), todo (the classroom TODO version, when the
+// text has one), solution (the finished program, used by the tests).
+const LESSON_BLOCKS = {
+  see: { starter: BLOCK_EXAMPLES.line.print.xml, solution: BLOCK_EXAMPLES.line.print.xml },
+  follow: { starter: FULL.bang, todo: LB.followTodo, solution: FULL.bang },
+  pid1: { starter: () => LB.pid1(false), solution: () => LB.pid1(true) },
+  pid2: { starter: () => LB.pid2(false), solution: () => LB.pid2(true) },
+  pid3: { starter: () => LB.pid3(false), solution: () => LB.pid3(true) },
+  pid: { starter: () => LB.pid4(false), solution: () => LB.pid4(true) },
+  apid3: { starter: () => LB.apid3(false), solution: () => LB.apid3(true) },
+  apid4: { starter: () => LB.apid4(false), solution: () => LB.apid4(true) },
+};
+for (const L of LESSONS) if (LESSON_BLOCKS[L.id]) L.blockVersions = LESSON_BLOCKS[L.id];
 const blockStarterOf = a => { const ex = BLOCK_EXAMPLES[a] || BLOCK_EXAMPLES.lab; return Object.keys(ex).find(k => ex[k].starter) || Object.keys(ex)[0]; };
 
 /* ---------------- the Blocks lesson track ---------------- */
@@ -6438,7 +6584,7 @@ for (const L of BLOCK_LESSONS) LESSONS.push({ ...L, level: 'Blocks', blocks: tru
   if (start) { start.ids = start.ids.filter(id => id !== 'blocks'); start.about = 'Your first typed Arduino program: a blinking light.'; }
   LESSON_PATH.unshift({ name: 'Blocks', about: 'Snap blocks together. Every block is real Arduino code, shown beside it. Best for ages 9–12.', ids: ['blocks', ...BLOCK_LESSONS.map(l => l.id)] });
 }
-if (typeof module !== 'undefined') Object.assign(module.exports, { X, BLOCK_EXAMPLES, BLOCK_LESSONS, blockStarterOf });
+if (typeof module !== 'undefined') Object.assign(module.exports, { X, BLOCK_EXAMPLES, BLOCK_LESSONS, LESSON_BLOCKS, blockStarterOf });
 
 /* =====================================================================
    RoboBench UI
@@ -7550,7 +7696,7 @@ function buildLessons() {
     const steps = usesTodo(L) ? (L.base || L).todo.steps : L.steps;
     const nx = nextAfter(L);
     box.innerHTML = `<div class="lp-head"><div><span class="lbl">${esc(L.level || 'Lesson')}</span><h3>${esc(L.title)}</h3></div><button class="btn small icon" data-pane="min" title="Hide the lesson" aria-label="Hide the lesson">◂</button></div>
-      <div class="lp-body lesson-body">${L.arena !== S.arena ? `<p class="why away">This lesson happens in <b>${esc(ARENAS[L.arena].name)}</b>. <button class="btn small" data-go="back">Go back there</button></p>` : ''}<p>${L.intro}</p>${(L.base || L).explain ? `<details class="explain"><summary>How the PID formula works</summary>${(L.base || L).explain}</details>` : ''}${primmHtml(L, steps)}
+      <div class="lp-body lesson-body">${L.arena !== S.arena ? `<p class="why away">This lesson happens in <b>${esc(ARENAS[L.arena].name)}</b>. <button class="btn small" data-go="back">Go back there</button></p>` : ''}${L.discuss ? `<div class="discuss"><b>💬 Talk about it</b><p>${L.discuss}</p></div>` : ''}<p>${L.intro}</p>${(L.base || L).explain ? `<details class="explain"><summary>How the PID formula works</summary>${(L.base || L).explain}</details>` : ''}${primmHtml(L, steps)}
       ${hintsHtml(L.id, lessonHints(L))}
       ${(L.base || L).worksheet ? worksheetHtml(L) : ''}${(L.base || L).guide ? guideHtml(L) : ''}
       <div class="goal ${isDoneL(L) ? 'done' : ''}" id="goalBox"><span><b>${primmOf(L) ? `<span class="pmk">${isDoneL(L) ? '✓' : primmStages(L).length}</span> Make · ` : ''}Goal:</b> ${esc(L.goal)}${isDoneL(L) ? ' — done!' : ''}</span></div></div>
@@ -7598,6 +7744,18 @@ function layoutWork() {
   $$('#mSwitch button').forEach(b => b.setAttribute('aria-pressed', b.dataset.m === w.dataset.m));
 }
 $('#lessonTab').addEventListener('click', () => setPaneOpen(true));
+// Big arena for the projector: hide the lesson and code columns so the whole room can see Dowee. F toggles it, Esc leaves it.
+function setBigArena(on) {
+  $('#work').classList.toggle('big-arena', on); $('#optBig').checked = on;
+  if (!on) requestAnimationFrame(() => { layoutWork(); if (typeof BK !== 'undefined' && BK.ws && !$('#blkWrap').hidden) Blockly.svgResize(BK.ws); });
+}
+$('#optBig').addEventListener('change', e => setBigArena(e.target.checked));
+addEventListener('keydown', e => {
+  const t = e.target, typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable || (t.closest && t.closest('.blocklyWidgetDiv, #blocklyDiv')));
+  if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+  if ((e.key === 'f' || e.key === 'F') && S.view === 'arena') setBigArena(!$('#work').classList.contains('big-arena'));
+  else if (e.key === 'Escape' && $('#work').classList.contains('big-arena')) setBigArena(false);
+});
 function setMView(m) { S.mview = m; layoutWork(); window.scrollTo(0, 0); }
 $('#mSwitch').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setMView(b.dataset.m); });
 $('#btnMRun').addEventListener('click', () => { setMView('arena'); $('#btnRun').click(); });
@@ -7889,6 +8047,10 @@ function startLesson(L, restart) {
   else if (usesTodo(L)) { putCode(L.arena, 'A', base.todo.code); loadEditor(); }
   else if (base.code || base.example) { putCode(L.arena, 'A', base.code || EXAMPLES[L.arena][base.example].code); loadEditor(); }
   else loadEditor();
+  // the lesson's block version replaces the blocks too, so Blocks mode starts from the same step as the text
+  if (!base.blocks && !(st && st.kind === 'blocks') && typeof lessonBlocksOf === 'function' && lessonBlocksOf(L)) {
+    store.set(`blocks:${L.arena}:A`, null); store.set(`blockcode:${L.arena}:A`, null); loadEditor();
+  }
   buildLessons(); showWork(); openLessonPane();
   toast(`Lesson: ${L.title}`);
 }
@@ -8170,7 +8332,11 @@ function defineDoweeBlocks() {
 // C operator precedence (smaller binds tighter), as Blockly orders.
 // Whole numbers only: Blockly rounds orders down. They are spaced by 2 so ±1 can say 'same level is fine' (left side) or 'same level needs brackets' (right side of - * /).
 const O = { ATOMIC: 0, UNARY: 4, MULT: 10, ADD: 12, SHIFT: 14, REL: 16, EQ: 18, BAND: 20, BXOR: 22, BOR: 24, AND: 26, OR: 28, COND: 30, NONE: 99 };
-const C_RESERVED = new Set([...TYPE_WORDS, ...KEYWORDS, ...Object.keys(BUILTINS), ...Object.keys(CONSTS), 'drive', 'readDistanceCm', 'readLine', 'linePosition', 'sensorsOnLine', 'calibrate', 'minV', 'maxV', 'threshold', 'onLine', 'seen', 'position', 'setup', 'loop', 'Serial', 'String', 'btCommand', 'BLACK', 'ENA', 'ENB', 'IN1', 'IN2', 'IN3', 'IN4', 'TRIG', 'ECHO', 'LIST_SIZE']);
+const C_RESERVED = new Set([...TYPE_WORDS, ...KEYWORDS, ...Object.keys(BUILTINS), ...Object.keys(CONSTS), 'drive', 'readDistanceCm', 'readLine', 'linePosition', 'sensorsOnLine', 'calibrate', 'sweep', 'minV', 'maxV', 'threshold', 'onLine', 'seen', 'position', 'setup', 'loop', 'Serial', 'String', 'btCommand', 'BLACK', 'ENA', 'ENB', 'IN1', 'IN2', 'IN3', 'IN4', 'TRIG', 'ECHO', 'LIST_SIZE']);
+// The names the line blocks bring with them (LINE_GLOBALS, calibrate(), readLine()). They are only taken when
+// a line block is used, so a program that builds its own calibrate() and readLine() keeps the text names.
+const LINE_NAMES = new Set(['readLine', 'linePosition', 'sensorsOnLine', 'calibrate', 'sweep', 'minV', 'maxV', 'threshold', 'onLine', 'seen', 'position']);
+const LINE_BLOCKS = new Set(['dowee_calibrate', 'dowee_line_pos', 'dowee_line_seen', 'dowee_read_line', 'dowee_on_line', 'dowee_black']);
 const LIST_SIZE = 20;
 const isWhole = s => /^-?\d+$/.test(s);
 const isNum = s => /^-?\d+(\.\d+)?$/.test(s);
@@ -8426,8 +8592,10 @@ function makeGenerator() {
 
 // Names: block variable names become safe, unique C names that don't clash with Arduino words or each other.
 function makeNames(ws) {
-  const used = new Set(C_RESERVED), byId = new Map(), byName = new Map();
-  const clean = raw => { let n = (raw || 'x').trim().replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || 'x'; if (!/^[A-Za-z_]/.test(n)) n = 'v_' + n; let m = C_RESERVED.has(n) ? n + '_' : n, k = 2; while (used.has(m)) m = `${n}${k++}`; used.add(m); return m; };
+  const lineBlocks = ws.getAllBlocks(false).some(b => LINE_BLOCKS.has(b.type));
+  const RES = lineBlocks ? C_RESERVED : new Set([...C_RESERVED].filter(n => !LINE_NAMES.has(n)));
+  const used = new Set(RES), byId = new Map(), byName = new Map();
+  const clean = raw => { let n = (raw || 'x').trim().replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || 'x'; if (!/^[A-Za-z_]/.test(n)) n = 'v_' + n; let m = RES.has(n) ? n + '_' : n, k = 2; while (used.has(m)) m = `${n}${k++}`; used.add(m); return m; };
   for (const x of ws.getAllVariables()) { const e = { raw: x.name, c: clean(x.name), type: x.type || '', id: x.getId() }; byId.set(e.id, e); byName.set(x.name, e); }
   return {
     get: id => (byId.get(id) || { c: 'x' }).c,
@@ -8709,9 +8877,19 @@ function setToolboxLevel() {
   const lv = toolboxLevel(); if (lv === BK.level) return;
   BK.level = lv; BK.ws.updateToolbox(TOOLBOX(lv));
 }
+// The blocks a lesson opens with: a Blocks lesson's own, a class activity's sample, or the block version of a typed lesson
+// (its TODO version when the class gets the text TODO version).
+function lessonBlocksOf(L) {
+  const b = L && (L.base || L), st = L && L.starter; if (!b) return null;
+  if (b.blocksXml) return b.blocksXml;
+  if (st && st.kind === 'example') { const ex = (BLOCK_EXAMPLES[L.arena] || {})[st.example]; return ex ? ex.xml : null; }
+  if (st && st.kind !== 'lesson') return null;
+  const v = b.blockVersions; if (!v) return null;
+  return (usesTodo(L) && v.todo) || v.starter;
+}
 function lessonBlocksXml(a) {
-  const L = S.lesson && findLesson(S.lesson), b = L && (L.base || L);
-  return b && b.blocksXml && L.arena === a ? b.blocksXml() : null;
+  const L = S.lesson && findLesson(S.lesson), x = L && L.arena === a && lessonBlocksOf(L);
+  return x ? x() : null;
 }
 function loadWorkspace(a, r) {
   BK.suppress = true;
@@ -9210,6 +9388,7 @@ function activityToLesson(a) {
     id: 'act:' + a.id, actId: a.id, title: a.title || (base && base.title) || 'Activity', level: 'From your teacher',
     arena: a.arena || (base && base.arena) || 'lab', variant: a.variant || (base && base.variant), realism: a.realism || '',
     intro: a.intro ? esc(a.intro) : base ? base.intro : '',
+    discuss: a.discuss ? esc(a.discuss) : '',
     steps: a.steps && a.steps.length ? a.steps.map(esc) : base ? base.steps : [],
     goal: useBuiltinGoal ? base.goal : gt.text(g),
     check: useBuiltinGoal ? base.check : (W => gt.check(W, g)),

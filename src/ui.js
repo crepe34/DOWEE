@@ -1108,7 +1108,7 @@ function buildLessons() {
     const steps = usesTodo(L) ? (L.base || L).todo.steps : L.steps;
     const nx = nextAfter(L);
     box.innerHTML = `<div class="lp-head"><div><span class="lbl">${esc(L.level || 'Lesson')}</span><h3>${esc(L.title)}</h3></div><button class="btn small icon" data-pane="min" title="Hide the lesson" aria-label="Hide the lesson">◂</button></div>
-      <div class="lp-body lesson-body">${L.arena !== S.arena ? `<p class="why away">This lesson happens in <b>${esc(ARENAS[L.arena].name)}</b>. <button class="btn small" data-go="back">Go back there</button></p>` : ''}<p>${L.intro}</p>${(L.base || L).explain ? `<details class="explain"><summary>How the PID formula works</summary>${(L.base || L).explain}</details>` : ''}${primmHtml(L, steps)}
+      <div class="lp-body lesson-body">${L.arena !== S.arena ? `<p class="why away">This lesson happens in <b>${esc(ARENAS[L.arena].name)}</b>. <button class="btn small" data-go="back">Go back there</button></p>` : ''}${L.discuss ? `<div class="discuss"><b>💬 Talk about it</b><p>${L.discuss}</p></div>` : ''}<p>${L.intro}</p>${(L.base || L).explain ? `<details class="explain"><summary>How the PID formula works</summary>${(L.base || L).explain}</details>` : ''}${primmHtml(L, steps)}
       ${hintsHtml(L.id, lessonHints(L))}
       ${(L.base || L).worksheet ? worksheetHtml(L) : ''}${(L.base || L).guide ? guideHtml(L) : ''}
       <div class="goal ${isDoneL(L) ? 'done' : ''}" id="goalBox"><span><b>${primmOf(L) ? `<span class="pmk">${isDoneL(L) ? '✓' : primmStages(L).length}</span> Make · ` : ''}Goal:</b> ${esc(L.goal)}${isDoneL(L) ? ' — done!' : ''}</span></div></div>
@@ -1156,6 +1156,18 @@ function layoutWork() {
   $$('#mSwitch button').forEach(b => b.setAttribute('aria-pressed', b.dataset.m === w.dataset.m));
 }
 $('#lessonTab').addEventListener('click', () => setPaneOpen(true));
+// Big arena for the projector: hide the lesson and code columns so the whole room can see Dowee. F toggles it, Esc leaves it.
+function setBigArena(on) {
+  $('#work').classList.toggle('big-arena', on); $('#optBig').checked = on;
+  if (!on) requestAnimationFrame(() => { layoutWork(); if (typeof BK !== 'undefined' && BK.ws && !$('#blkWrap').hidden) Blockly.svgResize(BK.ws); });
+}
+$('#optBig').addEventListener('change', e => setBigArena(e.target.checked));
+addEventListener('keydown', e => {
+  const t = e.target, typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable || (t.closest && t.closest('.blocklyWidgetDiv, #blocklyDiv')));
+  if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+  if ((e.key === 'f' || e.key === 'F') && S.view === 'arena') setBigArena(!$('#work').classList.contains('big-arena'));
+  else if (e.key === 'Escape' && $('#work').classList.contains('big-arena')) setBigArena(false);
+});
 function setMView(m) { S.mview = m; layoutWork(); window.scrollTo(0, 0); }
 $('#mSwitch').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setMView(b.dataset.m); });
 $('#btnMRun').addEventListener('click', () => { setMView('arena'); $('#btnRun').click(); });
@@ -1447,6 +1459,10 @@ function startLesson(L, restart) {
   else if (usesTodo(L)) { putCode(L.arena, 'A', base.todo.code); loadEditor(); }
   else if (base.code || base.example) { putCode(L.arena, 'A', base.code || EXAMPLES[L.arena][base.example].code); loadEditor(); }
   else loadEditor();
+  // the lesson's block version replaces the blocks too, so Blocks mode starts from the same step as the text
+  if (!base.blocks && !(st && st.kind === 'blocks') && typeof lessonBlocksOf === 'function' && lessonBlocksOf(L)) {
+    store.set(`blocks:${L.arena}:A`, null); store.set(`blockcode:${L.arena}:A`, null); loadEditor();
+  }
   buildLessons(); showWork(); openLessonPane();
   toast(`Lesson: ${L.title}`);
 }
