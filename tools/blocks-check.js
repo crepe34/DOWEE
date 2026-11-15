@@ -90,7 +90,7 @@ function serialOf(code, ms = 300) {
 const RC_KEYS = [[300, 'F'], [900, '5'], [1200, 'L'], [1700, 'q'], [1900, 'G'], [2500, 'H'], [3000, 'R'], [3400, 'J'], [3900, '0'], [4000, 'B'], [4600, 'I'], [5200, 'S']];
 const SAME = [
   ['lab/blink', 'lab/blink', 'lab', 3000], ['lab/meterfull', 'lab/meter', 'lab', 4000], ['lab/turn', 'lab/turn', 'lab', 3000],
-  ['line/bang', 'line/bang', 'oval', 20000], ['line/print', 'line/print', 'oval', 1000], ['line/pid', 'line/pid', 'snake', 30000, [], true],
+  ['line/bang', 'line/bang', 'oval', 20000], ['line/print', 'line/print', 'oval', 1000], ['line/pid', 'line/pid', 'snake', 30000, [], true], ['line/pid', 'line/pid', 'sharp', 45000, [], true],
   ['race/rcfull', 'race/rc', 'none', 6000, RC_KEYS], ['soccer/rcfull', 'soccer/rc', 'easy', 6000, RC_KEYS],
   ['sumo/full', 'sumo/basic', 'statue', 30000], ['maze/avoidfull', 'maze/avoid', 'room1', 20000],
 ];

@@ -147,11 +147,25 @@ void loop() {
   delay(10);   // the same time every loop
 }
 `;
-const PID4_CODE = PID_TOP('PID step 4: D, calm the wiggle, then race', 'float Kp = 70;        // P gain\nfloat Kd = 1000;      // D gain: brakes the turn before it overshoots\n', { speed: 240 }) + `
+const PID4_CODE = PID_TOP('PID step 4: D, calm the wiggle, then race', 'float Kp = 70;        // P gain\nfloat Kd = 1000;      // D gain: brakes the turn before it overshoots\nint turnSpeed = 140;  // spin speed when the line is lost\n', { speed: 240 }) + `
 float lastError = 0;   // the error from the last loop, 10 ms ago
+char lostSide = 's';   // where an edge sensor last saw the line: 'l', 'r', or 's' (not yet)
 
 void loop() {
   readLine();
+
+  // Remember which edge sensor saw the line last
+  if (onLine[0] == 1 && onLine[4] == 0) lostSide = 'l';
+  if (onLine[4] == 1 && onLine[0] == 0) lostSide = 'r';
+
+  // Line lost (a sharp corner): spin on the spot towards where it was last seen, until a middle sensor finds it
+  if (seen == 0 && lostSide != 's') {
+    if (lostSide == 'r') drive(turnSpeed, -turnSpeed);
+    else drive(-turnSpeed, turnSpeed);
+    while (onLine[1] == 0 && onLine[2] == 0 && onLine[3] == 0) readLine();
+    lastError = position - 3;
+  }
+
   float error = position - 3;
 
   // D = derivative: how much did the error change since the last loop?
@@ -202,7 +216,9 @@ const PID_EXPLAIN = `<p>Every 10 ms Dowee asks one question: <b>how far is the l
 <li>Only if Dowee drifts to one side, add a little Ki.</li>
 <li>Raise baseSpeed and tune again.</li>
 </ol>
-<p>Change the numbers in the <b>Tune</b> tab while Dowee drives, and turn on <b>Trail</b> to see the wobble.</p>`;
+<p>Change the numbers in the <b>Tune</b> tab while Dowee drives, and turn on <b>Trail</b> to see the wobble.</p>
+<h4>6. When the line is lost</h4>
+<p>In a sharp corner the line can slip out from under all five sensors. PID alone would keep steering while driving forward and overshoot. So Dowee remembers which edge sensor saw the line last (<code class="k">lostSide</code>) and <b>spins on the spot</b> that way until a middle sensor finds it. Spin too fast (<code class="k">turnSpeed</code> above about 170) and Dowee spins past the line.</p>`;
 
 // Did calibrate() learn white and black, and put the threshold between them?
 const calibrated = W => {
@@ -228,7 +244,7 @@ const PID_LESSONS = [
     hints: ['<code class="k">float turn = Kp * error;</code>', 'Line on the right means the error is positive, so the left wheel must go faster: <code class="k">drive(baseSpeed + turn, baseSpeed - turn);</code>', 'If Dowee wiggles a lot, make Kp smaller. If it is slow to turn, make it bigger. Without D (next step), a big Kp swings across the line.'],
     goal: 'Lap the Oval in under 17 seconds', check: W => W.state.laps && W.state.laps.some(l => l.time < 17) },
   { id: 'pid', title: 'PID 4: D, calm the wiggle, then race', level: 'PID line follower', arena: 'line', variant: 'snake', code: PID4_CODE,
-    intro: 'With P alone, a fast Dowee overshoots: it turns towards the line, crosses it and has to turn back. The <b>D</b> part looks at how fast the error is changing and brakes the turn early, like easing off the steering wheel before you reach the bend. Then race! If the line is lost, the position stays where it was last, so Dowee keeps turning that way. At a crossing, all five sensors see black, the position is 3, and Dowee drives straight over.',
+    intro: 'With P alone, a fast Dowee overshoots: it turns towards the line, crosses it and has to turn back. The <b>D</b> part looks at how fast the error is changing and brakes the turn early, like easing off the steering wheel before you reach the bend. Then race! In a sharp corner the line can disappear: then Dowee spins on the spot towards the side where an edge sensor saw it last, until a middle sensor finds it again. At a crossing, all five sensors see black, the position is 3, and Dowee drives straight over.',
     steps: ['Run it first: with P only at this speed, Dowee wobbles off the Snake.', 'Fill in the <b>TODO</b>: add <code class="k">Kd * change</code> to <code class="k">turn</code>.', 'Run again with <b>Trail</b> on, then tune Kp, Kd and baseSpeed in the <b>Tune</b> tab for the fastest lap.'],
     hints: ['<code class="k">change</code> is big when the line moves away fast. That is when Dowee should brake its turn.', 'One line does both parts: <code class="k">float turn = Kp * error + Kd * change;</code>', 'Keep <code class="k">lastError = error;</code> after the turn, so next time <code class="k">change</code> is right.'],
     goal: 'Lap the Snake in under 12 seconds', check: W => W.state.laps && W.state.laps.some(l => l.time < 12) },

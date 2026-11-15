@@ -4595,6 +4595,7 @@ const EXAMPLES = {
 // 1. calibrate(): learn white and black, and put the threshold halfway between them.
 // 2. readLine(): which sensors see the line, and where it is: 1 (far left) .. 3 (middle) .. 5 (far right).
 // 3. The PID steers by how far the line is from the middle, every 10 ms.
+// 4. If the line is lost (a sharp corner), Dowee spins back towards where it saw it last.
 ${MOTOR_SETUP}
 
 // ---- Tune these in the Tune tab while the robot drives ----
@@ -4602,11 +4603,13 @@ float Kp = 70;        // P: turn harder when the line is far from the middle
 float Ki = 0;         // I: 0 = off (Dowee's motors are matched, so it would only add wobble)
 float Kd = 1000;      // D: calms the wobble
 int baseSpeed = 240;  // cruising speed, 0-255
+int turnSpeed = 140;  // spin speed when the line is lost (faster spins past the line in sharp corners)
 
 ${LINE_GLOBALS}
 
 float lastError = 0;
 float integral = 0;
+char lostSide = 's';  // where an edge sensor last saw the line: 'l', 'r', or 's' (not yet)
 
 void setup() {
 ${PINMODES}
@@ -4621,7 +4624,7 @@ ${CALIBRATE_FN}
 
 ${READLINE_FN}
 
-// How the PID works (every 10 ms):
+// How the PID works (every 10 ms). If the line is lost in a sharp corner, Dowee first spins back to it.
 //   error  = how far the line is from the middle sensor: -2 (far left) .. 0 .. +2 (far right)
 //   P part = Kp * error                 farther from the line = turn harder
 //   I part = Ki * integral              all the errors added up: fixes a steady drift to one side (off here)
@@ -4629,6 +4632,19 @@ ${READLINE_FN}
 //   turn   = P + I + D. The left wheel gets baseSpeed + turn, the right one baseSpeed - turn.
 void loop() {
   readLine();
+
+  // Remember which edge sensor saw the line last
+  if (onLine[0] == 1 && onLine[4] == 0) lostSide = 'l';
+  if (onLine[4] == 1 && onLine[0] == 0) lostSide = 'r';
+
+  // Line lost (a sharp corner): spin on the spot towards where it was last seen, until a middle sensor finds it
+  if (seen == 0 && lostSide != 's') {
+    if (lostSide == 'r') drive(turnSpeed, -turnSpeed);
+    else drive(-turnSpeed, turnSpeed);
+    while (onLine[1] == 0 && onLine[2] == 0 && onLine[3] == 0) readLine();
+    lastError = position - 3;
+  }
+
   float error = position - 3;           // + means the line is to the RIGHT
   integral = constrain(integral + error, -40, 40);
   float turn = Kp * error + Ki * integral + Kd * (error - lastError);
@@ -5482,11 +5498,25 @@ void loop() {
   delay(10);   // the same time every loop
 }
 `;
-const PID4_CODE = PID_TOP('PID step 4: D, calm the wiggle, then race', 'float Kp = 70;        // P gain\nfloat Kd = 1000;      // D gain: brakes the turn before it overshoots\n', { speed: 240 }) + `
+const PID4_CODE = PID_TOP('PID step 4: D, calm the wiggle, then race', 'float Kp = 70;        // P gain\nfloat Kd = 1000;      // D gain: brakes the turn before it overshoots\nint turnSpeed = 140;  // spin speed when the line is lost\n', { speed: 240 }) + `
 float lastError = 0;   // the error from the last loop, 10 ms ago
+char lostSide = 's';   // where an edge sensor last saw the line: 'l', 'r', or 's' (not yet)
 
 void loop() {
   readLine();
+
+  // Remember which edge sensor saw the line last
+  if (onLine[0] == 1 && onLine[4] == 0) lostSide = 'l';
+  if (onLine[4] == 1 && onLine[0] == 0) lostSide = 'r';
+
+  // Line lost (a sharp corner): spin on the spot towards where it was last seen, until a middle sensor finds it
+  if (seen == 0 && lostSide != 's') {
+    if (lostSide == 'r') drive(turnSpeed, -turnSpeed);
+    else drive(-turnSpeed, turnSpeed);
+    while (onLine[1] == 0 && onLine[2] == 0 && onLine[3] == 0) readLine();
+    lastError = position - 3;
+  }
+
   float error = position - 3;
 
   // D = derivative: how much did the error change since the last loop?
@@ -5537,7 +5567,9 @@ const PID_EXPLAIN = `<p>Every 10 ms Dowee asks one question: <b>how far is the l
 <li>Only if Dowee drifts to one side, add a little Ki.</li>
 <li>Raise baseSpeed and tune again.</li>
 </ol>
-<p>Change the numbers in the <b>Tune</b> tab while Dowee drives, and turn on <b>Trail</b> to see the wobble.</p>`;
+<p>Change the numbers in the <b>Tune</b> tab while Dowee drives, and turn on <b>Trail</b> to see the wobble.</p>
+<h4>6. When the line is lost</h4>
+<p>In a sharp corner the line can slip out from under all five sensors. PID alone would keep steering while driving forward and overshoot. So Dowee remembers which edge sensor saw the line last (<code class="k">lostSide</code>) and <b>spins on the spot</b> that way until a middle sensor finds it. Spin too fast (<code class="k">turnSpeed</code> above about 170) and Dowee spins past the line.</p>`;
 
 // Did calibrate() learn white and black, and put the threshold between them?
 const calibrated = W => {
@@ -5563,7 +5595,7 @@ const PID_LESSONS = [
     hints: ['<code class="k">float turn = Kp * error;</code>', 'Line on the right means the error is positive, so the left wheel must go faster: <code class="k">drive(baseSpeed + turn, baseSpeed - turn);</code>', 'If Dowee wiggles a lot, make Kp smaller. If it is slow to turn, make it bigger. Without D (next step), a big Kp swings across the line.'],
     goal: 'Lap the Oval in under 17 seconds', check: W => W.state.laps && W.state.laps.some(l => l.time < 17) },
   { id: 'pid', title: 'PID 4: D, calm the wiggle, then race', level: 'PID line follower', arena: 'line', variant: 'snake', code: PID4_CODE,
-    intro: 'With P alone, a fast Dowee overshoots: it turns towards the line, crosses it and has to turn back. The <b>D</b> part looks at how fast the error is changing and brakes the turn early, like easing off the steering wheel before you reach the bend. Then race! If the line is lost, the position stays where it was last, so Dowee keeps turning that way. At a crossing, all five sensors see black, the position is 3, and Dowee drives straight over.',
+    intro: 'With P alone, a fast Dowee overshoots: it turns towards the line, crosses it and has to turn back. The <b>D</b> part looks at how fast the error is changing and brakes the turn early, like easing off the steering wheel before you reach the bend. Then race! In a sharp corner the line can disappear: then Dowee spins on the spot towards the side where an edge sensor saw it last, until a middle sensor finds it again. At a crossing, all five sensors see black, the position is 3, and Dowee drives straight over.',
     steps: ['Run it first: with P only at this speed, Dowee wobbles off the Snake.', 'Fill in the <b>TODO</b>: add <code class="k">Kd * change</code> to <code class="k">turn</code>.', 'Run again with <b>Trail</b> on, then tune Kp, Kd and baseSpeed in the <b>Tune</b> tab for the fastest lap.'],
     hints: ['<code class="k">change</code> is big when the line moves away fast. That is when Dowee should brake its turn.', 'One line does both parts: <code class="k">float turn = Kp * error + Kd * change;</code>', 'Keep <code class="k">lastError = error;</code> after the turn, so next time <code class="k">change</code> is right.'],
     goal: 'Lap the Snake in under 12 seconds', check: W => W.state.laps && W.state.laps.some(l => l.time < 12) },
@@ -5939,7 +5971,7 @@ const PRIMM = {
     predict: { q: 'This step starts with P only, at speed 240. What will Dowee do on the Snake?', options: ['Swing across the line again and again', 'Race smoothly', 'Not move at all'], answer: 0, why: 'A strong P at high speed turns hard towards the line, crosses it and has to turn back. Nothing brakes the turn yet.' },
     investigate: [
       { q: 'When is <code class="k">change</code> (error − lastError) big?', options: ['When the line moves away fast', 'When Dowee is exactly on the line', 'When Kd is big'], answer: 0, why: 'change is how much the error grew since the last loop, 10 ms ago. D uses it to brake the turn before Dowee overshoots.' },
-      { q: 'What does Dowee do when no sensor sees the line?', options: ['Keeps turning the way it last saw the line', 'Stops', 'Drives straight on'], answer: 0, why: '<code class="k">readLine()</code> keeps the last position when no sensor sees the line, so the error stays big and Dowee keeps turning back towards it.' },
+      { q: 'What does Dowee do when no sensor sees the line?', options: ['Spins on the spot towards where it last saw the line', 'Stops', 'Drives straight on'], answer: 0, why: '<code class="k">lostSide</code> remembers which edge sensor saw the line last. Spinning on the spot finds it again even after a sharp corner, where steering while driving would overshoot.' },
     ],
     modify: [
       { text: 'Add the D part so Dowee laps the Snake with less than 15 mm of wiggle.', check: W => W.state.laps && W.state.laps.some(l => l.rms < 15) },
@@ -6218,20 +6250,32 @@ const FULL = {
   },
 };
 // The PID line follower: the same program as the text example (line/pid), made of blocks.
-// "calibrate the line sensors" and "line position" write the same code as the text.
+// "calibrate the line sensors", "read the line sensors", "line position" and "sensor … is on the line" write the same code as the text.
 function pidBlocks() {
   const g = (id, nm) => X.get(id, nm), set = (id, nm, v) => X.set(id, nm, v);
+  const L = c => B('dowee_char', { f: { L: c } }), eq = (a, b) => X.cmp('EQ', a, b), and2 = (a, b) => XB.and(a, b);
+  const on = pin => B('dowee_on_line', { f: { PIN: pin } }), not = x => X.not(x), read = () => B('dowee_read_line');
+  const err = () => X.arith('MINUS', B('dowee_line_pos'), 3), ts = () => g('ts', 'turnSpeed');
   return X.prog(
-    seq(set('kp', 'Kp', 70), set('ki', 'Ki', 0), set('kd', 'Kd', 1000), set('bs', 'baseSpeed', 240), B('dowee_calibrate')),
-    seq(
-      set('er', 'error', X.arith('MINUS', B('dowee_line_pos'), 3)),
+    seq(set('kp', 'Kp', 70), set('ki', 'Ki', 0), set('kd', 'Kd', 1000), set('bs', 'baseSpeed', 240), set('ts', 'turnSpeed', 140), set('ls', 'lostSide', L('s')), B('dowee_calibrate')),
+    seq(read(),
+      // remember which edge sensor saw the line last
+      X.ifs([[and2(on('A0'), not(on('A4'))), set('ls', 'lostSide', L('l'))]]),
+      X.ifs([[and2(on('A4'), not(on('A0'))), set('ls', 'lostSide', L('r'))]]),
+      // line lost (a sharp corner): spin on the spot towards where it was last seen, until a middle sensor finds it
+      X.ifs([[and2(eq(B('dowee_line_seen'), 0), X.cmp('NEQ', g('ls', 'lostSide'), L('s'))), seq(
+        X.ifs([[eq(g('ls', 'lostSide'), L('r')), X.motors(ts(), neg(ts()))]], X.motors(neg(ts()), ts())),
+        B('controls_whileUntil', { f: { MODE: 'WHILE' }, v: { BOOL: and2(and2(not(on('A1')), not(on('A2'))), not(on('A3'))) }, s: { DO: read() } }),
+        set('le', 'lastError', err()))]]),
+      set('er', 'error', err()),
       set('ig', 'integral', B('math_constrain', { v: { VALUE: X.arith('ADD', g('ig', 'integral'), g('er', 'error')), LOW: -40, HIGH: 40 } })),
       set('tu', 'turn', X.arith('ADD', X.arith('ADD', X.arith('MULTIPLY', g('kp', 'Kp'), g('er', 'error')), X.arith('MULTIPLY', g('ki', 'Ki'), g('ig', 'integral'))),
         X.arith('MULTIPLY', g('kd', 'Kd'), X.arith('MINUS', g('er', 'error'), g('le', 'lastError'))))),
       set('le', 'lastError', g('er', 'error')),
       X.motors(X.arith('ADD', g('bs', 'baseSpeed'), g('tu', 'turn')), X.arith('MINUS', g('bs', 'baseSpeed'), g('tu', 'turn'))),
       B('dowee_wait_ms', { v: { MS: 10 } })),
-    { vars: [['kp', 'Kp', 'float'], ['ki', 'Ki', 'float'], ['kd', 'Kd', 'float'], ['bs', 'baseSpeed', 'int'], ['le', 'lastError', 'float'], ['ig', 'integral', 'float'], ['er', 'error', 'float'], ['tu', 'turn', 'float']] });
+    { vars: [['kp', 'Kp', 'float'], ['ki', 'Ki', 'float'], ['kd', 'Kd', 'float'], ['bs', 'baseSpeed', 'int'], ['ts', 'turnSpeed', 'int'], ['ls', 'lostSide', 'int'],
+      ['le', 'lastError', 'float'], ['ig', 'integral', 'float'], ['er', 'error', 'float'], ['tu', 'turn', 'float']] });
 }
 const BX = {
   rc: () => X.prog('', X.btRead(X.ifs([[X.bt('F'), X.move('F', 220)], [X.bt('B'), X.move('B', 220)], [X.bt('L'), X.move('SL', 130)], [X.bt('R'), X.move('SR', 130)], [X.bt('G'), X.move('TL', 220)], [X.bt('I'), X.move('TR', 220)], [X.bt('S'), X.stop()]]))),

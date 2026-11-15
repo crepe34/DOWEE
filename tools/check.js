@@ -23,7 +23,7 @@ const dist = r => Math.hypot(r.x - r.start.x, r.y - r.start.y);
 
 for (const lv of ['ideal', 'real']) {
   console.log(`\n${lv === 'ideal' ? 'Ideal robot (default)' : 'Realistic world'}`);
-  for (const track of ['oval', 'snake', 'figure8']) check(`PID line follower laps ${track}`, () => {
+  for (const track of ['oval', 'snake', 'figure8', 'sharp']) check(`PID line follower laps ${track}`, () => {
     const { W } = run('line', track, EXAMPLES.line.pid.code, 45000, { lv });
     want(W.state.laps.length >= 2, `only ${W.state.laps.length} laps in 45 s`);
     return W.state.laps.map(l => l.time.toFixed(1) + ' s').join(', ');

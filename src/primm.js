@@ -130,7 +130,7 @@ const PRIMM = {
     predict: { q: 'This step starts with P only, at speed 240. What will Dowee do on the Snake?', options: ['Swing across the line again and again', 'Race smoothly', 'Not move at all'], answer: 0, why: 'A strong P at high speed turns hard towards the line, crosses it and has to turn back. Nothing brakes the turn yet.' },
     investigate: [
       { q: 'When is <code class="k">change</code> (error − lastError) big?', options: ['When the line moves away fast', 'When Dowee is exactly on the line', 'When Kd is big'], answer: 0, why: 'change is how much the error grew since the last loop, 10 ms ago. D uses it to brake the turn before Dowee overshoots.' },
-      { q: 'What does Dowee do when no sensor sees the line?', options: ['Keeps turning the way it last saw the line', 'Stops', 'Drives straight on'], answer: 0, why: '<code class="k">readLine()</code> keeps the last position when no sensor sees the line, so the error stays big and Dowee keeps turning back towards it.' },
+      { q: 'What does Dowee do when no sensor sees the line?', options: ['Spins on the spot towards where it last saw the line', 'Stops', 'Drives straight on'], answer: 0, why: '<code class="k">lostSide</code> remembers which edge sensor saw the line last. Spinning on the spot finds it again even after a sharp corner, where steering while driving would overshoot.' },
     ],
     modify: [
       { text: 'Add the D part so Dowee laps the Snake with less than 15 mm of wiggle.', check: W => W.state.laps && W.state.laps.some(l => l.rms < 15) },

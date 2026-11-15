@@ -5,7 +5,7 @@ const sets = JSON.parse(process.argv[3]);
 for (const [kp, kd, sp] of sets) {
   const code = base.replace('float Kp = 70;', `float Kp = ${kp};`).replace('float Kd = 1000;', `float Kd = ${kd};`).replace('int baseSpeed = 240;', `int baseSpeed = ${sp};`);
   let out = [];
-  for (const tr of ['oval', 'snake', 'figure8']) for (const u of [1, 2, 3, 4]) {
+  for (const tr of ['oval', 'snake', 'figure8', 'sharp']) for (const u of [1, 2, 3, 4]) {
     const W = M.buildWorld('line', tr, { realism: lv, unitA: u, runSeed: u * 3 }, M.makeCfg('dowee'), M.makeCfg('dowee'), 'none');
     const r = W.robots[0]; r.board.load(M.compileArduino(code, r.board), 0);
     for (let i = 0; i < 60000; i++) W.step();

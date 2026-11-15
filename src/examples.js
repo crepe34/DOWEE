@@ -98,6 +98,7 @@ const EXAMPLES = {
 // 1. calibrate(): learn white and black, and put the threshold halfway between them.
 // 2. readLine(): which sensors see the line, and where it is: 1 (far left) .. 3 (middle) .. 5 (far right).
 // 3. The PID steers by how far the line is from the middle, every 10 ms.
+// 4. If the line is lost (a sharp corner), Dowee spins back towards where it saw it last.
 ${MOTOR_SETUP}
 
 // ---- Tune these in the Tune tab while the robot drives ----
@@ -105,11 +106,13 @@ float Kp = 70;        // P: turn harder when the line is far from the middle
 float Ki = 0;         // I: 0 = off (Dowee's motors are matched, so it would only add wobble)
 float Kd = 1000;      // D: calms the wobble
 int baseSpeed = 240;  // cruising speed, 0-255
+int turnSpeed = 140;  // spin speed when the line is lost (faster spins past the line in sharp corners)
 
 ${LINE_GLOBALS}
 
 float lastError = 0;
 float integral = 0;
+char lostSide = 's';  // where an edge sensor last saw the line: 'l', 'r', or 's' (not yet)
 
 void setup() {
 ${PINMODES}
@@ -124,7 +127,7 @@ ${CALIBRATE_FN}
 
 ${READLINE_FN}
 
-// How the PID works (every 10 ms):
+// How the PID works (every 10 ms). If the line is lost in a sharp corner, Dowee first spins back to it.
 //   error  = how far the line is from the middle sensor: -2 (far left) .. 0 .. +2 (far right)
 //   P part = Kp * error                 farther from the line = turn harder
 //   I part = Ki * integral              all the errors added up: fixes a steady drift to one side (off here)
@@ -132,6 +135,19 @@ ${READLINE_FN}
 //   turn   = P + I + D. The left wheel gets baseSpeed + turn, the right one baseSpeed - turn.
 void loop() {
   readLine();
+
+  // Remember which edge sensor saw the line last
+  if (onLine[0] == 1 && onLine[4] == 0) lostSide = 'l';
+  if (onLine[4] == 1 && onLine[0] == 0) lostSide = 'r';
+
+  // Line lost (a sharp corner): spin on the spot towards where it was last seen, until a middle sensor finds it
+  if (seen == 0 && lostSide != 's') {
+    if (lostSide == 'r') drive(turnSpeed, -turnSpeed);
+    else drive(-turnSpeed, turnSpeed);
+    while (onLine[1] == 0 && onLine[2] == 0 && onLine[3] == 0) readLine();
+    lastError = position - 3;
+  }
+
   float error = position - 3;           // + means the line is to the RIGHT
   integral = constrain(integral + error, -40, 40);
   float turn = Kp * error + Ki * integral + Kd * (error - lastError);
