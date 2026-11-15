@@ -124,6 +124,12 @@ ${CALIBRATE_FN}
 
 ${READLINE_FN}
 
+// How the PID works (every 10 ms):
+//   error  = how far the line is from the middle sensor: -2 (far left) .. 0 .. +2 (far right)
+//   P part = Kp * error                 farther from the line = turn harder
+//   I part = Ki * integral              all the errors added up: fixes a steady drift to one side (off here)
+//   D part = Kd * (error - lastError)   how fast the error changes: turns early, brakes before overshooting
+//   turn   = P + I + D. The left wheel gets baseSpeed + turn, the right one baseSpeed - turn.
 void loop() {
   readLine();
   float error = position - 3;           // + means the line is to the RIGHT

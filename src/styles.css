@@ -539,3 +539,22 @@ details.menu.right .menu-list { left: auto; right: 0; }
 .lp-foot .btn { padding: 5px 10px; font-size: 12.5px; }
 #robotTabs:has(#tabB[hidden]) { display: none; }
 @container stagebar (max-width: 560px) { .stage-bar .btn { padding: 6px 8px; } .stage-bar .btn.primary { padding: 7px 11px; } #variantSel { max-width: 132px; } }
+
+/* "How the PID formula works" explainer in the lesson pane */
+.explain { margin: 10px 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); }
+.explain > summary { cursor: pointer; padding: 9px 12px; font-family: var(--font-display); font-weight: 800; font-size: 15px; color: var(--purple); list-style: none; }
+.explain > summary::-webkit-details-marker { display: none; }
+.explain > summary::before { content: '▸ '; }
+.explain[open] > summary::before { content: '▾ '; }
+.explain[open] { padding-bottom: 6px; }
+.explain > :not(summary) { margin-left: 12px; margin-right: 12px; }
+.explain h4 { font-family: var(--font-display); font-size: 14px; margin: 12px 12px 4px; }
+.pid-sensors { display: flex; gap: 6px; margin: 6px 12px; }
+.pid-sensors span { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; font-weight: 800; background: var(--cloud); border: 2px solid var(--line); color: var(--muted); }
+.pid-sensors span.on { background: var(--navy); border-color: var(--navy); color: var(--cloud); }
+.pid-formula { font-family: var(--font-mono); font-size: 13px; background: var(--cloud); border-radius: 8px; padding: 8px 10px; }
+.pid-table-wrap { overflow-x: auto; }
+.pid-table { border-collapse: collapse; font-size: 12.5px; margin: 4px 0; }
+.pid-table th, .pid-table td { padding: 4px 5px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+.pid-table tbody th { text-align: left; white-space: normal; font-weight: 700; color: var(--ink); }
+.pid-table thead th { font-weight: 800; color: var(--muted); font-size: 11.5px; }

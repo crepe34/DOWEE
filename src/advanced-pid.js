@@ -211,5 +211,6 @@ const ADV_PID = [
     hints: ['Keep the on/off part: <code class="k">seen</code> still tells you when the line is lost or at a crossing.', '<code class="k">long weighted = 0, total = 0;</code> then in a loop: <code class="k">long dark = constrain(map(analogRead(A0 + i), minV[i], maxV[i], 0, 1000), 0, 1000); weighted += dark * (i + 1); total += dark;</code>', 'Then <code class="k">if (seen &gt; 0) position = (float)weighted / total;</code>'],
     goal: 'At baseSpeed 220 or more, lap the Oval with less than 4 mm of wiggle', check: W => W.variant === 'oval' && (globalOf(W, 'baseSpeed') || 0) >= 220 && W.state.laps && W.state.laps.some(l => l.rms < 4) },
 ];
+ADV_PID.forEach(l => { l.explain = PID_EXPLAIN; });
 LESSONS.splice(LESSONS.findIndex(l => l.id === 'pid') + 1, 0, ...ADV_PID);
 if (typeof module !== 'undefined') Object.assign(module.exports, { PIDI_FULL, PIDI_EDITOR, PIDI_GUIDED, PIDI_GREY, PID_BLANKS, PIDI_GUIDE, canonAnswer, blankRight, fillBlanks, globalOf });

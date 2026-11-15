@@ -1108,7 +1108,7 @@ function buildLessons() {
     const steps = usesTodo(L) ? (L.base || L).todo.steps : L.steps;
     const nx = nextAfter(L);
     box.innerHTML = `<div class="lp-head"><div><span class="lbl">${esc(L.level || 'Lesson')}</span><h3>${esc(L.title)}</h3></div><button class="btn small icon" data-pane="min" title="Hide the lesson" aria-label="Hide the lesson">◂</button></div>
-      <div class="lp-body lesson-body">${L.arena !== S.arena ? `<p class="why away">This lesson happens in <b>${esc(ARENAS[L.arena].name)}</b>. <button class="btn small" data-go="back">Go back there</button></p>` : ''}<p>${L.intro}</p>${primmHtml(L, steps)}
+      <div class="lp-body lesson-body">${L.arena !== S.arena ? `<p class="why away">This lesson happens in <b>${esc(ARENAS[L.arena].name)}</b>. <button class="btn small" data-go="back">Go back there</button></p>` : ''}<p>${L.intro}</p>${(L.base || L).explain ? `<details class="explain"><summary>How the PID formula works</summary>${(L.base || L).explain}</details>` : ''}${primmHtml(L, steps)}
       ${hintsHtml(L.id, lessonHints(L))}
       ${(L.base || L).worksheet ? worksheetHtml(L) : ''}${(L.base || L).guide ? guideHtml(L) : ''}
       <div class="goal ${isDoneL(L) ? 'done' : ''}" id="goalBox"><span><b>${primmOf(L) ? `<span class="pmk">${isDoneL(L) ? '✓' : primmStages(L).length}</span> Make · ` : ''}Goal:</b> ${esc(L.goal)}${isDoneL(L) ? ' — done!' : ''}</span></div></div>

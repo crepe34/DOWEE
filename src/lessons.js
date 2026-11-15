@@ -165,6 +165,45 @@ void loop() {
   delay(10);                 // the same time every loop, so change is always "in 10 ms"
 }
 `;
+// "How the PID formula works": a fold-out explainer in the lesson pane of every PID and Advanced PID lesson.
+// The worked example uses the PID sample's numbers (Kp 70, Kd 1000, baseSpeed 240).
+const PID_EXPLAIN = `<p>Every 10 ms Dowee asks one question: <b>how far is the line from my middle?</b> The answer is the <b>error</b>. PID turns the error into how hard to steer.</p>
+<h4>1. The error</h4>
+<div class="pid-sensors" aria-label="Five sensors, only sensor 4 sees the line"><span>1</span><span>2</span><span>3</span><span class="on">4</span><span>5</span></div>
+<p>Each sensor that sees the line counts with its number, and <code class="k">position</code> is their average. Here only sensor 4 sees the line, so the position is 4 and <code class="k">error = position - 3 = +1</code>: the line is one sensor to the right. Sensors 3 and 4 together give 3.5, an error of +0.5. Under the middle sensor the error is 0; on the far left it is -2.</p>
+<h4>2. Three parts make one turn</h4>
+<p class="pid-formula">turn = <b>Kp</b> × error + <b>Ki</b> × integral + <b>Kd</b> × change</p>
+<ul>
+<li><b>P, the present:</b> <code class="k">Kp * error</code>. The farther the line, the harder Dowee turns. Too small and Dowee is slow to turn and misses the bends. Too big and it swings from side to side.</li>
+<li><b>I, the past:</b> <code class="k">integral</code> adds up every error so far. If Dowee always sits a little to one side (for example, one motor is weaker), the sum keeps growing and pushes it back. On a normal Dowee it only adds wobble, so Ki is 0. The sum is kept between -40 and 40 so it can't "wind up".</li>
+<li><b>D, the future:</b> <code class="k">change = error - lastError</code>, how much the error changed since the last loop. When the line starts to move away, D turns harder at once. When Dowee swings back towards the line, D brakes before it overshoots.</li>
+</ul>
+<h4>3. From turn to wheels</h4>
+<p><code class="k">drive(baseSpeed + turn, baseSpeed - turn)</code>. When the line is on the right, turn is positive: the left wheel speeds up, the right wheel slows down, and Dowee turns right, towards the line. A wheel can't go faster than 255.</p>
+<h4>4. Four loops, worked out</h4>
+<p>Kp = 70, Kd = 1000, baseSpeed = 240 (the PID sample), 10 ms apart. The line drifts right, then Dowee catches it:</p>
+<div class="pid-table-wrap"><table class="pid-table">
+<thead><tr><th></th><th>loop 1</th><th>loop 2</th><th>loop 3</th><th>loop 4</th></tr></thead>
+<tbody>
+<tr><th>sensors on the line</th><td>3</td><td>3, 4</td><td>3, 4</td><td>3</td></tr>
+<tr><th>error</th><td>0</td><td>+0.5</td><td>+0.5</td><td>0</td></tr>
+<tr><th>change</th><td>0</td><td>+0.5</td><td>0</td><td>-0.5</td></tr>
+<tr><th>P = 70 × error</th><td>0</td><td>35</td><td>35</td><td>0</td></tr>
+<tr><th>D = 1000 × change</th><td>0</td><td>500</td><td>0</td><td>-500</td></tr>
+<tr><th>turn = P + D</th><td>0</td><td>535</td><td>35</td><td>-500</td></tr>
+<tr><th>left wheel</th><td>240</td><td>255</td><td>255</td><td>-255</td></tr>
+<tr><th>right wheel</th><td>240</td><td>-255</td><td>205</td><td>255</td></tr>
+</tbody></table></div>
+<p>D only acts in the loop where the line moves, but it acts hard: a 10 ms kick turns Dowee quickly without making it spin, and the kick the other way stops the turn before Dowee crosses the line. That is why D lets Dowee race without wobbling.</p>
+<h4>5. Tuning, step by step</h4>
+<ol>
+<li>Start with Kd = 0 and Ki = 0. Raise Kp until Dowee follows the line but swings from side to side.</li>
+<li>Raise Kd until the swinging calms down. Too much and Dowee twitches.</li>
+<li>Only if Dowee drifts to one side, add a little Ki.</li>
+<li>Raise baseSpeed and tune again.</li>
+</ol>
+<p>Change the numbers in the <b>Tune</b> tab while Dowee drives, and turn on <b>Trail</b> to see the wobble.</p>`;
+
 // Did calibrate() learn white and black, and put the threshold between them?
 const calibrated = W => {
   const lo = globalOf(W, 'minV'), hi = globalOf(W, 'maxV'), th = globalOf(W, 'threshold');
@@ -194,6 +233,7 @@ const PID_LESSONS = [
     hints: ['<code class="k">change</code> is big when the line moves away fast. That is when Dowee should brake its turn.', 'One line does both parts: <code class="k">float turn = Kp * error + Kd * change;</code>', 'Keep <code class="k">lastError = error;</code> after the turn, so next time <code class="k">change</code> is right.'],
     goal: 'Lap the Snake in under 12 seconds', check: W => W.state.laps && W.state.laps.some(l => l.time < 12) },
 ];
+PID_LESSONS.forEach(l => { l.explain = PID_EXPLAIN; });
 LESSONS.splice(LESSONS.findIndex(l => l.id === 'follow') + 1, 0, ...PID_LESSONS);
 
 // Classroom students start these lessons from a version with TODOs instead of the finished program.
